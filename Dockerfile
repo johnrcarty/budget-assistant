@@ -31,16 +31,18 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 # drizzle-orm/postgres-js/migrator). Use the full node_modules from the deps
 # stage instead of the pruned standalone one - simpler and more robust than
 # hand-tracing a second dependency graph, at the cost of a larger image.
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone/server.js ./server.js
-COPY --from=builder /app/.next/standalone/.next ./.next
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-RUN chown -R nextjs:nodejs /app
+# Ownership is set on the COPY itself: a separate `RUN chown -R` would
+# re-copy every file (node_modules especially) into a new uncacheable layer,
+# which cost ~3.5 minutes per rebuild and ballooned the image.
+COPY --chown=nextjs:nodejs --from=deps /app/node_modules ./node_modules
+COPY --chown=nextjs:nodejs --from=builder /app/public ./public
+COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone/server.js ./server.js
+COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone/.next ./.next
+COPY --chown=nextjs:nodejs --from=builder /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs --from=builder /app/drizzle ./drizzle
+COPY --chown=nextjs:nodejs --from=builder /app/src ./src
+COPY --chown=nextjs:nodejs --from=builder /app/scripts ./scripts
+COPY --chown=nextjs:nodejs --from=builder /app/tsconfig.json ./tsconfig.json
 
 USER nextjs
 EXPOSE 3000
