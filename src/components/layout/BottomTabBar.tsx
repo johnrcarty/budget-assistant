@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Wallet, ArrowLeftRight, Landmark, Sparkles } from "lucide-react";
+import { LayoutDashboard, Wallet, ArrowLeftRight, Landmark, Ellipsis } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// `matches` lists extra path prefixes that light this tab up - the More tab
+// owns the hub's child pages, which don't live under /more.
 const TABS = [
   { href: "/summary", label: "Summary", icon: LayoutDashboard },
   { href: "/budget", label: "Budget", icon: Wallet },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/accounts", label: "Accounts", icon: Landmark },
-  { href: "/insights", label: "Insights", icon: Sparkles },
+  { href: "/more", label: "More", icon: Ellipsis, matches: ["/debt", "/settings"] },
 ] as const;
 
 export function BottomTabBar() {
@@ -19,8 +21,9 @@ export function BottomTabBar() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-card pb-[env(safe-area-inset-bottom)]">
       <ul className="mx-auto flex max-w-lg items-stretch justify-between">
-        {TABS.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname.startsWith(href);
+        {TABS.map(({ href, label, icon: Icon, ...tab }) => {
+          const matches = "matches" in tab ? tab.matches : [];
+          const isActive = [href, ...matches].some((prefix) => pathname.startsWith(prefix));
           return (
             <li key={href} className="flex-1">
               <Link
