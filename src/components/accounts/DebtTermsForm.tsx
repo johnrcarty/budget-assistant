@@ -217,6 +217,25 @@ export function DebtTermsForm({
 
       {termsType === "installment" && (
         <div className="flex flex-col gap-2">
+          <Label htmlFor="escrow">Escrow included in payment{perPaymentSuffix} (optional)</Label>
+          <Input
+            id="escrow"
+            name="escrow"
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={
+              currentTerms?.escrowCents ? (currentTerms.escrowCents / 100).toFixed(2) : ""
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Taxes, insurance, PMI — still budgeted, but excluded from payoff math.
+          </p>
+        </div>
+      )}
+
+      {termsType === "installment" && (
+        <div className="flex flex-col gap-2">
           <Label htmlFor="payoffTargetDate">Payoff Date (optional)</Label>
           <Input
             id="payoffTargetDate"
