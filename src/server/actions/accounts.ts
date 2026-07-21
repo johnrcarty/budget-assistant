@@ -4,7 +4,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
-import { accounts, accountKindEnum } from "@/server/db/schema";
+import { accounts, accountKindEnum, lineItemTemplates } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 
@@ -45,5 +45,30 @@ export async function archiveAccount(accountId: string) {
     .set({ isArchived: true })
     .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
 
+  // An archived debt should stop stamping its payment into future budget
+  // months. Current/past months are untouched.
+  await db
+    .update(lineItemTemplates)
+    .set({ isActive: false })
+    .where(
+      and(
+        eq(lineItemTemplates.debtAccountId, accountId),
+        eq(lineItemTemplates.householdId, householdId),
+      ),
+    );
+
   revalidatePath("/accounts");
+  revalidatePath("/debt");
+}
+
+export async function unarchiveAccount(accountId: string) {
+  const householdId = await getCurrentHousehold();
+
+  await db
+    .update(accounts)
+    .set({ isArchived: false })
+    .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
+
+  revalidatePath("/accounts");
+  revalidatePath("/debt");
 }

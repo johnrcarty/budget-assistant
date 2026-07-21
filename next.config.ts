@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
     return [
       // The Today tab became Summary; keep old bookmarks/PWA icons working.
       { source: "/today", destination: "/summary", permanent: true },
+      // The Insights tab became the More hub.
+      { source: "/insights", destination: "/more", permanent: true },
     ];
   },
 };

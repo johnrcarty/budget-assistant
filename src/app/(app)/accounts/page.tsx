@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
-import { getAccounts } from "@/server/db/queries/accounts";
+import { getAccounts, getArchivedAccounts } from "@/server/db/queries/accounts";
 import { formatCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
-import { archiveAccount } from "@/server/actions/accounts";
+import { archiveAccount, unarchiveAccount } from "@/server/actions/accounts";
 import { Card, CardContent } from "@/components/ui/card";
 
 const KIND_LABELS: Record<string, string> = {
@@ -22,7 +22,10 @@ const KIND_LABELS: Record<string, string> = {
 
 export default async function AccountsPage() {
   const householdId = await getCurrentHousehold();
-  const accounts = await getAccounts(householdId);
+  const [accounts, archived] = await Promise.all([
+    getAccounts(householdId),
+    getArchivedAccounts(householdId),
+  ]);
 
   return (
     <div>
@@ -82,6 +85,43 @@ export default async function AccountsPage() {
               </Card>
             ))}
           </div>
+        )}
+
+        {archived.length > 0 && (
+          <details className="mt-6">
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              Archived ({archived.length})
+            </summary>
+            <div className="mt-3 flex flex-col gap-3">
+              {archived.map((account) => (
+                <Card key={account.id} className="opacity-70">
+                  <CardContent className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{account.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {KIND_LABELS[account.kind] ?? account.kind}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`font-medium ${account.isLiability ? "text-destructive" : ""}`}
+                      >
+                        {formatCents(account.currentBalanceCents ?? 0)}
+                      </div>
+                      <form action={unarchiveAccount.bind(null, account.id)}>
+                        <button
+                          type="submit"
+                          className="text-xs text-muted-foreground hover:text-primary"
+                        >
+                          Unarchive
+                        </button>
+                      </form>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </details>
         )}
       </div>
     </div>
