@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, ilike, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { transactions, accounts, budgetLineItems } from "@/server/db/schema";
 import { shiftMonthString } from "@/lib/month";
@@ -31,6 +31,7 @@ export interface TransactionFilters {
   startDate?: string;
   endDate?: string;
   pending?: boolean;
+  uncategorized?: boolean;
   page: number;
   pageSize: number;
 }
@@ -53,8 +54,29 @@ function buildFilterConditions(householdId: string, filters: TransactionFilters)
   if (filters.pending !== undefined) {
     conditions.push(eq(transactions.pending, filters.pending));
   }
+  if (filters.uncategorized) {
+    conditions.push(isNull(transactions.budgetLineItemId));
+    conditions.push(isNull(transactions.incomeLineItemId));
+  }
 
   return and(...conditions);
+}
+
+// Transactions not yet assigned to a budget line item or income source -
+// the "needs review" inbox. All-time on purpose.
+export async function getUncategorizedCount(householdId: string): Promise<number> {
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.householdId, householdId),
+        isNull(transactions.budgetLineItemId),
+        isNull(transactions.incomeLineItemId),
+      ),
+    );
+
+  return total;
 }
 
 export async function getFilteredTransactions(householdId: string, filters: TransactionFilters) {

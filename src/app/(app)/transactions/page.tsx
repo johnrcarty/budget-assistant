@@ -25,6 +25,7 @@ export default async function TransactionsPage({
     range?: string;
     status?: string;
     accounts?: string;
+    uncategorized?: string;
     page?: string;
     pageSize?: string;
   }>;
@@ -38,6 +39,7 @@ export default async function TransactionsPage({
     : DEFAULT_PAGE_SIZE;
   const accountIds = params.accounts?.split(",").filter(Boolean);
   const pending = params.status === "pending" ? true : params.status === "cleared" ? false : undefined;
+  const uncategorized = params.uncategorized === "1" ? true : undefined;
 
   const householdId = await getCurrentHousehold();
   const [accountList, { rows, totalCount }, overview] = await Promise.all([
@@ -48,6 +50,7 @@ export default async function TransactionsPage({
       startDate,
       endDate,
       pending,
+      uncategorized,
       page,
       pageSize,
     }),

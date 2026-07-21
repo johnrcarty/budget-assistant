@@ -7,6 +7,26 @@ export function currentMonthString(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+export function currentDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+export function daysInMonth(month: string): number {
+  const [year, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, m, 0)).getUTCDate();
+}
+
+export function addDaysToIsoDate(dateString: string, days: number): string {
+  const [year, m, d] = dateString.split("-").map(Number);
+  const date = new Date(Date.UTC(year, m - 1, d + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    date.getUTCDate(),
+  ).padStart(2, "0")}`;
+}
+
 export function shiftMonthString(month: string, delta: number): string {
   const [year, m] = month.split("-").map(Number);
   const date = new Date(Date.UTC(year, m - 1 + delta, 1));
