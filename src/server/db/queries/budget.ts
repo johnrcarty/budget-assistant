@@ -1,12 +1,14 @@
-import { and, asc, desc, eq, lt } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lt, lte } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   budgetMonths,
   categoryGroups,
   budgetLineItems,
   incomeLineItems,
+  lineItemTemplates,
 } from "@/server/db/schema";
 import { getSpentCentsByLineItem } from "./transactions";
+import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
 
 // Always the 1st of the month - callers pass any date and this normalizes it,
 // so "the month" has one canonical representation everywhere.
@@ -44,6 +46,145 @@ export async function getOrCreateBudgetMonth(
 // Deliberately looks at real prior months' data, not a separate "template"
 // concept, so it matches what the user actually had (including one-off
 // items), the same way EveryDollar's "We'll copy July's budget" works.
+// Read-only lookup - unlike getOrCreateBudgetMonth, safe to call from
+// widgets that must not insert rows as a page-load side effect.
+export async function getBudgetMonth(householdId: string, monthDate: string) {
+  const [existing] = await db
+    .select()
+    .from(budgetMonths)
+    .where(
+      and(
+        eq(budgetMonths.householdId, householdId),
+        eq(budgetMonths.month, monthDate),
+      ),
+    )
+    .limit(1);
+
+  return existing ?? null;
+}
+
+export interface UpcomingBill {
+  id: string;
+  name: string;
+  groupName: string;
+  dueDate: string;
+  plannedAmountCents: number;
+  // "month" bills are real budget_line_item instances (linkable); "template"
+  // bills are projected from line_item_templates when next month's budget
+  // doesn't exist yet.
+  source: "month" | "template";
+}
+
+export interface UpcomingBills {
+  overdue: UpcomingBill[];
+  dueToday: UpcomingBill[];
+  dueThisWeek: UpcomingBill[];
+}
+
+// dueDay is a day-of-month integer; clamp to the month's length so e.g.
+// dueDay 31 in September resolves to Sept 30 instead of an invalid date.
+function clampedDueDate(month: string, dueDay: number): string {
+  const day = Math.min(dueDay, daysInMonth(month));
+  return `${month.slice(0, 7)}-${String(day).padStart(2, "0")}`;
+}
+
+export async function getUpcomingBills(
+  householdId: string,
+  today: string,
+): Promise<UpcomingBills> {
+  const currentMonth = `${today.slice(0, 7)}-01`;
+  const windowEnd = addDaysToIsoDate(today, 7);
+
+  const overdue: UpcomingBill[] = [];
+  const dueToday: UpcomingBill[] = [];
+  const dueThisWeek: UpcomingBill[] = [];
+
+  const addToBucket = (bill: UpcomingBill) => {
+    if (bill.dueDate < today) overdue.push(bill);
+    else if (bill.dueDate === today) dueToday.push(bill);
+    else if (bill.dueDate <= windowEnd) dueThisWeek.push(bill);
+  };
+
+  // Returns false when the budget month doesn't exist (caller may fall back
+  // to templates). Unpaid = no spend recorded; any spend counts as paid.
+  const collectMonthBills = async (monthDate: string): Promise<boolean> => {
+    const budgetMonth = await getBudgetMonth(householdId, monthDate);
+    if (!budgetMonth) return false;
+
+    const rows = await db
+      .select({ item: budgetLineItems, groupName: categoryGroups.name })
+      .from(budgetLineItems)
+      .innerJoin(categoryGroups, eq(budgetLineItems.categoryGroupId, categoryGroups.id))
+      .where(
+        and(
+          eq(budgetLineItems.budgetMonthId, budgetMonth.id),
+          isNotNull(budgetLineItems.dueDay),
+        ),
+      );
+
+    const spentByItem = await getSpentCentsByLineItem(rows.map((row) => row.item.id));
+    for (const row of rows) {
+      if ((spentByItem.get(row.item.id) ?? 0) > 0) continue;
+      addToBucket({
+        id: row.item.id,
+        name: row.item.name,
+        groupName: row.groupName,
+        dueDate: clampedDueDate(monthDate, row.item.dueDay!),
+        plannedAmountCents: row.item.plannedAmountCents,
+        source: "month",
+      });
+    }
+    return true;
+  };
+
+  await collectMonthBills(currentMonth);
+
+  // The 7-day window can spill into next month. Use next month's real budget
+  // if it exists; otherwise project from active templates.
+  if (windowEnd.slice(0, 7) !== today.slice(0, 7)) {
+    const nextMonth = shiftMonthString(currentMonth, 1);
+    const hasNextMonth = await collectMonthBills(nextMonth);
+
+    if (!hasNextMonth) {
+      const spillDay = Number(windowEnd.slice(8, 10));
+      const templates = await db
+        .select({ template: lineItemTemplates, groupName: categoryGroups.name })
+        .from(lineItemTemplates)
+        .innerJoin(
+          categoryGroups,
+          eq(lineItemTemplates.categoryGroupId, categoryGroups.id),
+        )
+        .where(
+          and(
+            eq(lineItemTemplates.householdId, householdId),
+            eq(lineItemTemplates.isActive, true),
+            isNotNull(lineItemTemplates.dueDay),
+            lte(lineItemTemplates.dueDay, spillDay),
+          ),
+        );
+
+      for (const row of templates) {
+        addToBucket({
+          id: row.template.id,
+          name: row.template.name,
+          groupName: row.groupName,
+          dueDate: clampedDueDate(nextMonth, row.template.dueDay!),
+          plannedAmountCents: row.template.defaultPlannedAmountCents,
+          source: "template",
+        });
+      }
+    }
+  }
+
+  const byDueDateThenName = (a: UpcomingBill, b: UpcomingBill) =>
+    a.dueDate === b.dueDate ? a.name.localeCompare(b.name) : a.dueDate < b.dueDate ? -1 : 1;
+  overdue.sort(byDueDateThenName);
+  dueToday.sort(byDueDateThenName);
+  dueThisWeek.sort(byDueDateThenName);
+
+  return { overdue, dueToday, dueThisWeek };
+}
+
 export async function getMostRecentMonthWithBudget(
   householdId: string,
   beforeMonth: string,
