@@ -137,7 +137,11 @@ export function ImportCsvWizard({
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="import-account">Account</Label>
-              <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
+              <Select
+                value={accountId}
+                onValueChange={(v) => setAccountId(v ?? "")}
+                items={Object.fromEntries(accountList.map((a) => [a.id, a.name]))}
+              >
                 <SelectTrigger id="import-account" className="w-full">
                   <SelectValue placeholder="Select an account" />
                 </SelectTrigger>
