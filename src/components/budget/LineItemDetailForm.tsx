@@ -71,7 +71,23 @@ export function LineItemDetailForm({
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="categoryGroupId">Category</Label>
-              <Select name="categoryGroupId" defaultValue={item.categoryGroupId}>
+              <Select
+                name="categoryGroupId"
+                defaultValue={item.categoryGroupId}
+                items={Object.fromEntries(
+                  categoryGroupList.map((group) => [
+                    group.id,
+                    <span key={group.id} className="flex items-center gap-1.5">
+                      <CategoryIcon
+                        name={group.name}
+                        storedIcon={group.icon}
+                        className="size-4 text-muted-foreground"
+                      />
+                      {group.name}
+                    </span>,
+                  ]),
+                )}
+              >
                 <SelectTrigger id="categoryGroupId" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
