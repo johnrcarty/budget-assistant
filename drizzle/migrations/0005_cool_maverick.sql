@@ -1,0 +1,1 @@
+ALTER TABLE "debt_terms_version" ADD COLUMN "escrow_cents" bigint;

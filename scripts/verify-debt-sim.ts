@@ -4,6 +4,7 @@
 import {
   simulateDebtPlan,
   monthlyEquivalentCents,
+  monthlyEscrowCents,
   resolveMinPaymentCents,
   buildPortfolioHistory,
   type SimDebtInput,
@@ -27,10 +28,15 @@ function revolving(over: Partial<SimTerms> = {}): SimTerms {
     minPaymentIsPercent: false,
     minPaymentPercentBps: null,
     fixedPaymentCents: null,
+    escrowCents: null,
     payoffTargetDate: null,
     promoEndDate: null,
     ...over,
   };
+}
+
+function installment(over: Partial<SimTerms> = {}): SimTerms {
+  return revolving({ termsType: "installment", ...over });
 }
 
 function debt(over: Partial<SimDebtInput> & { accountId: string }): SimDebtInput {
@@ -160,6 +166,51 @@ function run(debts: SimDebtInput[], strategy: "snowball" | "avalanche" = "snowba
   check("5. budget below minimum warns but pays true minimum",
     budget.warnings.some((w) => w.kind === "budget_below_minimum") &&
       budget.debts[0].monthsToPayoff === 11, budget.debts[0]);
+}
+
+// 7. Escrow is passthrough - excluded from payoff math, kept in the budget.
+{
+  // $100k @ 6% with a $1,000 payment of which $400 is escrow -> only $600
+  // attacks principal+interest.
+  const noEscrow = run([
+    debt({ accountId: "m", balanceCents: 10000000, terms: installment({ aprBps: 600, fixedPaymentCents: 60000 }) }),
+  ]).debts[0];
+  const withEscrow = run([
+    debt({ accountId: "m", balanceCents: 10000000, terms: installment({ aprBps: 600, fixedPaymentCents: 100000, escrowCents: 40000 }) }),
+  ]).debts[0];
+  check("7. $1000 payment with $400 escrow behaves exactly like a $600 payment",
+    withEscrow.monthsToPayoff === noEscrow.monthsToPayoff &&
+      withEscrow.totalInterestCents === noEscrow.totalInterestCents,
+    { withEscrow, noEscrow });
+
+  // A linked budget item carries the GROSS payment; the sim must not read
+  // the escrow portion as extra principal.
+  const budgetedGross = run([
+    debt({
+      accountId: "m", balanceCents: 10000000, budgetedMonthlyCents: 100000,
+      terms: installment({ aprBps: 600, fixedPaymentCents: 100000, escrowCents: 40000 }),
+    }),
+  ]).debts[0];
+  check("7. gross budgeted amount is escrow-netted (no phantom extra principal)",
+    budgetedGross.monthsToPayoff === withEscrow.monthsToPayoff, { budgetedGross, withEscrow });
+
+  const budgetedExtra = run([
+    debt({
+      accountId: "m", balanceCents: 10000000, budgetedMonthlyCents: 120000,
+      terms: installment({ aprBps: 600, fixedPaymentCents: 100000, escrowCents: 40000 }),
+    }),
+  ]).debts[0];
+  check("7. budgeting above the gross payment still accelerates payoff",
+    (budgetedExtra.monthsToPayoff ?? 999) < (withEscrow.monthsToPayoff ?? 0),
+    { budgetedExtra, withEscrow });
+
+  const swallowed = run([
+    debt({ accountId: "m", balanceCents: 10000000, terms: installment({ fixedPaymentCents: 30000, escrowCents: 40000 }) }),
+  ]).debts[0];
+  check("7. escrow >= payment -> needs_terms", swallowed.status === "needs_terms", swallowed);
+
+  check("7. biweekly escrow converts like payments do",
+    monthlyEscrowCents(installment({ paymentFrequency: "biweekly", escrowCents: 10000 })) === 21667);
 }
 
 // 6. buildPortfolioHistory carry-forward + series-start rule.

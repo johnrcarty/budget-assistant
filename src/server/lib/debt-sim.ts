@@ -38,6 +38,9 @@ export interface SimTerms {
   minPaymentIsPercent: boolean;
   minPaymentPercentBps: number | null;
   fixedPaymentCents: number | null;
+  // Escrow passthrough (taxes, insurance, PMI) included in each payment.
+  // Subtracted before any payoff math - it never reduces principal.
+  escrowCents: number | null;
   payoffTargetDate: string | null;
   promoEndDate: string | null;
 }
@@ -48,7 +51,10 @@ export interface SimDebtInput {
   balanceCents: number; // positive = owed
   originalBalanceCents: number | null;
   terms: SimTerms | null;
-  budgetedMonthlyCents: number | null; // from a linked budget item (already monthly)
+  // From a linked budget item (already monthly). This is the GROSS budgeted
+  // payment - for a mortgage it includes escrow, which the simulator nets
+  // out before treating any of it as principal.
+  budgetedMonthlyCents: number | null;
 }
 
 export type SimDebtStatus =
@@ -121,6 +127,12 @@ function monthlyRate(terms: SimTerms): number {
   return (terms.aprBps ?? 0) / 10000 / 12;
 }
 
+export function monthlyEscrowCents(terms: SimTerms): number {
+  return terms.escrowCents && terms.escrowCents > 0
+    ? monthlyEquivalentCents(terms.escrowCents, terms.paymentFrequency)
+    : 0;
+}
+
 function monthsBetweenMonths(fromMonth: string, toDate: string): number {
   const [fy, fm] = fromMonth.split("-").map(Number);
   const [ty, tm] = toDate.split("-").map(Number);
@@ -135,8 +147,9 @@ function impliedMonthlyPaymentCents(balanceCents: number, rate: number, months: 
   return Math.ceil((balanceCents * rate) / (1 - Math.pow(1 + rate, -n)));
 }
 
-// This month's required monthly-equivalent payment for a debt. Returns null
-// when the terms don't define one (needs_terms).
+// This month's required monthly-equivalent payment toward principal and
+// interest - escrow passthrough is subtracted. Returns null when the terms
+// don't define one, or when escrow swallows the whole payment (needs_terms).
 function requiredMonthlyCents(
   balanceCents: number,
   terms: SimTerms,
@@ -144,13 +157,19 @@ function requiredMonthlyCents(
 ): number | null {
   if (terms.termsType === "installment") {
     if (terms.fixedPaymentCents && terms.fixedPaymentCents > 0) {
-      return monthlyEquivalentCents(terms.fixedPaymentCents, terms.paymentFrequency);
+      const net =
+        monthlyEquivalentCents(terms.fixedPaymentCents, terms.paymentFrequency) -
+        monthlyEscrowCents(terms);
+      return net > 0 ? net : null;
     }
-    return impliedInstallmentCents; // derived from payoffTargetDate, or null
+    // Implied-from-payoff-date payments are derived from the balance, so
+    // they're already pure principal and interest.
+    return impliedInstallmentCents;
   }
   const min = resolveMinPaymentCents(balanceCents, terms);
   if (!min || min <= 0) return null;
-  return monthlyEquivalentCents(min, terms.paymentFrequency);
+  const net = monthlyEquivalentCents(min, terms.paymentFrequency) - monthlyEscrowCents(terms);
+  return net > 0 ? net : null;
 }
 
 // Required payment for the *current* month, used both by the simulator and
@@ -220,6 +239,10 @@ export function simulateDebtPlan(input: {
     const required = debt.terms
       ? requiredMonthlyCents(debt.balanceCents, debt.terms, implied)
       : null;
+    const budgetedNet =
+      debt.budgetedMonthlyCents !== null && debt.terms
+        ? debt.budgetedMonthlyCents - monthlyEscrowCents(debt.terms)
+        : null;
 
     if (!debt.terms || required === null) {
       warnings.push({ accountId: debt.accountId, kind: "needs_terms" });
@@ -236,8 +259,8 @@ export function simulateDebtPlan(input: {
       continue;
     }
 
-    const base = Math.max(debt.budgetedMonthlyCents ?? 0, required);
-    if (debt.budgetedMonthlyCents !== null && debt.budgetedMonthlyCents < required) {
+    const base = Math.max(budgetedNet ?? 0, required);
+    if (budgetedNet !== null && budgetedNet < required) {
       warnings.push({ accountId: debt.accountId, kind: "budget_below_minimum" });
     }
 
@@ -303,8 +326,12 @@ export function simulateDebtPlan(input: {
       debt.totalInterest += interest;
       debt.balance += interest;
 
+      const budgetedNet =
+        debt.input.budgetedMonthlyCents !== null
+          ? debt.input.budgetedMonthlyCents - monthlyEscrowCents(debt.terms)
+          : 0;
       const base = Math.max(
-        debt.input.budgetedMonthlyCents ?? 0,
+        budgetedNet,
         requiredMonthlyCents(debt.balance, debt.terms, debt.impliedInstallmentCents) ?? 0,
       );
       debt.currentBaseCents = base;
