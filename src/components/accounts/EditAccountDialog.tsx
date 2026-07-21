@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Pencil } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,13 +21,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { updateAccount } from "@/server/actions/accounts";
+import { archiveAccount, updateAccount } from "@/server/actions/accounts";
 import { ACCOUNT_KINDS } from "./account-kinds";
 
 export function EditAccountDialog({
   account,
+  trigger,
+  triggerClassName,
 }: {
-  account: { id: string; name: string; kind: string };
+  account: { id: string; name: string; kind: string; isLiability: boolean };
+  trigger: React.ReactNode;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [error, formAction, pending] = useActionState(
@@ -44,12 +49,7 @@ export function EditAccountDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        aria-label={`Edit ${account.name}`}
-        className="text-muted-foreground hover:text-foreground"
-      >
-        <Pencil className="size-4" />
-      </DialogTrigger>
+      <DialogTrigger className={triggerClassName}>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit Account</DialogTitle>
@@ -84,6 +84,25 @@ export function EditAccountDialog({
               {pending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
+        </form>
+
+        {account.isLiability && (
+          <Link
+            href={`/accounts/${account.id}`}
+            className="flex items-center justify-between border-t pt-3 text-sm font-medium"
+          >
+            Debt details, balance &amp; terms
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </Link>
+        )}
+
+        <form action={archiveAccount.bind(null, account.id)} className="border-t pt-3">
+          <button
+            type="submit"
+            className="text-sm text-muted-foreground hover:text-destructive"
+          >
+            Archive account
+          </button>
         </form>
       </DialogContent>
     </Dialog>
