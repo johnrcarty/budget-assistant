@@ -7,7 +7,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
 import { EditAccountDialog } from "@/components/accounts/EditAccountDialog";
 import { KIND_LABELS } from "@/components/accounts/account-kinds";
-import { archiveAccount, unarchiveAccount } from "@/server/actions/accounts";
+import { unarchiveAccount } from "@/server/actions/accounts";
 import { Card, CardContent } from "@/components/ui/card";
 
 type Account = Awaited<ReturnType<typeof getAccounts>>[number];
@@ -125,39 +125,30 @@ function AccountSection({
       <div className="flex flex-col gap-3">
         {accounts.map((account) => (
           <Card key={account.id}>
-            <CardContent className="flex items-center justify-between gap-3">
-              {account.isLiability ? (
-                <Link href={`/accounts/${account.id}`} className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{account.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {KIND_LABELS[account.kind] ?? account.kind}
+            <EditAccountDialog
+              account={{
+                id: account.id,
+                name: account.name,
+                kind: account.kind,
+                isLiability: account.isLiability,
+              }}
+              triggerClassName="block w-full text-left"
+              trigger={
+                <CardContent className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{account.name}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {KIND_LABELS[account.kind] ?? account.kind}
+                    </div>
                   </div>
-                </Link>
-              ) : (
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{account.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {KIND_LABELS[account.kind] ?? account.kind}
-                  </div>
-                </div>
-              )}
-              <div className="flex shrink-0 items-center gap-3">
-                <div className={`font-medium ${account.isLiability ? "text-destructive" : ""}`}>
-                  {formatCents(account.currentBalanceCents ?? 0)}
-                </div>
-                <EditAccountDialog
-                  account={{ id: account.id, name: account.name, kind: account.kind }}
-                />
-                <form action={archiveAccount.bind(null, account.id)}>
-                  <button
-                    type="submit"
-                    className="text-xs text-muted-foreground hover:text-destructive"
+                  <div
+                    className={`shrink-0 font-medium ${account.isLiability ? "text-destructive" : ""}`}
                   >
-                    Archive
-                  </button>
-                </form>
-              </div>
-            </CardContent>
+                    {formatCents(account.currentBalanceCents ?? 0)}
+                  </div>
+                </CardContent>
+              }
+            />
           </Card>
         ))}
       </div>
