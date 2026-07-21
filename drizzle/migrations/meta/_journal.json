@@ -29,6 +29,13 @@
       "when": 1784616306015,
       "tag": "0003_fuzzy_living_tribunal",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784671581955,
+      "tag": "0004_fuzzy_starfox",
+      "breakpoints": true
     }
   ]
 }
