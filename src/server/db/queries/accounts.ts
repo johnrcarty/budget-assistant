@@ -19,3 +19,11 @@ export async function getAccount(householdId: string, accountId: string) {
 
   return account ?? null;
 }
+
+export async function getArchivedAccounts(householdId: string) {
+  return db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.householdId, householdId), eq(accounts.isArchived, true)))
+    .orderBy(asc(accounts.createdAt));
+}

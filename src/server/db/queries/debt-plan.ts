@@ -32,6 +32,22 @@ export async function getDebtPlanSettings(householdId: string): Promise<DebtPlan
   return row ?? { strategy: "snowball", extraMonthlyCents: 0 };
 }
 
+// The budget template representing one debt, if the debt has ever been
+// linked. isActive=false means currently unlinked (re-link reactivates).
+export async function getLinkedDebtTemplate(householdId: string, accountId: string) {
+  const [template] = await db
+    .select()
+    .from(lineItemTemplates)
+    .where(
+      and(
+        eq(lineItemTemplates.householdId, householdId),
+        eq(lineItemTemplates.debtAccountId, accountId),
+      ),
+    )
+    .limit(1);
+  return template ?? null;
+}
+
 export interface LinkedBudgetItem {
   templateId: string;
   isActive: boolean;

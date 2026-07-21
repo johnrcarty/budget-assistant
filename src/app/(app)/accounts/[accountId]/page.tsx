@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getDebtDetail } from "@/server/db/queries/debt";
+import { getLinkedDebtTemplate } from "@/server/db/queries/debt-plan";
+import { linkDebtToBudget, unlinkDebtFromBudget } from "@/server/actions/debt-plan";
 import { formatCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DebtInfoForm } from "@/components/accounts/DebtInfoForm";
 import { DebtBalanceForm } from "@/components/accounts/DebtBalanceForm";
@@ -17,7 +20,10 @@ export default async function DebtAccountPage({
 }) {
   const { accountId } = await params;
   const householdId = await getCurrentHousehold();
-  const detail = await getDebtDetail(householdId, accountId);
+  const [detail, linkedTemplate] = await Promise.all([
+    getDebtDetail(householdId, accountId),
+    getLinkedDebtTemplate(householdId, accountId),
+  ]);
 
   if (!detail) notFound();
 
@@ -92,6 +98,40 @@ export default async function DebtAccountPage({
             </CardContent>
           </Card>
         )}
+
+        <Card>
+          <CardContent>
+            <h2 className="pb-2 font-bold">Budget</h2>
+            {linkedTemplate?.isActive ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Budgeted{" "}
+                  <span className="font-medium text-foreground">
+                    {formatCents(linkedTemplate.defaultPlannedAmountCents)}/month
+                  </span>{" "}
+                  in the Debt section.
+                </p>
+                <form action={unlinkDebtFromBudget.bind(null, account.id)}>
+                  <Button type="submit" variant="outline" size="sm">
+                    Unlink
+                  </Button>
+                </form>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Add this payment to your budget&rsquo;s Debt section - the payoff plan
+                  will read the budgeted amount automatically.
+                </p>
+                <form action={linkDebtToBudget.bind(null, account.id)}>
+                  <Button type="submit" size="sm">
+                    Add to budget
+                  </Button>
+                </form>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {balanceHistory.length > 0 && (
           <Card>
