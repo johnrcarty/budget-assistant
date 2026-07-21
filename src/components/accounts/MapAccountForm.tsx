@@ -94,7 +94,10 @@ export function MapAccountForm({
             </Select>
           </div>
         ) : (
-          <Select name="existingAccountId">
+          <Select
+            name="existingAccountId"
+            items={Object.fromEntries(existingAccounts.map((a) => [a.id, a.name]))}
+          >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Select an account" />
             </SelectTrigger>

@@ -76,7 +76,12 @@ export function TransactionDialog({
           {!isEdit && (
             <div className="flex flex-col gap-2">
               <Label htmlFor="txn-account">Account</Label>
-              <Select name="accountId" defaultValue={accounts[0]?.id} required>
+              <Select
+                name="accountId"
+                defaultValue={accounts[0]?.id}
+                items={Object.fromEntries(accounts.map((a) => [a.id, a.name]))}
+                required
+              >
                 <SelectTrigger id="txn-account" className="w-full">
                   <SelectValue placeholder="Select an account" />
                 </SelectTrigger>
@@ -143,6 +148,10 @@ export function TransactionDialog({
             <Select
               name="budgetLineItemId"
               defaultValue={transaction?.budgetLineItemId ?? "none"}
+              items={{
+                none: "Uncategorized",
+                ...Object.fromEntries(lineItems.map((item) => [item.id, item.name])),
+              }}
             >
               <SelectTrigger id="txn-category" className="w-full">
                 <SelectValue placeholder="Uncategorized" />
