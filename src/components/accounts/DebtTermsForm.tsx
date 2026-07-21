@@ -141,7 +141,9 @@ export function DebtTermsForm({
         </div>
         {termsType === "revolving" ? (
           isPercentMin ? (
-            <div className="flex flex-1 flex-col gap-2">
+            // Distinct keys below keep React from reconciling the swapped
+            // payment inputs into each other (controlled <-> uncontrolled).
+            <div key="min-percent" className="flex flex-1 flex-col gap-2">
               <Label htmlFor="minPaymentPercent">Minimum % of balance</Label>
               <Input
                 id="minPaymentPercent"
@@ -157,7 +159,7 @@ export function DebtTermsForm({
               />
             </div>
           ) : (
-            <div className="flex flex-1 flex-col gap-2">
+            <div key="min-plain" className="flex flex-1 flex-col gap-2">
               <Label htmlFor="minPayment">Minimum Payment{perPaymentSuffix}</Label>
               <Input
                 id="minPayment"
@@ -171,7 +173,7 @@ export function DebtTermsForm({
             </div>
           )
         ) : (
-          <div className="flex flex-1 flex-col gap-2">
+          <div key="fixed" className="flex flex-1 flex-col gap-2">
             <Label htmlFor="fixedPayment">
               {frequency === "monthly" ? "Monthly Payment" : "Payment (per payment)"}
             </Label>
@@ -189,7 +191,7 @@ export function DebtTermsForm({
       </div>
 
       {termsType === "revolving" && isPercentMin && (
-        <div className="flex flex-col gap-2">
+        <div key="min-floor" className="flex flex-col gap-2">
           <Label htmlFor="minPayment">Minimum floor $ (optional)</Label>
           <Input
             id="minPayment"
