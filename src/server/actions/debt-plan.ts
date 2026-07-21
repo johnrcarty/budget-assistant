@@ -13,7 +13,7 @@ import {
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
-import { currentRequiredMonthlyCents } from "@/server/lib/debt-sim";
+import { currentRequiredMonthlyCents, monthlyEscrowCents } from "@/server/lib/debt-sim";
 import { currentEffectiveTerms, latestKnownBalance, toSimTerms } from "@/server/db/queries/debt";
 import { getBudgetMonth, getOrCreateBudgetMonth } from "@/server/db/queries/budget";
 import { currentMonthString } from "@/lib/month";
@@ -109,8 +109,13 @@ export async function linkDebtToBudget(accountId: string) {
 
   const month = currentMonthString();
   const balanceCents = balance?.balanceCents ?? account.currentBalanceCents ?? 0;
-  const plannedCents = terms
-    ? (currentRequiredMonthlyCents(balanceCents, toSimTerms(terms), month) ?? 0)
+  // The budget item carries the GROSS payment (principal + interest +
+  // escrow) - that's the real monthly cash out. The simulator nets the
+  // escrow back out when reading it.
+  const simTerms = terms ? toSimTerms(terms) : null;
+  const plannedCents = simTerms
+    ? (currentRequiredMonthlyCents(balanceCents, simTerms, month) ?? 0) +
+      monthlyEscrowCents(simTerms)
     : 0;
   // A biweekly/weekly debt has no day-of-month; only monthly terms carry one.
   const dueDay = terms && terms.paymentFrequency === "monthly" ? terms.dueDay : null;

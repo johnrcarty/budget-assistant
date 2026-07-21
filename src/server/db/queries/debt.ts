@@ -60,6 +60,7 @@ export function toSimTerms(terms: typeof debtTermsVersions.$inferSelect): SimTer
     minPaymentIsPercent: terms.minPaymentIsPercent,
     minPaymentPercentBps: terms.minPaymentPercentBps,
     fixedPaymentCents: terms.fixedPaymentCents,
+    escrowCents: terms.escrowCents,
     payoffTargetDate: terms.payoffTargetDate,
     promoEndDate: terms.promoEndDate,
   };

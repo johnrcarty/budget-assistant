@@ -36,6 +36,13 @@
       "when": 1784671581955,
       "tag": "0004_fuzzy_starfox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784677162557,
+      "tag": "0005_cool_maverick",
+      "breakpoints": true
     }
   ]
 }

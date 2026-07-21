@@ -74,6 +74,10 @@ export const debtTermsVersions = pgTable("debt_terms_version", {
   minPaymentIsPercent: boolean().notNull().default(false),
   minPaymentPercentBps: integer(),
   fixedPaymentCents: bigint({ mode: "number" }), // installment: fixed per-period payment
+  // Portion of each payment that is escrow passthrough (taxes, insurance,
+  // PMI) - real money out, but it never touches principal or interest, so
+  // payoff math subtracts it from the payment.
+  escrowCents: bigint({ mode: "number" }),
   payoffTargetDate: date(), // installment: known payoff/maturity date
   dueDay: integer(),
   servicerName: text(),
