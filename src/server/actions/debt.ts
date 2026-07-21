@@ -153,6 +153,7 @@ const termsSchema = z.object({
   minPaymentIsPercent: z.enum(["true", "false"]).optional(),
   minPaymentPercent: z.string().trim().optional(),
   fixedPayment: z.string().trim().optional(),
+  escrow: z.string().trim().optional(),
   payoffTargetDate: z.string().trim().optional(),
   dueDay: z.coerce.number().int().min(1).max(31).optional().or(z.literal("")),
   servicerName: z.string().trim().max(80).optional(),
@@ -170,6 +171,7 @@ export async function addDebtTermsVersion(accountId: string, formData: FormData)
     minPaymentIsPercent: formData.get("minPaymentIsPercent") || undefined,
     minPaymentPercent: formData.get("minPaymentPercent") || undefined,
     fixedPayment: formData.get("fixedPayment") || undefined,
+    escrow: formData.get("escrow") || undefined,
     payoffTargetDate: formData.get("payoffTargetDate") || undefined,
     dueDay: formData.get("dueDay") || "",
     servicerName: formData.get("servicerName") || undefined,
@@ -204,6 +206,7 @@ export async function addDebtTermsVersion(accountId: string, formData: FormData)
         ? Math.round(Number(input.minPaymentPercent) * 100)
         : null,
     fixedPaymentCents: input.fixedPayment ? dollarsToCents(input.fixedPayment) : null,
+    escrowCents: input.escrow ? dollarsToCents(input.escrow) : null,
     payoffTargetDate: input.payoffTargetDate || null,
     // A biweekly/weekly debt has no day-of-month due day.
     dueDay:
