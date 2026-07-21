@@ -1,0 +1,72 @@
+import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { formatMonthLabel, shiftMonthString } from "@/lib/month";
+import { DISPLAY_MODES, type DisplayMode } from "./display-mode";
+
+export function MonthHeader({
+  month,
+  basePath,
+  mode,
+  rightAction,
+}: {
+  month: string;
+  basePath: string;
+  mode?: DisplayMode;
+  rightAction?: React.ReactNode;
+}) {
+  return (
+    <header className="px-4 pt-6 pb-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
+            <ChevronLeft className="size-6" />
+          </MonthNavLink>
+          <h1 className="text-2xl font-bold">{formatMonthLabel(month)}</h1>
+          <MonthNavLink basePath={basePath} month={month} delta={1} mode={mode}>
+            <ChevronRight className="size-6" />
+          </MonthNavLink>
+        </div>
+        {rightAction}
+      </div>
+
+      {mode && (
+        <div className="mt-4 flex rounded-lg bg-muted p-1 text-sm font-medium">
+          {DISPLAY_MODES.map((m) => (
+            <Link
+              key={m}
+              href={`${basePath}?month=${month}&mode=${m}`}
+              className={`flex-1 rounded-md py-1.5 text-center capitalize ${
+                m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              {m}
+            </Link>
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function MonthNavLink({
+  basePath,
+  month,
+  delta,
+  mode,
+  children,
+}: {
+  basePath: string;
+  month: string;
+  delta: number;
+  mode?: DisplayMode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={`${basePath}?month=${shiftMonthString(month, delta)}${mode ? `&mode=${mode}` : ""}`}
+      aria-label={delta < 0 ? "Previous month" : "Next month"}
+    >
+      {children}
+    </Link>
+  );
+}

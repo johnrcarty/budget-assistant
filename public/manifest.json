@@ -1,0 +1,10 @@
+{
+  "name": "Monthly Budget",
+  "short_name": "Budget",
+  "description": "A self-hosted zero-based budget and finance tracker.",
+  "start_url": "/today",
+  "display": "standalone",
+  "background_color": "#f4f4f5",
+  "theme_color": "#3a9451",
+  "icons": []
+}
