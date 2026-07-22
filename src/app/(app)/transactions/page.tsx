@@ -5,8 +5,8 @@ import { getAccounts } from "@/server/db/queries/accounts";
 import { getFilteredTransactions } from "@/server/db/queries/transactions";
 import { getBudgetOverview } from "@/server/db/queries/budget";
 import { currentMonthString, formatFullDate } from "@/lib/month";
-import { resolveDateRange, isDateRangePreset, type DateRangePreset } from "@/lib/date-range";
-import { formatCents } from "@/server/lib/money";
+import { resolveDateRange, isDateRangePreset } from "@/lib/date-range";
+import { formatCents, dollarsToCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { TransactionDialog } from "@/components/transactions/TransactionDialog";
 import { TransactionsToolbar } from "@/components/transactions/TransactionsToolbar";
@@ -17,15 +17,34 @@ import { Card, CardContent } from "@/components/ui/card";
 const DEFAULT_PAGE_SIZE = 20;
 const VALID_PAGE_SIZES = new Set([10, 20, 50]);
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseIsoDate(value: string | undefined): string | undefined {
+  return value && ISO_DATE_PATTERN.test(value) ? value : undefined;
+}
+
+function parseAmountCents(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const dollars = Number(value);
+  if (!Number.isFinite(dollars) || dollars < 0) return undefined;
+  return dollarsToCents(dollars);
+}
+
 export default async function TransactionsPage({
   searchParams,
 }: {
   searchParams: Promise<{
     search?: string;
     range?: string;
+    from?: string;
+    to?: string;
     status?: string;
     accounts?: string;
+    type?: string;
+    categorized?: string;
     uncategorized?: string;
+    min?: string;
+    max?: string;
     flow?: string;
     flowLabel?: string;
     page?: string;
@@ -33,15 +52,27 @@ export default async function TransactionsPage({
   }>;
 }) {
   const params = await searchParams;
-  const range: DateRangePreset = isDateRangePreset(params.range) ? params.range : "30d";
-  const { startDate, endDate } = resolveDateRange(range);
+  const { startDate, endDate } =
+    params.range === "custom"
+      ? { startDate: parseIsoDate(params.from), endDate: parseIsoDate(params.to) }
+      : resolveDateRange(isDateRangePreset(params.range) ? params.range : "30d");
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = VALID_PAGE_SIZES.has(Number(params.pageSize))
     ? Number(params.pageSize)
     : DEFAULT_PAGE_SIZE;
   const accountIds = params.accounts?.split(",").filter(Boolean);
   const pending = params.status === "pending" ? true : params.status === "cleared" ? false : undefined;
-  const uncategorized = params.uncategorized === "1" ? true : undefined;
+  // "uncategorized=1" is the legacy spelling of categorized=0.
+  const categorized =
+    params.categorized === "1"
+      ? true
+      : params.categorized === "0" || params.uncategorized === "1"
+        ? false
+        : undefined;
+  const direction =
+    params.type === "income" || params.type === "expense" ? params.type : undefined;
+  const minAmountCents = parseAmountCents(params.min);
+  const maxAmountCents = parseAmountCents(params.max);
   const flow = params.flow || undefined;
   // Display-only caption for the flow chip; the actual filter comes from
   // the flow id. Fallback covers hand-edited URLs.
@@ -61,7 +92,10 @@ export default async function TransactionsPage({
       startDate,
       endDate,
       pending,
-      uncategorized,
+      categorized,
+      direction,
+      minAmountCents,
+      maxAmountCents,
       flow,
       page,
       pageSize,
