@@ -1,9 +1,15 @@
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getBudgetOverview } from "@/server/db/queries/budget";
-import { currentMonthString } from "@/lib/month";
+import {
+  getActiveIncomeTemplates,
+  getIncomeSchedules,
+} from "@/server/db/queries/income-schedules";
+import { currentDateString, currentMonthString } from "@/lib/month";
+import { buildSlotGroups, incomeSlotGroupKey, incomeSlotGroupLabel } from "@/lib/income-slots";
 import { formatCents } from "@/server/lib/money";
 import { MonthHeader } from "@/components/budget/MonthHeader";
 import { AddIncomeItemDialog } from "@/components/budget/AddIncomeItemDialog";
+import { IncomeSourceCard } from "@/components/budget/IncomeSourceCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { deleteIncomeItem } from "@/server/actions/income-items";
 
@@ -14,9 +20,38 @@ export default async function IncomePage({
 }) {
   const params = await searchParams;
   const month = params.month ?? currentMonthString();
+  const today = currentDateString();
 
   const householdId = await getCurrentHousehold();
-  const overview = await getBudgetOverview(householdId, month);
+  const [overview, templates, schedules] = await Promise.all([
+    getBudgetOverview(householdId, month),
+    getActiveIncomeTemplates(householdId),
+    getIncomeSchedules(householdId),
+  ]);
+
+  const scheduleByKey = new Map(schedules.map((s) => [s.groupKey, s]));
+  const templateAmountById = new Map(templates.map((t) => [t.id, t.defaultAmountCents]));
+  const slotGroups = buildSlotGroups(templates);
+
+  // A "person" is any multi-slot group or any group with a pay schedule;
+  // singleton unscheduled items ("Bonus") stay in the flat list below.
+  const personGroups = [...slotGroups.entries()].filter(
+    ([key, members]) => members.length > 1 || scheduleByKey.has(key),
+  );
+  const personKeys = new Set(personGroups.map(([key]) => key));
+
+  const itemsByGroup = new Map<string, typeof overview.income>();
+  const otherItems: typeof overview.income = [];
+  for (const item of overview.income) {
+    const key = incomeSlotGroupKey(item.name);
+    if (personKeys.has(key)) {
+      const list = itemsByGroup.get(key) ?? [];
+      list.push(item);
+      itemsByGroup.set(key, list);
+    } else {
+      otherItems.push(item);
+    }
+  }
 
   return (
     <div>
@@ -42,13 +77,43 @@ export default async function IncomePage({
           </CardContent>
         </Card>
 
+        {personGroups.map(([key, members]) => {
+          const schedule = scheduleByKey.get(key) ?? null;
+          const items = (itemsByGroup.get(key) ?? []).sort((a, b) =>
+            a.expectedDate && b.expectedDate
+              ? a.expectedDate.localeCompare(b.expectedDate)
+              : a.sortOrder - b.sortOrder,
+          );
+          return (
+            <IncomeSourceCard
+              key={key}
+              groupKey={key}
+              groupLabel={incomeSlotGroupLabel(members[0].name)}
+              schedule={schedule}
+              perCheckAmountCents={
+                schedule?.perCheckAmountCents ||
+                templateAmountById.get(members[0].id) ||
+                0
+              }
+              items={items}
+              month={month}
+              today={today}
+            />
+          );
+        })}
+
         <Card>
           <CardContent>
             <div className="flex items-center justify-between pb-2">
-              <h2 className="text-lg font-bold">Income</h2>
+              <h2 className="text-lg font-bold">Other income</h2>
             </div>
 
-            {overview.income.map((item) => (
+            {otherItems.length === 0 && (
+              <p className="py-2 text-sm text-muted-foreground">
+                One-off income like bonuses or refunds lands here.
+              </p>
+            )}
+            {otherItems.map((item) => (
               <div
                 key={item.id}
                 className="flex items-center justify-between border-b py-3 last:border-b-0"
