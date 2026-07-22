@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   budgetLineItems,
@@ -9,7 +9,7 @@ import {
   transactions,
 } from "@/server/db/schema";
 import { getOrCreateBudgetMonth } from "@/server/db/queries/budget";
-import { findMatchingRule } from "@/lib/rule-match";
+import { findMatchingRule, transactionMatchesRule } from "@/lib/rule-match";
 import {
   buildSlotGroups,
   planSlotAssignments,
@@ -212,6 +212,126 @@ export async function applyRulesToUncategorized(
   }
 
   return { matched, scanned: uncategorized.length };
+}
+
+// Force-reapplies rules to every transaction matching the given rule's
+// pattern/conditions - INCLUDING already-categorized ones - so editing a
+// rule's target can move its historical matches in one action. Each
+// transaction is re-evaluated against the FULL active rule list (priority
+// still wins), so re-applying a broad rule can't steal transactions a more
+// specific rule claims. Overwrites manual categorizations on matching
+// transactions by design - this is the explicit, per-rule "fix it" button.
+export async function applyRuleToMatching(
+  householdId: string,
+  ruleId: string,
+): Promise<ApplyRulesResult> {
+  const rules = await getActiveRules(householdId);
+  const rule = rules.find((r) => r.id === ruleId);
+  if (!rule) return { matched: 0, scanned: 0 };
+
+  // SQL prefilter: a contains-style ilike is a superset of all three match
+  // types; the JS matcher below makes the exact decision.
+  const escapedPattern = rule.pattern.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`);
+  const conditions: SQL[] = [
+    eq(transactions.householdId, householdId),
+    ilike(transactions.description, `%${escapedPattern}%`),
+  ];
+  if (rule.accountId) conditions.push(eq(transactions.accountId, rule.accountId));
+  if (rule.amountCents != null) {
+    conditions.push(
+      sql`abs(${transactions.amountCents}) = ${Math.abs(rule.amountCents)}`,
+    );
+  }
+
+  const candidates = await db
+    .select({
+      id: transactions.id,
+      description: transactions.description,
+      postedDate: transactions.postedDate,
+      amountCents: transactions.amountCents,
+      accountId: transactions.accountId,
+      budgetLineItemId: transactions.budgetLineItemId,
+      incomeLineItemId: transactions.incomeLineItemId,
+      isTransfer: transactions.isTransfer,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(
+      asc(transactions.postedDate),
+      asc(transactions.createdAt),
+      asc(transactions.id),
+    );
+  const matching = candidates.filter((tx) => transactionMatchesRule(tx, rule));
+
+  const instanceCache = new Map<string, string | null>();
+  let matched = 0;
+  const incomeMatches: { txId: string; month: string; targetTemplateId: string }[] = [];
+  const incomeClearIds: string[] = [];
+
+  for (const tx of matching) {
+    const winner = findMatchingRule(tx, rules);
+    if (!winner) continue;
+    const month = `${tx.postedDate.slice(0, 7)}-01`;
+
+    if (winner.markAsTransfer) {
+      if (tx.isTransfer && !tx.budgetLineItemId && !tx.incomeLineItemId) continue;
+      await db
+        .update(transactions)
+        .set({
+          isTransfer: true,
+          budgetLineItemId: null,
+          incomeLineItemId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, tx.id));
+      matched += 1;
+    } else if (winner.lineItemTemplateId) {
+      const cacheKey = `item:${winner.lineItemTemplateId}:${month}`;
+      let instanceId = instanceCache.get(cacheKey);
+      if (instanceId === undefined) {
+        instanceId = await ensureLineItemInstance(householdId, winner.lineItemTemplateId, month);
+        instanceCache.set(cacheKey, instanceId);
+      }
+      if (!instanceId) continue;
+      if (tx.budgetLineItemId === instanceId && !tx.incomeLineItemId && !tx.isTransfer) {
+        continue;
+      }
+      await db
+        .update(transactions)
+        .set({
+          budgetLineItemId: instanceId,
+          incomeLineItemId: null,
+          isTransfer: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, tx.id));
+      matched += 1;
+    } else if (winner.incomeTemplateId) {
+      incomeMatches.push({ txId: tx.id, month, targetTemplateId: winner.incomeTemplateId });
+      if (tx.budgetLineItemId || tx.incomeLineItemId || tx.isTransfer) {
+        incomeClearIds.push(tx.id);
+      }
+    }
+  }
+
+  // Unlink re-targeted income transactions first, so slot occupancy is
+  // computed without the rows being moved.
+  if (incomeClearIds.length > 0) {
+    await db
+      .update(transactions)
+      .set({
+        budgetLineItemId: null,
+        incomeLineItemId: null,
+        isTransfer: false,
+        updatedAt: new Date(),
+      })
+      .where(inArray(transactions.id, incomeClearIds));
+  }
+  if (incomeMatches.length > 0) {
+    matched += await applyIncomeSlotAssignments(householdId, incomeMatches);
+  }
+
+  return { matched, scanned: matching.length };
 }
 
 // Phase 2 of rule application: expand each income target to its slot group,

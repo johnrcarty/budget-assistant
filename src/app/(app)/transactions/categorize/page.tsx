@@ -13,6 +13,7 @@ import { deleteRule } from "@/server/actions/categorization";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AiSuggestPanel } from "@/components/categorize/AiSuggestPanel";
 import { RuleDialog } from "@/components/categorize/RuleDialog";
+import { ReapplyRuleButton } from "@/components/categorize/ReapplyRuleButton";
 import { RunRulesButton } from "@/components/categorize/RunRulesButton";
 
 const MATCH_LABELS: Record<string, string> = {
@@ -105,6 +106,7 @@ export default async function CategorizePage() {
                         ? ` · exactly ${formatCents(rule.amountCents)}`
                         : ""}
                     </div>
+                    <ReapplyRuleButton ruleId={rule.id} />
                   </div>
                   <div className="flex items-center gap-3">
                     <RuleDialog
