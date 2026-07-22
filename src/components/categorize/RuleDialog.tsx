@@ -27,12 +27,16 @@ const MATCH_TYPES = {
   exact: "Exactly matches",
 } as const;
 
+const ANY_ACCOUNT = "any";
+
 export function RuleDialog({
   targets,
+  accounts,
   trigger,
   triggerClassName,
 }: {
   targets: { value: string; label: string }[];
+  accounts: { value: string; label: string }[];
   trigger: React.ReactNode;
   triggerClassName?: string;
 }) {
@@ -97,6 +101,66 @@ export function RuleDialog({
               </SelectContent>
             </Select>
           </div>
+
+          <details>
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              Extra conditions (optional)
+            </summary>
+            <div className="mt-3 flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="rule-account">Only this account</Label>
+                <Select
+                  name="accountId"
+                  defaultValue={ANY_ACCOUNT}
+                  items={{
+                    [ANY_ACCOUNT]: "Any account",
+                    ...Object.fromEntries(accounts.map((a) => [a.value, a.label])),
+                  }}
+                >
+                  <SelectTrigger id="rule-account" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ANY_ACCOUNT}>Any account</SelectItem>
+                    {accounts.map((a) => (
+                      <SelectItem key={a.value} value={a.value}>
+                        {a.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex flex-1 flex-col gap-2">
+                  <Label htmlFor="rule-amount">Exact amount</Label>
+                  <Input
+                    id="rule-amount"
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="any"
+                  />
+                </div>
+                <div className="flex w-28 flex-col gap-2">
+                  <Label htmlFor="rule-priority">Priority</Label>
+                  <Input
+                    id="rule-priority"
+                    name="priority"
+                    type="number"
+                    min="1"
+                    max="9999"
+                    defaultValue={100}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Amount matches regardless of sign. Lower priority runs first
+                (1 before 2) — put specific rules below 100 so they beat
+                general ones.
+              </p>
+            </div>
+          </details>
 
           <p className="text-xs text-muted-foreground">
             Matching is case-insensitive. Rules run automatically on every bank sync

@@ -6,6 +6,15 @@ export type RuleMatchType = "contains" | "starts_with" | "exact";
 export interface MatchableRule {
   pattern: string;
   matchType: RuleMatchType;
+  // Optional extra conditions, ANDed with the pattern.
+  accountId?: string | null;
+  amountCents?: number | null; // compared by absolute value
+}
+
+export interface MatchableTransaction {
+  description: string;
+  accountId?: string;
+  amountCents?: number;
 }
 
 export function ruleMatches(description: string, rule: MatchableRule): boolean {
@@ -23,13 +32,29 @@ export function ruleMatches(description: string, rule: MatchableRule): boolean {
   }
 }
 
-// First matching rule wins; callers pass rules already ordered by priority.
+export function transactionMatchesRule(
+  tx: MatchableTransaction,
+  rule: MatchableRule,
+): boolean {
+  if (!ruleMatches(tx.description, rule)) return false;
+  if (rule.accountId != null && rule.accountId !== tx.accountId) return false;
+  if (
+    rule.amountCents != null &&
+    Math.abs(rule.amountCents) !== Math.abs(tx.amountCents ?? Number.NaN)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+// First matching rule wins; callers pass rules already ordered by priority
+// (lower runs first).
 export function findMatchingRule<T extends MatchableRule>(
-  description: string,
+  tx: MatchableTransaction,
   rules: T[],
 ): T | null {
   for (const rule of rules) {
-    if (ruleMatches(description, rule)) return rule;
+    if (transactionMatchesRule(tx, rule)) return rule;
   }
   return null;
 }
