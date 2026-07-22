@@ -1,6 +1,8 @@
 import { Plus } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getUncategorizedCount } from "@/server/db/queries/transactions";
+import { getAccounts } from "@/server/db/queries/accounts";
+import { formatCents } from "@/server/lib/money";
 import {
   getExpenseTargets,
   getIncomeTargets,
@@ -21,13 +23,14 @@ const MATCH_LABELS: Record<string, string> = {
 
 export default async function CategorizePage() {
   const householdId = await getCurrentHousehold();
-  const [uncategorizedCount, merchants, rules, expenseTargets, incomeTargets] =
+  const [uncategorizedCount, merchants, rules, expenseTargets, incomeTargets, accountList] =
     await Promise.all([
       getUncategorizedCount(householdId),
       getUncategorizedMerchants(householdId),
       getRules(householdId),
       getExpenseTargets(householdId),
       getIncomeTargets(householdId),
+      getAccounts(householdId),
     ]);
 
   const targets = [
@@ -67,6 +70,7 @@ export default async function CategorizePage() {
             <h2 className="font-semibold">Rules</h2>
             <RuleDialog
               targets={targets}
+              accounts={accountList.map((a) => ({ value: a.id, label: a.name }))}
               triggerClassName="text-foreground"
               trigger={<Plus className="size-5" aria-label="Add rule" />}
             />
@@ -78,7 +82,7 @@ export default async function CategorizePage() {
             </p>
           ) : (
             <div className="pb-3">
-              {rules.map(({ rule, targetLabel }) => (
+              {rules.map(({ rule, targetLabel, accountName }) => (
                 <div
                   key={rule.id}
                   className="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0"
@@ -89,6 +93,13 @@ export default async function CategorizePage() {
                     </span>{" "}
                     <span className="font-medium">&ldquo;{rule.pattern}&rdquo;</span>{" "}
                     <span className="text-muted-foreground">→ {targetLabel}</span>
+                    <div className="text-xs text-muted-foreground">
+                      priority {rule.priority}
+                      {accountName ? ` · ${accountName} only` : ""}
+                      {rule.amountCents != null
+                        ? ` · exactly ${formatCents(rule.amountCents)}`
+                        : ""}
+                    </div>
                   </div>
                   <form action={deleteRule.bind(null, rule.id)}>
                     <button

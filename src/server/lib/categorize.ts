@@ -140,6 +140,7 @@ export async function applyRulesToUncategorized(
       description: transactions.description,
       postedDate: transactions.postedDate,
       amountCents: transactions.amountCents,
+      accountId: transactions.accountId,
     })
     .from(transactions)
     .where(
@@ -154,7 +155,7 @@ export async function applyRulesToUncategorized(
   let matched = 0;
 
   for (const tx of uncategorized) {
-    const rule = findMatchingRule(tx.description, rules);
+    const rule = findMatchingRule(tx, rules);
     if (!rule) continue;
 
     const month = `${tx.postedDate.slice(0, 7)}-01`;

@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
+  accounts,
   categorizationRules,
   categoryGroups,
   incomeTemplates,
@@ -10,6 +11,7 @@ import {
 export interface RuleWithTarget {
   rule: typeof categorizationRules.$inferSelect;
   targetLabel: string;
+  accountName: string | null;
 }
 
 export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
@@ -19,6 +21,7 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
       itemName: lineItemTemplates.name,
       groupName: categoryGroups.name,
       incomeName: incomeTemplates.name,
+      accountName: accounts.name,
     })
     .from(categorizationRules)
     .leftJoin(
@@ -27,6 +30,7 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
     )
     .leftJoin(categoryGroups, eq(lineItemTemplates.categoryGroupId, categoryGroups.id))
     .leftJoin(incomeTemplates, eq(categorizationRules.incomeTemplateId, incomeTemplates.id))
+    .leftJoin(accounts, eq(categorizationRules.accountId, accounts.id))
     .where(eq(categorizationRules.householdId, householdId))
     .orderBy(asc(categorizationRules.priority), asc(categorizationRules.createdAt));
 
@@ -37,6 +41,7 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
       : row.groupName && row.itemName
         ? `${row.groupName} › ${row.itemName}`
         : "(deleted target)",
+    accountName: row.accountName,
   }));
 }
 
