@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronRight, RefreshCw, TrendingDown } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ThemeToggleRow } from "@/components/layout/ThemeToggle";
 import { Card, CardContent } from "@/components/ui/card";
 
 // The hub for everything that doesn't warrant its own tab. Add new sections
@@ -39,6 +40,7 @@ export default function MorePage() {
             </Card>
           </Link>
         ))}
+        <ThemeToggleRow />
       </div>
     </div>
   );
