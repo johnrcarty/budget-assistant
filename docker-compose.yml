@@ -32,6 +32,9 @@ services:
       SIMPLEFIN_ENCRYPTION_KEY: ${SIMPLEFIN_ENCRYPTION_KEY}
       # Optional - enables AI categorization suggestions (Claude Haiku).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional - enables the MCP endpoint for Home Assistant Assist.
+      # Unset = endpoint disabled (returns 503). See docs/mcp-home-assistant.md.
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     ports:
       - "3410:3000"
     command: sh -c "node_modules/.bin/tsx src/server/db/migrate.ts && node server.js"
