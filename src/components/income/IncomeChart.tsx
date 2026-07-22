@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   layoutIncomeChart,
   nearestYearIndex,
+  toRunningTotals,
   type IncomeSeries,
 } from "./income-chart-layout";
 
@@ -17,16 +18,22 @@ function usd(cents: number): string {
 
 export function IncomeChart({
   years,
-  series,
+  stackSeries,
+  lineSeries = [],
   ariaLabel,
 }: {
   years: number[];
-  series: IncomeSeries[];
+  // Per-person actuals, stacked bottom-up in the given order.
+  stackSeries: IncomeSeries[];
+  // Forecast overlays, drawn as dashed lines (by-year mode only - mixing
+  // projections into an accumulated-history view would be misleading).
+  lineSeries?: IncomeSeries[];
   ariaLabel: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [mode, setMode] = useState<"year" | "running">("year");
 
   useEffect(() => {
     const element = containerRef.current;
@@ -38,7 +45,12 @@ export function IncomeChart({
     return () => observer.disconnect();
   }, []);
 
-  const layout = width > 0 ? layoutIncomeChart(years, series, width) : null;
+  const displayStack =
+    mode === "running" ? toRunningTotals(stackSeries, years) : stackSeries;
+  const displayLines = mode === "running" ? [] : lineSeries;
+
+  const layout =
+    width > 0 ? layoutIncomeChart(years, displayStack, displayLines, width) : null;
   const selectedYear = selectedIndex !== null ? years[selectedIndex] : null;
 
   const scrub = (clientX: number, currentTarget: Element) => {
@@ -49,6 +61,30 @@ export function IncomeChart({
 
   return (
     <div ref={containerRef}>
+      <div className="flex justify-end pb-2">
+        <div className="flex rounded-lg border p-0.5 text-xs">
+          {(
+            [
+              ["year", "By year"],
+              ["running", "Running total"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              aria-pressed={mode === value}
+              className={`rounded-md px-2.5 py-1 font-medium ${
+                mode === value
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       {layout ? (
         <>
           <svg
@@ -84,17 +120,33 @@ export function IncomeChart({
               </g>
             ))}
 
+            {/* Stacked bands: color wash fill, full-strength top edge. The
+                stack's top edge is the household total by construction. */}
+            {layout.bands.map((band) => (
+              <g key={band.key}>
+                {/* var() colors don't resolve in SVG presentation attributes */}
+                <path d={band.areaPath} style={{ fill: band.color }} fillOpacity={0.3} />
+                <path
+                  d={band.topPath}
+                  fill="none"
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  style={{ stroke: band.color }}
+                />
+              </g>
+            ))}
+
             {layout.lines.map((line) => (
               <path
                 key={line.key}
                 d={line.path}
                 fill="none"
-                strokeWidth={line.emphasis ? 2.5 : 2}
+                strokeWidth={2}
                 strokeDasharray={line.dashed ? "4 4" : undefined}
-                strokeOpacity={line.dashed ? 0.8 : 1}
+                strokeOpacity={0.8}
                 strokeLinejoin="round"
                 strokeLinecap="round"
-                // var() colors don't resolve in SVG presentation attributes
                 style={{ stroke: line.color }}
               />
             ))}
@@ -127,7 +179,21 @@ export function IncomeChart({
             {selectedYear !== null ? (
               <>
                 <span className="font-medium">{selectedYear}</span>
-                {series
+                {displayStack.map((s) => (
+                  <span key={s.key} className="text-muted-foreground">
+                    {s.label}: {usd(s.values[selectedYear] ?? 0)}
+                  </span>
+                ))}
+                <span className="font-medium">
+                  Total:{" "}
+                  {usd(
+                    displayStack.reduce(
+                      (sum, s) => sum + (s.values[selectedYear] ?? 0),
+                      0,
+                    ),
+                  )}
+                </span>
+                {displayLines
                   .filter((s) => s.values[selectedYear] !== undefined)
                   .map((s) => (
                     <span key={s.key} className="text-muted-foreground">
@@ -136,7 +202,11 @@ export function IncomeChart({
                   ))}
               </>
             ) : (
-              <span className="text-muted-foreground">Drag across the chart to inspect.</span>
+              <span className="text-muted-foreground">
+                {mode === "running"
+                  ? "Cumulative earnings through each year. Drag to inspect."
+                  : "Drag across the chart to inspect."}
+              </span>
             )}
           </div>
         </>

@@ -107,43 +107,37 @@ export default async function IncomePage({
     ]),
   ].sort((a, b) => a - b);
 
-  const series: IncomeSeries[] = [
-    ...data.persons.map((person, index) => ({
-      key: `actual:${person}`,
-      label: person,
-      color: personColor(index),
-      dashed: false,
-      values: data.byPersonYear[person] ?? {},
-    })),
-    {
-      key: "actual:total",
-      label: "Total",
-      color: "var(--foreground)",
-      dashed: false,
-      emphasis: true,
-      values: actualTotals,
-    },
-    ...(forecastData
-      ? [
-          ...data.persons
-            .filter((person) => forecastByPersonYear[person])
-            .map((person, index) => ({
-              key: `forecast:${person}`,
-              label: `${person} (proj.)`,
-              color: personColor(data.persons.indexOf(person) ?? index),
-              dashed: true,
-              values: forecastByPersonYear[person],
-            })),
-          {
-            key: "forecast:total",
-            label: "Total (proj.)",
-            color: "var(--foreground)",
+  // Actual per-person income stacks into areas - the stack's top edge IS
+  // the household total, so no separate total series is drawn. Forecasts
+  // overlay as dashed lines (by-year view only).
+  const stackSeries: IncomeSeries[] = data.persons.map((person, index) => ({
+    key: `actual:${person}`,
+    label: person,
+    color: personColor(index),
+    dashed: false,
+    values: data.byPersonYear[person] ?? {},
+  }));
+
+  const lineSeries: IncomeSeries[] = forecastData
+    ? [
+        ...data.persons
+          .filter((person) => forecastByPersonYear[person])
+          .map((person, index) => ({
+            key: `forecast:${person}`,
+            label: `${person} (proj.)`,
+            color: personColor(data.persons.indexOf(person) ?? index),
             dashed: true,
-            values: forecastTotals,
-          },
-        ]
-      : []),
-  ];
+            values: forecastByPersonYear[person],
+          })),
+        {
+          key: "forecast:total",
+          label: "Total (proj.)",
+          color: "var(--foreground)",
+          dashed: true,
+          values: forecastTotals,
+        },
+      ]
+    : [];
 
   // Table rows: actual years plus (when a forecast is selected) its
   // projected years. Overlap years show the actual with the projection's
@@ -204,23 +198,21 @@ export default async function IncomePage({
           </div>
           <IncomeChart
             years={chartYears}
-            series={series}
+            stackSeries={stackSeries}
+            lineSeries={lineSeries}
             ariaLabel={`Annual income for ${data.persons.join(" and ")}, ${chartYears[0]} through ${chartYears[chartYears.length - 1]}.`}
           />
           <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
             {data.persons.map((person, index) => (
               <span key={person} className="flex items-center gap-1.5">
+                {/* square swatch: legend mirrors the area mark */}
                 <span
-                  className="size-2 rounded-full"
+                  className="size-2 rounded-[2px]"
                   style={{ backgroundColor: personColor(index) }}
                 />
                 {person}
               </span>
             ))}
-            <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-foreground" />
-              Total
-            </span>
           </div>
         </div>
 
