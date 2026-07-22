@@ -24,9 +24,11 @@ import {
 import { archiveAccount, updateAccount } from "@/server/actions/accounts";
 import { ACCOUNT_KINDS } from "./account-kinds";
 import { AssetValueForm } from "./AssetValueForm";
+import { GroupSelectField } from "./GroupSelectField";
 
 export function EditAccountDialog({
   account,
+  groups = [],
   trigger,
   triggerClassName,
 }: {
@@ -38,7 +40,9 @@ export function EditAccountDialog({
     isManual?: boolean;
     currentBalanceCents?: number | null;
     originalBalanceCents?: number | null;
+    accountGroupId?: string | null;
   };
+  groups?: { id: string; name: string }[];
   trigger: React.ReactNode;
   triggerClassName?: string;
 }) {
@@ -83,6 +87,11 @@ export function EditAccountDialog({
               </SelectContent>
             </Select>
           </div>
+          <GroupSelectField
+            groups={groups}
+            defaultGroupId={account.accountGroupId}
+            idPrefix="edit-account"
+          />
           <p className="text-xs text-muted-foreground">
             Credit cards, loans, and lines of credit are tracked as debts; everything
             else — including property and vehicles — counts as an asset.

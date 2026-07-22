@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
-import { getAccounts, getArchivedAccounts } from "@/server/db/queries/accounts";
+import { getAccounts, getArchivedAccounts, getAccountGroups } from "@/server/db/queries/accounts";
 import { getBalanceTrends, type BalanceTrends } from "@/server/db/queries/balance-trends";
+import { getCurrentAprByAccount } from "@/server/db/queries/debt";
 import { formatCents, formatCentsCompact } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
 import { EditAccountDialog } from "@/components/accounts/EditAccountDialog";
+import { AccountGroupCard } from "@/components/accounts/AccountGroupCard";
 import { TrendDialog } from "@/components/accounts/TrendDialog";
 import { KIND_LABELS } from "@/components/accounts/account-kinds";
 import { unarchiveAccount } from "@/server/actions/accounts";
@@ -16,15 +18,24 @@ type Account = Awaited<ReturnType<typeof getAccounts>>[number];
 
 export default async function AccountsPage() {
   const householdId = await getCurrentHousehold();
-  const [accounts, archived, trends] = await Promise.all([
+  const [accounts, archived, trends, accountGroupList] = await Promise.all([
     getAccounts(householdId),
     getArchivedAccounts(householdId),
     getBalanceTrends(householdId),
+    getAccountGroups(householdId),
   ]);
 
   const assets = accounts.filter((a) => !a.isLiability);
   const liabilities = accounts.filter((a) => a.isLiability);
   const netWorthCents = trends.netWorthSeries[trends.netWorthSeries.length - 1];
+  const groupOptions = accountGroupList.map((g) => ({ id: g.id, name: g.name }));
+
+  // Weighted-avg APR on group rollups needs each grouped liability's
+  // current terms - one batch query for all of them.
+  const groupedLiabilityIds = liabilities
+    .filter((a) => a.accountGroupId)
+    .map((a) => a.id);
+  const aprByAccount = await getCurrentAprByAccount(groupedLiabilityIds);
 
   // Equity per secured asset: its value minus every liability linked to it
   // (mortgage + HELOC on one house both subtract). Entries whose asset
@@ -58,7 +69,7 @@ export default async function AccountsPage() {
             <Link href="/settings/simplefin" aria-label="Bank sync settings">
               <RefreshCw className="size-5" />
             </Link>
-            <AddAccountDialog />
+            <AddAccountDialog groups={groupOptions} />
           </div>
         }
       />
@@ -94,6 +105,8 @@ export default async function AccountsPage() {
             accounts={assets}
             trends={trends}
             equityByAsset={equityByAsset}
+            groups={groupOptions}
+            aprByAccount={aprByAccount}
           />
         )}
 
@@ -104,6 +117,8 @@ export default async function AccountsPage() {
             totalSeries={trends.liabilitiesSeries}
             accounts={liabilities}
             trends={trends}
+            groups={groupOptions}
+            aprByAccount={aprByAccount}
             isLiability
           />
         )}
@@ -156,6 +171,8 @@ function AccountSection({
   accounts,
   trends,
   equityByAsset,
+  groups = [],
+  aprByAccount = {},
   isLiability = false,
 }: {
   title: string;
@@ -164,9 +181,23 @@ function AccountSection({
   accounts: Account[];
   trends: BalanceTrends;
   equityByAsset?: Map<string, { equityCents: number; liabilityNames: string[] }>;
+  groups?: { id: string; name: string }[];
+  aprByAccount?: Record<string, number | null>;
   isLiability?: boolean;
 }) {
   const seriesByAccount = new Map(trends.accounts.map((t) => [t.accountId, t.series]));
+  const zeroSeries = trends.points.map(() => 0);
+
+  // Grouped members collapse into one rollup card per group; ungrouped
+  // accounts render individually as before. A group only appears in the
+  // section(s) its members belong to.
+  const ungrouped = accounts.filter((a) => !a.accountGroupId);
+  const groupsInSection = groups
+    .map((group) => ({
+      group,
+      members: accounts.filter((a) => a.accountGroupId === group.id),
+    }))
+    .filter(({ members }) => members.length > 0);
 
   return (
     <section>
@@ -187,7 +218,36 @@ function AccountSection({
         />
       </div>
       <div className="flex flex-col gap-3">
-        {accounts.map((account) => {
+        {groupsInSection.map(({ group, members }) => (
+          <AccountGroupCard
+            key={group.id}
+            group={group}
+            members={members.map((m) => ({
+              id: m.id,
+              name: m.name,
+              kind: m.kind,
+              isLiability: m.isLiability,
+              isManual: m.isManual,
+              currentBalanceCents: m.currentBalanceCents,
+              originalBalanceCents: m.originalBalanceCents,
+              accountGroupId: m.accountGroupId,
+            }))}
+            points={trends.points}
+            seriesByMember={Object.fromEntries(
+              members.map((m) => [m.id, seriesByAccount.get(m.id) ?? zeroSeries]),
+            )}
+            summedSeries={trends.points.map((_, i) =>
+              members.reduce(
+                (sum, m) => sum + (seriesByAccount.get(m.id) ?? zeroSeries)[i],
+                0,
+              ),
+            )}
+            aprByAccount={aprByAccount}
+            isLiability={isLiability}
+            groups={groups}
+          />
+        ))}
+        {ungrouped.map((account) => {
           const equity = equityByAsset?.get(account.id);
           return (
           <Card key={account.id}>
@@ -201,7 +261,9 @@ function AccountSection({
                   isManual: account.isManual,
                   currentBalanceCents: account.currentBalanceCents,
                   originalBalanceCents: account.originalBalanceCents,
+                  accountGroupId: account.accountGroupId,
                 }}
+                groups={groups}
                 triggerClassName="min-w-0 flex-1 text-left"
                 trigger={
                   <div>
