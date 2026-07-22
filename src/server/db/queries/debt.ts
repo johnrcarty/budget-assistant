@@ -1,4 +1,4 @@
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { accounts, debtBalanceSnapshots, debtTermsVersions } from "@/server/db/schema";
 import { simulateDebtPlan, type SimTerms } from "@/server/lib/debt-sim";
@@ -22,6 +22,38 @@ export async function currentEffectiveTerms(accountId: string, asOf = new Date()
     .limit(1);
 
   return terms ?? null;
+}
+
+// Batch variant of currentEffectiveTerms, APR only: the latest effective
+// terms row per account via DISTINCT ON (same tie-break: effectiveDate
+// desc, createdAt desc). Returns a plain Record - it crosses the
+// server-to-client prop boundary for the accounts-page group rollup.
+export async function getCurrentAprByAccount(
+  accountIds: string[],
+  asOf = new Date(),
+): Promise<Record<string, number | null>> {
+  if (accountIds.length === 0) return {};
+  const asOfDate = asOf.toISOString().slice(0, 10);
+
+  const rows = await db
+    .selectDistinctOn([debtTermsVersions.accountId], {
+      accountId: debtTermsVersions.accountId,
+      aprBps: debtTermsVersions.aprBps,
+    })
+    .from(debtTermsVersions)
+    .where(
+      and(
+        inArray(debtTermsVersions.accountId, accountIds),
+        lte(debtTermsVersions.effectiveDate, asOfDate),
+      ),
+    )
+    .orderBy(
+      asc(debtTermsVersions.accountId),
+      desc(debtTermsVersions.effectiveDate),
+      desc(debtTermsVersions.createdAt),
+    );
+
+  return Object.fromEntries(rows.map((r) => [r.accountId, r.aprBps]));
 }
 
 // Most recent balance snapshot at or before `asOf` - same gap-tolerant
