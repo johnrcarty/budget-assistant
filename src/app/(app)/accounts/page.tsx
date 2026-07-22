@@ -2,10 +2,12 @@ import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts, getArchivedAccounts } from "@/server/db/queries/accounts";
+import { getBalanceTrends, type BalanceTrends } from "@/server/db/queries/balance-trends";
 import { formatCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
 import { EditAccountDialog } from "@/components/accounts/EditAccountDialog";
+import { TrendDialog } from "@/components/accounts/TrendDialog";
 import { KIND_LABELS } from "@/components/accounts/account-kinds";
 import { unarchiveAccount } from "@/server/actions/accounts";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,13 +16,15 @@ type Account = Awaited<ReturnType<typeof getAccounts>>[number];
 
 export default async function AccountsPage() {
   const householdId = await getCurrentHousehold();
-  const [accounts, archived] = await Promise.all([
+  const [accounts, archived, trends] = await Promise.all([
     getAccounts(householdId),
     getArchivedAccounts(householdId),
+    getBalanceTrends(householdId),
   ]);
 
   const assets = accounts.filter((a) => !a.isLiability);
   const liabilities = accounts.filter((a) => a.isLiability);
+  const netWorthCents = trends.netWorthSeries[trends.netWorthSeries.length - 1];
 
   return (
     <div>
@@ -43,11 +47,29 @@ export default async function AccountsPage() {
           </p>
         )}
 
+        {accounts.length > 0 && (
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Net Worth
+            </h2>
+            <TrendDialog
+              title="Net Worth"
+              points={trends.points}
+              series={trends.netWorthSeries}
+              trigger={
+                <span className="text-lg font-semibold">{formatCents(netWorthCents)}</span>
+              }
+            />
+          </div>
+        )}
+
         {assets.length > 0 && (
           <AccountSection
             title="Assets"
             totalCents={assets.reduce((sum, a) => sum + (a.currentBalanceCents ?? 0), 0)}
+            totalSeries={trends.assetsSeries}
             accounts={assets}
+            trends={trends}
           />
         )}
 
@@ -55,7 +77,9 @@ export default async function AccountsPage() {
           <AccountSection
             title="Liabilities"
             totalCents={liabilities.reduce((sum, a) => sum + (a.currentBalanceCents ?? 0), 0)}
+            totalSeries={trends.liabilitiesSeries}
             accounts={liabilities}
+            trends={trends}
             isLiability
           />
         )}
@@ -104,51 +128,74 @@ export default async function AccountsPage() {
 function AccountSection({
   title,
   totalCents,
+  totalSeries,
   accounts,
+  trends,
   isLiability = false,
 }: {
   title: string;
   totalCents: number;
+  totalSeries: number[];
   accounts: Account[];
+  trends: BalanceTrends;
   isLiability?: boolean;
 }) {
+  const seriesByAccount = new Map(trends.accounts.map((t) => [t.accountId, t.series]));
+
   return (
     <section>
       <div className="flex items-baseline justify-between pb-2">
         <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {title}
         </h2>
-        <span className={`font-semibold ${isLiability ? "text-destructive" : ""}`}>
-          {formatCents(totalCents)}
-        </span>
+        <TrendDialog
+          title={title}
+          points={trends.points}
+          series={totalSeries}
+          isLiability={isLiability}
+          trigger={
+            <span className={`font-semibold ${isLiability ? "text-destructive" : ""}`}>
+              {formatCents(totalCents)}
+            </span>
+          }
+        />
       </div>
       <div className="flex flex-col gap-3">
         {accounts.map((account) => (
           <Card key={account.id}>
-            <EditAccountDialog
-              account={{
-                id: account.id,
-                name: account.name,
-                kind: account.kind,
-                isLiability: account.isLiability,
-              }}
-              triggerClassName="block w-full text-left"
-              trigger={
-                <CardContent className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
+            <CardContent className="flex items-center justify-between gap-3">
+              <EditAccountDialog
+                account={{
+                  id: account.id,
+                  name: account.name,
+                  kind: account.kind,
+                  isLiability: account.isLiability,
+                }}
+                triggerClassName="min-w-0 flex-1 text-left"
+                trigger={
+                  <div>
                     <div className="truncate font-medium">{account.name}</div>
                     <div className="text-sm text-muted-foreground">
                       {KIND_LABELS[account.kind] ?? account.kind}
                     </div>
                   </div>
-                  <div
-                    className={`shrink-0 font-medium ${account.isLiability ? "text-destructive" : ""}`}
+                }
+              />
+              <TrendDialog
+                title={account.name}
+                points={trends.points}
+                series={seriesByAccount.get(account.id) ?? trends.points.map(() => 0)}
+                isLiability={account.isLiability}
+                triggerClassName="shrink-0"
+                trigger={
+                  <span
+                    className={`font-medium ${account.isLiability ? "text-destructive" : ""}`}
                   >
                     {formatCents(account.currentBalanceCents ?? 0)}
-                  </div>
-                </CardContent>
-              }
-            />
+                  </span>
+                }
+              />
+            </CardContent>
           </Card>
         ))}
       </div>
