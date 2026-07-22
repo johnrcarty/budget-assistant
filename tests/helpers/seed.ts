@@ -3,7 +3,10 @@ import {
   debtBalanceSnapshots,
   debtTermsVersions,
   households,
+  simplefinConnectionAccounts,
+  simplefinConnections,
 } from "@/server/db/schema";
+import { encryptSecret } from "@/server/lib/crypto/secret-box";
 
 import type { TestDb } from "./pglite";
 
@@ -60,6 +63,46 @@ export async function seedDebtTerms(
     })
     .returning();
   return terms;
+}
+
+// Encrypts a fake Access URL with the real secret-box (the throwaway
+// SIMPLEFIN_ENCRYPTION_KEY from tests/setup.ts), so the sync job's decrypt
+// path runs for real.
+export async function seedSimplefinConnection(
+  db: TestDb,
+  householdId: string,
+  overrides: Partial<typeof simplefinConnections.$inferInsert> = {},
+) {
+  const encrypted = encryptSecret("https://user:pass@bridge.example.com/simplefin");
+  const [connection] = await db
+    .insert(simplefinConnections)
+    .values({
+      householdId,
+      accessUrlCiphertext: encrypted.ciphertext,
+      accessUrlIv: encrypted.iv,
+      accessUrlAuthTag: encrypted.authTag,
+      ...overrides,
+    })
+    .returning();
+  return connection;
+}
+
+export async function seedConnectionAccount(
+  db: TestDb,
+  connection: { id: string; householdId: string },
+  simplefinAccountId: string,
+  overrides: Partial<typeof simplefinConnectionAccounts.$inferInsert> = {},
+) {
+  const [connAccount] = await db
+    .insert(simplefinConnectionAccounts)
+    .values({
+      connectionId: connection.id,
+      householdId: connection.householdId,
+      simplefinAccountId,
+      ...overrides,
+    })
+    .returning();
+  return connAccount;
 }
 
 export async function seedDebtSnapshot(
