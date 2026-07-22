@@ -23,12 +23,26 @@ const ruleSchema = z.object({
   target: z.string().regex(/^(expense|income):[0-9a-f-]{36}$/),
   accountId: z.uuid().optional(), // extra condition: only this account
   amount: z.string().trim().optional(), // extra condition: exact amount (abs)
-  priority: z.coerce.number().int().min(1).max(9999),
+  // min 0, not 1: early AI-suggested rules were created with priority 0 and
+  // must survive a round-trip through the edit form unchanged.
+  priority: z.coerce.number().int().min(0).max(9999),
 });
 
-export async function createRule(formData: FormData) {
-  const householdId = await getCurrentHousehold();
-  const input = ruleSchema.parse({
+function ruleValues(input: z.infer<typeof ruleSchema>) {
+  const [kind, templateId] = input.target.split(":");
+  return {
+    pattern: input.pattern,
+    matchType: input.matchType,
+    accountId: input.accountId ?? null,
+    amountCents: input.amount ? Math.abs(dollarsToCents(input.amount)) : null,
+    priority: input.priority,
+    lineItemTemplateId: kind === "expense" ? templateId : null,
+    incomeTemplateId: kind === "income" ? templateId : null,
+  };
+}
+
+function parseRuleForm(formData: FormData) {
+  return ruleSchema.parse({
     pattern: formData.get("pattern"),
     matchType: formData.get("matchType") ?? "contains",
     target: formData.get("target"),
@@ -39,18 +53,33 @@ export async function createRule(formData: FormData) {
     amount: formData.get("amount") || undefined,
     priority: formData.get("priority") || 100,
   });
-  const [kind, templateId] = input.target.split(":");
+}
+
+export async function createRule(formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = parseRuleForm(formData);
 
   await db.insert(categorizationRules).values({
     householdId,
-    pattern: input.pattern,
-    matchType: input.matchType,
-    accountId: input.accountId ?? null,
-    amountCents: input.amount ? Math.abs(dollarsToCents(input.amount)) : null,
-    priority: input.priority,
-    lineItemTemplateId: kind === "expense" ? templateId : null,
-    incomeTemplateId: kind === "income" ? templateId : null,
+    ...ruleValues(input),
   });
+
+  revalidatePath("/transactions/categorize");
+}
+
+export async function updateRule(ruleId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = parseRuleForm(formData);
+
+  await db
+    .update(categorizationRules)
+    .set(ruleValues(input))
+    .where(
+      and(
+        eq(categorizationRules.id, ruleId),
+        eq(categorizationRules.householdId, householdId),
+      ),
+    );
 
   revalidatePath("/transactions/categorize");
 }

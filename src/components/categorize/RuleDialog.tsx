@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { createRule } from "@/server/actions/categorization";
+import { createRule, updateRule } from "@/server/actions/categorization";
 
 const MATCH_TYPES = {
   contains: "Contains",
@@ -29,22 +29,38 @@ const MATCH_TYPES = {
 
 const ANY_ACCOUNT = "any";
 
+export interface RuleInitialValues {
+  ruleId: string;
+  pattern: string;
+  matchType: keyof typeof MATCH_TYPES;
+  target: string | null; // "expense:<id>" / "income:<id>", null if target deleted
+  accountId: string | null;
+  amount: string | null; // dollars, e.g. "12.34"
+  priority: number;
+}
+
 export function RuleDialog({
   targets,
   accounts,
   trigger,
   triggerClassName,
+  initial,
 }: {
   targets: { value: string; label: string }[];
   accounts: { value: string; label: string }[];
   trigger: React.ReactNode;
   triggerClassName?: string;
+  initial?: RuleInitialValues;
 }) {
   const [open, setOpen] = useState(false);
   const [error, formAction, pending] = useActionState(
     async (_prev: string | undefined, formData: FormData) => {
       try {
-        await createRule(formData);
+        if (initial) {
+          await updateRule(initial.ruleId, formData);
+        } else {
+          await createRule(formData);
+        }
         setOpen(false);
         return undefined;
       } catch {
@@ -61,13 +77,17 @@ export function RuleDialog({
       <DialogTrigger className={triggerClassName}>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New Rule</DialogTitle>
+          <DialogTitle>{initial ? "Edit Rule" : "New Rule"}</DialogTitle>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
           <div className="flex gap-3">
             <div className="flex w-36 flex-col gap-2">
               <Label htmlFor="rule-match-type">Match</Label>
-              <Select name="matchType" defaultValue="contains" items={MATCH_TYPES}>
+              <Select
+                name="matchType"
+                defaultValue={initial?.matchType ?? "contains"}
+                items={MATCH_TYPES}
+              >
                 <SelectTrigger id="rule-match-type" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -82,13 +102,23 @@ export function RuleDialog({
             </div>
             <div className="flex flex-1 flex-col gap-2">
               <Label htmlFor="rule-pattern">Description text</Label>
-              <Input id="rule-pattern" name="pattern" placeholder="e.g. NETFLIX" required />
+              <Input
+                id="rule-pattern"
+                name="pattern"
+                placeholder="e.g. NETFLIX"
+                defaultValue={initial?.pattern}
+                required
+              />
             </div>
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="rule-target">Categorize as</Label>
-            <Select name="target" items={targetItems}>
+            <Select
+              name="target"
+              defaultValue={initial?.target ?? undefined}
+              items={targetItems}
+            >
               <SelectTrigger id="rule-target" className="w-full">
                 <SelectValue placeholder="Pick a category" />
               </SelectTrigger>
@@ -102,7 +132,12 @@ export function RuleDialog({
             </Select>
           </div>
 
-          <details>
+          <details
+            open={Boolean(
+              initial &&
+                (initial.accountId || initial.amount || initial.priority !== 100),
+            )}
+          >
             <summary className="cursor-pointer text-sm text-muted-foreground">
               Extra conditions (optional)
             </summary>
@@ -111,7 +146,7 @@ export function RuleDialog({
                 <Label htmlFor="rule-account">Only this account</Label>
                 <Select
                   name="accountId"
-                  defaultValue={ANY_ACCOUNT}
+                  defaultValue={initial?.accountId ?? ANY_ACCOUNT}
                   items={{
                     [ANY_ACCOUNT]: "Any account",
                     ...Object.fromEntries(accounts.map((a) => [a.value, a.label])),
@@ -140,6 +175,7 @@ export function RuleDialog({
                     step="0.01"
                     min="0"
                     placeholder="any"
+                    defaultValue={initial?.amount ?? undefined}
                   />
                 </div>
                 <div className="flex w-28 flex-col gap-2">
@@ -148,9 +184,9 @@ export function RuleDialog({
                     id="rule-priority"
                     name="priority"
                     type="number"
-                    min="1"
+                    min="0"
                     max="9999"
-                    defaultValue={100}
+                    defaultValue={initial?.priority ?? 100}
                   />
                 </div>
               </div>
@@ -170,7 +206,7 @@ export function RuleDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : "Add Rule"}
+              {pending ? "Saving…" : initial ? "Save Changes" : "Add Rule"}
             </Button>
           </DialogFooter>
         </form>
