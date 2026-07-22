@@ -75,6 +75,7 @@ export default async function TransactionsPage({
               <TransactionDialog
                 accounts={accountList}
                 lineItems={lineItems}
+                incomeItems={overview.income}
                 trigger={<Plus className="size-6" />}
               />
             </div>
@@ -97,7 +98,7 @@ export default async function TransactionsPage({
           <>
             <Card>
               <CardContent>
-                {rows.map(({ transaction, accountName, lineItemName }, index) => {
+                {rows.map(({ transaction, accountName, lineItemName, incomeItemName }, index) => {
                   const isNewDay =
                     index === 0 ||
                     rows[index - 1].transaction.postedDate !== transaction.postedDate;
@@ -122,6 +123,7 @@ export default async function TransactionsPage({
                       <TransactionDialog
                         accounts={accountList}
                         lineItems={lineItems}
+                        incomeItems={overview.income}
                         transaction={transaction}
                         triggerClassName="block w-full text-left"
                         trigger={
@@ -138,7 +140,7 @@ export default async function TransactionsPage({
                                 )}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {accountName} · {lineItemName ?? "Uncategorized"}
+                                {accountName} · {lineItemName ?? incomeItemName ?? "Uncategorized"}
                               </div>
                             </div>
                             <div

@@ -74,6 +74,7 @@ export async function runRules(): Promise<ApplyRulesResult> {
   revalidatePath("/transactions/categorize");
   revalidatePath("/transactions");
   revalidatePath("/budget");
+  revalidatePath("/budget/income");
   revalidatePath("/summary");
   return result;
 }
@@ -117,6 +118,7 @@ export async function applyAiSuggestions(
   revalidatePath("/transactions/categorize");
   revalidatePath("/transactions");
   revalidatePath("/budget");
+  revalidatePath("/budget/income");
   revalidatePath("/summary");
   return { rulesCreated: accepted.length, matched: result.matched };
 }

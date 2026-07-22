@@ -40,7 +40,10 @@ export default async function CategorizePage() {
     })),
     ...incomeTargets.map((t) => ({
       value: `income:${t.id}`,
-      label: `Income › ${t.name}`,
+      label:
+        t.slotCount > 1
+          ? `Income › ${t.name} (${t.slotCount} checks, filled in order)`
+          : `Income › ${t.name}`,
     })),
   ];
 
