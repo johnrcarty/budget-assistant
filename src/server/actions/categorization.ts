@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import { categorizationRules } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { dollarsToCents } from "@/server/lib/money";
 import {
   applyRulesToUncategorized,
   type ApplyRulesResult,
@@ -20,6 +21,9 @@ const ruleSchema = z.object({
   matchType: z.enum(["contains", "starts_with", "exact"]),
   // "expense:<templateId>" or "income:<templateId>"
   target: z.string().regex(/^(expense|income):[0-9a-f-]{36}$/),
+  accountId: z.uuid().optional(), // extra condition: only this account
+  amount: z.string().trim().optional(), // extra condition: exact amount (abs)
+  priority: z.coerce.number().int().min(1).max(9999),
 });
 
 export async function createRule(formData: FormData) {
@@ -28,6 +32,12 @@ export async function createRule(formData: FormData) {
     pattern: formData.get("pattern"),
     matchType: formData.get("matchType") ?? "contains",
     target: formData.get("target"),
+    accountId:
+      formData.get("accountId") === "any"
+        ? undefined
+        : formData.get("accountId") || undefined,
+    amount: formData.get("amount") || undefined,
+    priority: formData.get("priority") || 100,
   });
   const [kind, templateId] = input.target.split(":");
 
@@ -35,6 +45,9 @@ export async function createRule(formData: FormData) {
     householdId,
     pattern: input.pattern,
     matchType: input.matchType,
+    accountId: input.accountId ?? null,
+    amountCents: input.amount ? Math.abs(dollarsToCents(input.amount)) : null,
+    priority: input.priority,
     lineItemTemplateId: kind === "expense" ? templateId : null,
     incomeTemplateId: kind === "income" ? templateId : null,
   });
@@ -94,6 +107,7 @@ export async function applyAiSuggestions(
       householdId,
       pattern: item.pattern,
       matchType: "contains" as const,
+      priority: 100, // manual rules with lower priority can override these
       lineItemTemplateId: item.kind === "expense" ? item.templateId : null,
       incomeTemplateId: item.kind === "income" ? item.templateId : null,
     })),

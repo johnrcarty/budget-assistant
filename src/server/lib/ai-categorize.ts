@@ -49,6 +49,7 @@ export async function getUncategorizedMerchants(
       .select({
         description: transactions.description,
         amountCents: transactions.amountCents,
+        accountId: transactions.accountId,
       })
       .from(transactions)
       .where(
@@ -63,7 +64,7 @@ export async function getUncategorizedMerchants(
 
   const groups = new Map<string, MerchantGroup>();
   for (const row of rows) {
-    if (findMatchingRule(row.description, rules)) continue;
+    if (findMatchingRule(row, rules)) continue;
     const key = merchantKey(row.description);
     if (!key) continue;
     const group = groups.get(key);

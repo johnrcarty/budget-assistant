@@ -4,10 +4,12 @@ import {
   timestamp,
   uuid,
   integer,
+  bigint,
   boolean,
   pgEnum,
 } from "drizzle-orm/pg-core";
 import { households } from "./household";
+import { accounts } from "./accounts";
 import { lineItemTemplates, incomeTemplates } from "./budget";
 
 export const ruleMatchTypeEnum = pgEnum("rule_match_type", [
@@ -28,6 +30,11 @@ export const categorizationRules = pgTable("categorization_rule", {
     .references(() => households.id, { onDelete: "cascade" }),
   pattern: text().notNull(),
   matchType: ruleMatchTypeEnum().notNull().default("contains"),
+  // Optional extra conditions ANDed with the pattern: same-employer
+  // paychecks land in different accounts, so "same description, different
+  // account" needs to route differently. Amount compares absolute values.
+  accountId: uuid().references(() => accounts.id, { onDelete: "cascade" }),
+  amountCents: bigint({ mode: "number" }),
   lineItemTemplateId: uuid().references(() => lineItemTemplates.id, {
     onDelete: "cascade",
   }),
