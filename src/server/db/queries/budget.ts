@@ -7,7 +7,7 @@ import {
   incomeLineItems,
   lineItemTemplates,
 } from "@/server/db/schema";
-import { getSpentCentsByLineItem } from "./transactions";
+import { getSpentCentsByLineItem, getReceivedCentsByIncomeItem } from "./transactions";
 import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
 
 // Always the 1st of the month - callers pass any date and this normalizes it,
@@ -297,16 +297,23 @@ export async function getBudgetOverview(householdId: string, monthDate: string) 
     spentCents: spentByItem.get(item.id) ?? 0,
   }));
 
-  const income = await db
+  const incomeRows = await db
     .select()
     .from(incomeLineItems)
     .where(eq(incomeLineItems.budgetMonthId, budgetMonth.id))
     .orderBy(asc(incomeLineItems.sortOrder));
 
+  const receivedByItem = await getReceivedCentsByIncomeItem(incomeRows.map((i) => i.id));
+  const income = incomeRows.map((item) => ({
+    ...item,
+    receivedCents: receivedByItem.get(item.id) ?? 0,
+  }));
+
   const plannedIncomeCents = income.reduce(
     (sum, i) => sum + i.plannedAmountCents,
     0,
   );
+  const receivedIncomeCents = income.reduce((sum, i) => sum + i.receivedCents, 0);
   const plannedExpensesCents = items.reduce(
     (sum, i) => sum + i.plannedAmountCents,
     0,
@@ -327,6 +334,7 @@ export async function getBudgetOverview(householdId: string, monthDate: string) 
     })),
     income,
     plannedIncomeCents,
+    receivedIncomeCents,
     plannedExpensesCents,
     leftToBudgetCents: plannedIncomeCents - plannedExpensesCents,
   };
