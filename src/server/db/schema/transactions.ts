@@ -42,6 +42,11 @@ export const transactions = pgTable(
     incomeLineItemId: uuid().references(() => incomeLineItems.id, {
       onDelete: "set null",
     }),
+    // Money moved between the household's own accounts (credit card
+    // payments, checking->savings). Excluded from cash flow income and
+    // spending; mutually exclusive with the two link columns (app-enforced:
+    // marking as transfer nulls the links and vice versa).
+    isTransfer: boolean().notNull().default(false),
     source: transactionSourceEnum().notNull().default("manual"),
     // SimpleFin's per-account transaction id. Null for manual rows - Postgres
     // treats NULLs as distinct, so manual entries never collide with synced ones.

@@ -34,6 +34,7 @@ export default async function CategorizePage() {
     ]);
 
   const targets = [
+    { value: "transfer", label: "Transfer between accounts (not income/spending)" },
     ...expenseTargets.map((t) => ({
       value: `expense:${t.id}`,
       label: `${t.groupName} › ${t.name}`,
@@ -115,11 +116,13 @@ export default async function CategorizePage() {
                         ruleId: rule.id,
                         pattern: rule.pattern,
                         matchType: rule.matchType,
-                        target: rule.lineItemTemplateId
-                          ? `expense:${rule.lineItemTemplateId}`
-                          : rule.incomeTemplateId
-                            ? `income:${rule.incomeTemplateId}`
-                            : null,
+                        target: rule.markAsTransfer
+                          ? "transfer"
+                          : rule.lineItemTemplateId
+                            ? `expense:${rule.lineItemTemplateId}`
+                            : rule.incomeTemplateId
+                              ? `income:${rule.incomeTemplateId}`
+                              : null,
                         accountId: rule.accountId,
                         amount:
                           rule.amountCents != null

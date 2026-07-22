@@ -75,11 +75,13 @@ export function TransactionDialog({
     : "";
 
   // Current category value on an edit, in the combined encoding.
-  const defaultCategory = transaction?.incomeLineItemId
-    ? `income:${transaction.incomeLineItemId}`
-    : transaction?.budgetLineItemId
-      ? `expense:${transaction.budgetLineItemId}`
-      : "none";
+  const defaultCategory = transaction?.isTransfer
+    ? "transfer"
+    : transaction?.incomeLineItemId
+      ? `income:${transaction.incomeLineItemId}`
+      : transaction?.budgetLineItemId
+        ? `expense:${transaction.budgetLineItemId}`
+        : "none";
 
   // An edited transaction may be linked to a prior month's instance that
   // isn't in this month's option list - synthesize an entry so the dialog
@@ -190,12 +192,14 @@ export function TransactionDialog({
               key={type}
               name="category"
               defaultValue={
+                defaultCategory === "transfer" ||
                 categoryOptions.some((o) => o.value === defaultCategory)
                   ? defaultCategory
                   : "none"
               }
               items={{
                 none: "Uncategorized",
+                transfer: "Transfer between accounts",
                 ...Object.fromEntries(categoryOptions.map((o) => [o.value, o.label])),
               }}
             >
@@ -204,6 +208,7 @@ export function TransactionDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Uncategorized</SelectItem>
+                <SelectItem value="transfer">Transfer between accounts</SelectItem>
                 {categoryOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}

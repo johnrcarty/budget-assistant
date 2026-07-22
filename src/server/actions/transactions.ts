@@ -10,23 +10,30 @@ import { dollarsToCents } from "@/server/lib/money";
 import { adjustAccountBalance } from "@/server/lib/account-balance";
 
 // The category <Select> sends "none" (Base UI disallows empty values),
-// "expense:<id>" for a budget line item, or "income:<id>" for an income
-// item. Decoding sets exactly one of the two link columns - or neither -
-// so a transaction can never point at both an expense and an income item.
+// "expense:<id>" for a budget line item, "income:<id>" for an income item,
+// or "transfer" for money moved between own accounts. Decoding sets at most
+// one of the two link columns and the transfer flag exclusively, so a
+// transaction can never be two of those things at once.
 const categoryField = z
   .string()
-  .regex(/^(none|expense:[0-9a-f-]{36}|income:[0-9a-f-]{36})$/i)
+  .regex(/^(none|transfer|expense:[0-9a-f-]{36}|income:[0-9a-f-]{36})$/i)
   .optional();
 
 function decodeCategory(value: string | undefined): {
   budgetLineItemId: string | null;
   incomeLineItemId: string | null;
+  isTransfer: boolean;
 } {
-  if (!value || value === "none") return { budgetLineItemId: null, incomeLineItemId: null };
+  if (!value || value === "none") {
+    return { budgetLineItemId: null, incomeLineItemId: null, isTransfer: false };
+  }
+  if (value === "transfer") {
+    return { budgetLineItemId: null, incomeLineItemId: null, isTransfer: true };
+  }
   const [kind, id] = value.split(":");
   return kind === "income"
-    ? { budgetLineItemId: null, incomeLineItemId: id }
-    : { budgetLineItemId: id, incomeLineItemId: null };
+    ? { budgetLineItemId: null, incomeLineItemId: id, isTransfer: false }
+    : { budgetLineItemId: id, incomeLineItemId: null, isTransfer: false };
 }
 
 const createSchema = z.object({
@@ -64,6 +71,7 @@ export async function createTransaction(formData: FormData) {
       postedDate: input.postedDate,
       budgetLineItemId: links.budgetLineItemId,
       incomeLineItemId: links.incomeLineItemId,
+      isTransfer: links.isTransfer,
       note: input.note || null,
       source: "manual",
     });
@@ -123,6 +131,7 @@ export async function updateTransaction(transactionId: string, formData: FormDat
         postedDate: input.postedDate,
         budgetLineItemId: links.budgetLineItemId,
         incomeLineItemId: links.incomeLineItemId,
+        isTransfer: links.isTransfer,
         note: input.note || null,
         updatedAt: new Date(),
       })
