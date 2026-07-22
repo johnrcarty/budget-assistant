@@ -55,7 +55,12 @@ export default async function IncomePage({
 
   return (
     <div>
-      <MonthHeader month={month} basePath="/budget/income" />
+      <MonthHeader
+        month={month}
+        basePath="/budget/income"
+        backHref={`/budget?month=${month}`}
+        backLabel="Budget"
+      />
 
       <div className="p-4">
         <Card className="mb-4">
