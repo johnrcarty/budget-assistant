@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
+import { incomeSlotGroupKey, incomeSlotGroupLabel } from "@/lib/income-slots";
 import { db } from "@/server/db/client";
 import {
   transactions,
@@ -49,6 +50,31 @@ function dateConditions(range: CashflowRange) {
 // twelve months is a single node.
 function mergeKey(templateItemId: string | null, name: string): string {
   return templateItemId ?? `name:${name.trim().toLowerCase()}`;
+}
+
+// Income merges one level coarser than expenses: numbered paycheck slots
+// ("Person A 1", "Person A 2") collapse into a single per-person source via the
+// same name convention the slot-filling engine uses.
+function mergeIncomeSources(
+  rows: { name: string; totalCents: number }[],
+): CashflowItem[] {
+  const merged = new Map<string, CashflowItem>();
+  for (const row of rows) {
+    const key = `slot:${incomeSlotGroupKey(row.name)}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.totalCents += row.totalCents;
+    } else {
+      merged.set(key, {
+        key,
+        name: incomeSlotGroupLabel(row.name),
+        totalCents: row.totalCents,
+      });
+    }
+  }
+  return [...merged.values()]
+    .filter((item) => item.totalCents > 0)
+    .sort((a, b) => b.totalCents - a.totalCents);
 }
 
 function mergeItems(
@@ -142,8 +168,8 @@ export async function getCashflow(
         ),
     ]);
 
-  const incomeSources = mergeItems(
-    incomeRows.map((row) => ({ ...row, totalCents: Number(row.totalCents) })),
+  const incomeSources = mergeIncomeSources(
+    incomeRows.map((row) => ({ name: row.name, totalCents: Number(row.totalCents) })),
   );
 
   const groupMap = new Map<
