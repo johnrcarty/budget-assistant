@@ -131,7 +131,37 @@ export const incomeLineItems = pgTable("income_line_item", {
   }),
   name: text().notNull(),
   plannedAmountCents: bigint({ mode: "number" }).notNull().default(0),
+  // Expected deposit date, stamped from the group's pay schedule. Display
+  // metadata only - slot filling still assigns deposits in posted order.
+  expectedDate: date(),
   sortOrder: integer().notNull().default(0),
   createdAt: timestamp().notNull().defaultNow(),
   updatedAt: timestamp().notNull().defaultNow(),
 });
+
+// Pay schedule per paycheck slot-group ("person a", "person b"), keyed by the
+// same name-derived group key the slot-filling engine uses
+// (incomeSlotGroupKey). Renaming every slot in a group orphans its schedule
+// row - the UI treats that as "no schedule yet" and the next save upserts on
+// the new key.
+export const incomeSchedules = pgTable(
+  "income_schedule",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    householdId: uuid()
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    groupKey: text().notNull(),
+    // 'weekly' | 'biweekly' | 'semimonthly' | 'monthly' | 'irregular'
+    frequency: text().notNull(),
+    // One known check date anchoring the series; null only for 'irregular'.
+    anchorDate: date(),
+    // Semimonthly only: the second pay day of the month (the first comes
+    // from anchorDate's day-of-month).
+    secondDayOfMonth: integer(),
+    perCheckAmountCents: bigint({ mode: "number" }).notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.householdId, t.groupKey)],
+);
