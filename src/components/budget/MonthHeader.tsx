@@ -15,7 +15,11 @@ export function MonthHeader({
   rightAction?: React.ReactNode;
 }) {
   return (
-    <header className="px-4 pt-6 pb-3">
+    // Sticky so the month nav and Planned/Spent/Remaining toggle stay
+    // reachable while scrolling a long budget. bg-background (vs the
+    // page's bg-muted) plus the border gives it visible division from
+    // the content sliding underneath.
+    <header className="sticky top-0 z-30 border-b bg-background px-4 pt-6 pb-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
@@ -35,6 +39,10 @@ export function MonthHeader({
             <Link
               key={m}
               href={`${basePath}?month=${month}&mode=${m}`}
+              // Keep the scroll position - switching the display mode
+              // re-renders the same list, and jumping to the top loses
+              // your place. (Month prev/next still resets, deliberately.)
+              scroll={false}
               className={`flex-1 rounded-md py-1.5 text-center capitalize ${
                 m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
               }`}
