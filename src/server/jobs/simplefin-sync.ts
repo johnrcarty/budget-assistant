@@ -7,6 +7,7 @@ import {
   accounts,
   transactions,
   debtBalanceSnapshots,
+  accountBalanceSnapshots,
 } from "@/server/db/schema";
 import { decryptSecret } from "@/server/lib/crypto/secret-box";
 import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
@@ -162,15 +163,35 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         .set({ currentBalanceCents: normalizedBalanceCents, balanceAsOf: new Date() })
         .where(eq(accounts.id, linkedAccountId));
 
+      // Every synced account gets a general balance snapshot - this is the
+      // only balance history that exists for accounts without transactions
+      // (investments, savings), which is what powers their trend lines.
+      const balanceAsOfDate = new Date(simplefinAccount["balance-date"] * 1000)
+        .toISOString()
+        .slice(0, 10);
+      await db
+        .insert(accountBalanceSnapshots)
+        .values({
+          accountId: linkedAccountId,
+          asOfDate: balanceAsOfDate,
+          balanceCents: normalizedBalanceCents,
+          source: "simplefin",
+        })
+        .onConflictDoUpdate({
+          target: [
+            accountBalanceSnapshots.accountId,
+            accountBalanceSnapshots.asOfDate,
+            accountBalanceSnapshots.source,
+          ],
+          set: { balanceCents: normalizedBalanceCents },
+        });
+
       if (localAccount.isLiability) {
-        const asOfDate = new Date(simplefinAccount["balance-date"] * 1000)
-          .toISOString()
-          .slice(0, 10);
         await db
           .insert(debtBalanceSnapshots)
           .values({
             accountId: linkedAccountId,
-            asOfDate,
+            asOfDate: balanceAsOfDate,
             balanceCents: normalizedBalanceCents,
             source: "simplefin",
           })

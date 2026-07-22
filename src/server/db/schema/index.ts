@@ -4,6 +4,7 @@ export * from "./budget";
 export * from "./accounts";
 export * from "./transactions";
 export * from "./debt";
+export * from "./balance-history";
 export * from "./simplefin";
 export * from "./income-tracking";
 export * from "./categorization";
