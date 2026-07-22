@@ -66,7 +66,12 @@ export interface TransactionFilters {
   pageSize: number;
 }
 
-function buildFilterConditions(householdId: string, filters: TransactionFilters) {
+// The filter set that defines *which* transactions, without pagination -
+// what a bulk operation over "everything matching the current filters"
+// takes.
+export type TransactionWhereFilters = Omit<TransactionFilters, "page" | "pageSize">;
+
+function buildFilterConditions(householdId: string, filters: TransactionWhereFilters) {
   const conditions = [eq(transactions.householdId, householdId)];
 
   if (filters.search) {
@@ -215,12 +220,38 @@ export async function getUncategorizedCount(householdId: string): Promise<number
   return total;
 }
 
-export async function getFilteredTransactions(householdId: string, filters: TransactionFilters) {
+async function buildTransactionWhere(householdId: string, filters: TransactionWhereFilters) {
   let where = buildFilterConditions(householdId, filters);
   if (filters.flow) {
     const flowCondition = await resolveFlowCondition(householdId, filters.flow);
     if (flowCondition) where = and(where, flowCondition);
   }
+  return where;
+}
+
+// Sets the category links on every transaction matching the filters.
+// Category changes never touch amountCents, so account balances are
+// unaffected. Returns the number of rows updated.
+export async function bulkSetTransactionCategory(
+  householdId: string,
+  filters: TransactionWhereFilters,
+  links: {
+    budgetLineItemId: string | null;
+    incomeLineItemId: string | null;
+    isTransfer: boolean;
+  },
+): Promise<number> {
+  const where = await buildTransactionWhere(householdId, filters);
+  const updated = await db
+    .update(transactions)
+    .set({ ...links, updatedAt: new Date() })
+    .where(where)
+    .returning({ id: transactions.id });
+  return updated.length;
+}
+
+export async function getFilteredTransactions(householdId: string, filters: TransactionFilters) {
+  const where = await buildTransactionWhere(householdId, filters);
 
   const [rows, [{ total }]] = await Promise.all([
     db

@@ -2,13 +2,17 @@ import Link from "next/link";
 import { Plus, Upload, Wand2, X } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts } from "@/server/db/queries/accounts";
-import { getFilteredTransactions } from "@/server/db/queries/transactions";
+import {
+  getFilteredTransactions,
+  type TransactionWhereFilters,
+} from "@/server/db/queries/transactions";
 import { getBudgetOverview } from "@/server/db/queries/budget";
 import { currentMonthString, formatFullDate } from "@/lib/month";
 import { resolveDateRange, isDateRangePreset } from "@/lib/date-range";
 import { formatCents, dollarsToCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { TransactionDialog } from "@/components/transactions/TransactionDialog";
+import { BulkCategorizeDialog } from "@/components/transactions/BulkCategorizeDialog";
 import { TransactionsToolbar } from "@/components/transactions/TransactionsToolbar";
 import { TransactionPagination } from "@/components/transactions/TransactionPagination";
 import { Badge } from "@/components/ui/badge";
@@ -83,23 +87,25 @@ export default async function TransactionsPage({
     ) as [string, string][],
   ).toString();
 
+  // The pagination-free filter set: what getFilteredTransactions matches
+  // against, and what bulk categorize applies to.
+  const whereFilters: TransactionWhereFilters = {
+    search: params.search,
+    accountIds,
+    startDate,
+    endDate,
+    pending,
+    categorized,
+    direction,
+    minAmountCents,
+    maxAmountCents,
+    flow,
+  };
+
   const householdId = await getCurrentHousehold();
   const [accountList, { rows, totalCount }, overview] = await Promise.all([
     getAccounts(householdId),
-    getFilteredTransactions(householdId, {
-      search: params.search,
-      accountIds,
-      startDate,
-      endDate,
-      pending,
-      categorized,
-      direction,
-      minAmountCents,
-      maxAmountCents,
-      flow,
-      page,
-      pageSize,
-    }),
+    getFilteredTransactions(householdId, { ...whereFilters, page, pageSize }),
     getBudgetOverview(householdId, currentMonthString()),
   ]);
 
@@ -156,6 +162,17 @@ export default async function TransactionsPage({
           </p>
         ) : (
           <>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">
+                {totalCount} {totalCount === 1 ? "transaction" : "transactions"}
+              </span>
+              <BulkCategorizeDialog
+                filters={whereFilters}
+                totalCount={totalCount}
+                lineItems={lineItems}
+                incomeItems={overview.income}
+              />
+            </div>
             <Card>
               <CardContent>
                 {rows.map(({ transaction, accountName, lineItemName, incomeItemName }, index) => {
