@@ -29,6 +29,16 @@ export default async function IncomePage({
             <div className="text-2xl font-bold">
               {formatCents(overview.plannedIncomeCents)}
             </div>
+            <div className="pt-1 text-sm text-muted-foreground">
+              <span
+                className={
+                  overview.receivedIncomeCents > 0 ? "font-medium text-primary" : ""
+                }
+              >
+                {formatCents(overview.receivedIncomeCents)}
+              </span>{" "}
+              received so far
+            </div>
           </CardContent>
         </Card>
 
@@ -43,7 +53,16 @@ export default async function IncomePage({
                 key={item.id}
                 className="flex items-center justify-between border-b py-3 last:border-b-0"
               >
-                <div className="font-medium">{item.name}</div>
+                <div>
+                  <div className="font-medium">{item.name}</div>
+                  {item.receivedCents > 0 ? (
+                    <div className="text-sm font-medium text-primary">
+                      ✓ {formatCents(item.receivedCents)} received
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">expected</div>
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
                   <span className="font-medium">
                     {formatCents(item.plannedAmountCents)}
@@ -63,6 +82,11 @@ export default async function IncomePage({
             <div className="pt-3">
               <AddIncomeItemDialog month={month} />
             </div>
+            <p className="pt-2 text-xs text-muted-foreground">
+              Numbered names like &ldquo;Natasha 1&rdquo; / &ldquo;Natasha 2&rdquo; are
+              treated as paycheck slots for one source - rules fill them in
+              deposit order.
+            </p>
           </CardContent>
         </Card>
       </div>

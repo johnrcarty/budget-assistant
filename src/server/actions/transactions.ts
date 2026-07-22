@@ -9,13 +9,25 @@ import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import { adjustAccountBalance } from "@/server/lib/account-balance";
 
-// The category <Select> can't use an empty-string value for "Uncategorized"
-// (Base UI/Radix both disallow it), so the client sends the sentinel "none"
-// instead - normalized to null here before it ever reaches the DB layer.
-const lineItemIdField = z
-  .union([z.uuid(), z.literal("none"), z.literal("")])
-  .optional()
-  .transform((v) => (v === "none" || v === "" || v === undefined ? null : v));
+// The category <Select> sends "none" (Base UI disallows empty values),
+// "expense:<id>" for a budget line item, or "income:<id>" for an income
+// item. Decoding sets exactly one of the two link columns - or neither -
+// so a transaction can never point at both an expense and an income item.
+const categoryField = z
+  .string()
+  .regex(/^(none|expense:[0-9a-f-]{36}|income:[0-9a-f-]{36})$/i)
+  .optional();
+
+function decodeCategory(value: string | undefined): {
+  budgetLineItemId: string | null;
+  incomeLineItemId: string | null;
+} {
+  if (!value || value === "none") return { budgetLineItemId: null, incomeLineItemId: null };
+  const [kind, id] = value.split(":");
+  return kind === "income"
+    ? { budgetLineItemId: null, incomeLineItemId: id }
+    : { budgetLineItemId: id, incomeLineItemId: null };
+}
 
 const createSchema = z.object({
   accountId: z.uuid(),
@@ -23,7 +35,7 @@ const createSchema = z.object({
   amount: z.string().trim(),
   description: z.string().trim().min(1).max(200),
   postedDate: z.string(),
-  budgetLineItemId: lineItemIdField,
+  category: categoryField,
   note: z.string().trim().max(2000).optional(),
 });
 
@@ -35,9 +47,10 @@ export async function createTransaction(formData: FormData) {
     amount: formData.get("amount") || "0",
     description: formData.get("description"),
     postedDate: formData.get("postedDate"),
-    budgetLineItemId: formData.get("budgetLineItemId") || "",
+    category: formData.get("category") || "none",
     note: formData.get("note") || undefined,
   });
+  const links = decodeCategory(input.category);
 
   const magnitude = Math.abs(dollarsToCents(input.amount));
   const amountCents = input.type === "expense" ? -magnitude : magnitude;
@@ -49,7 +62,8 @@ export async function createTransaction(formData: FormData) {
       amountCents,
       description: input.description,
       postedDate: input.postedDate,
-      budgetLineItemId: input.budgetLineItemId,
+      budgetLineItemId: links.budgetLineItemId,
+      incomeLineItemId: links.incomeLineItemId,
       note: input.note || null,
       source: "manual",
     });
@@ -59,6 +73,7 @@ export async function createTransaction(formData: FormData) {
 
   revalidatePath("/transactions");
   revalidatePath("/budget");
+  revalidatePath("/budget/income");
   revalidatePath("/accounts");
 }
 
@@ -67,7 +82,7 @@ const updateSchema = z.object({
   amount: z.string().trim(),
   description: z.string().trim().min(1).max(200),
   postedDate: z.string(),
-  budgetLineItemId: lineItemIdField,
+  category: categoryField,
   note: z.string().trim().max(2000).optional(),
 });
 
@@ -78,9 +93,10 @@ export async function updateTransaction(transactionId: string, formData: FormDat
     amount: formData.get("amount") || "0",
     description: formData.get("description"),
     postedDate: formData.get("postedDate"),
-    budgetLineItemId: formData.get("budgetLineItemId") || "",
+    category: formData.get("category") || "none",
     note: formData.get("note") || undefined,
   });
+  const links = decodeCategory(input.category);
 
   const magnitude = Math.abs(dollarsToCents(input.amount));
   const newAmountCents = input.type === "expense" ? -magnitude : magnitude;
@@ -105,7 +121,8 @@ export async function updateTransaction(transactionId: string, formData: FormDat
         amountCents: newAmountCents,
         description: input.description,
         postedDate: input.postedDate,
-        budgetLineItemId: input.budgetLineItemId,
+        budgetLineItemId: links.budgetLineItemId,
+        incomeLineItemId: links.incomeLineItemId,
         note: input.note || null,
         updatedAt: new Date(),
       })
@@ -117,6 +134,7 @@ export async function updateTransaction(transactionId: string, formData: FormDat
 
   revalidatePath("/transactions");
   revalidatePath("/budget");
+  revalidatePath("/budget/income");
   revalidatePath("/accounts");
 }
 
@@ -143,5 +161,6 @@ export async function deleteTransaction(transactionId: string) {
 
   revalidatePath("/transactions");
   revalidatePath("/budget");
+  revalidatePath("/budget/income");
   revalidatePath("/accounts");
 }

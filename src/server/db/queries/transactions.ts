@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { transactions, accounts, budgetLineItems } from "@/server/db/schema";
+import { transactions, accounts, budgetLineItems, incomeLineItems } from "@/server/db/schema";
 import { shiftMonthString } from "@/lib/month";
 
 export async function getTransactionsForMonth(householdId: string, month: string) {
@@ -11,10 +11,12 @@ export async function getTransactionsForMonth(householdId: string, month: string
       transaction: transactions,
       accountName: accounts.name,
       lineItemName: budgetLineItems.name,
+      incomeItemName: incomeLineItems.name,
     })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .leftJoin(budgetLineItems, eq(transactions.budgetLineItemId, budgetLineItems.id))
+    .leftJoin(incomeLineItems, eq(transactions.incomeLineItemId, incomeLineItems.id))
     .where(
       and(
         eq(transactions.householdId, householdId),
@@ -88,10 +90,12 @@ export async function getFilteredTransactions(householdId: string, filters: Tran
         transaction: transactions,
         accountName: accounts.name,
         lineItemName: budgetLineItems.name,
+        incomeItemName: incomeLineItems.name,
       })
       .from(transactions)
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))
       .leftJoin(budgetLineItems, eq(transactions.budgetLineItemId, budgetLineItems.id))
+      .leftJoin(incomeLineItems, eq(transactions.incomeLineItemId, incomeLineItems.id))
       .where(where)
       .orderBy(desc(transactions.postedDate), desc(transactions.createdAt))
       .limit(filters.pageSize)
@@ -122,6 +126,29 @@ export async function getSpentCentsByLineItem(
   const map = new Map<string, number>();
   for (const row of rows) {
     if (row.budgetLineItemId) map.set(row.budgetLineItemId, Number(row.spentCents));
+  }
+  return map;
+}
+
+// Income analog of getSpentCentsByLineItem: no negation, since income is
+// stored positive (a reversal naturally nets the total down).
+export async function getReceivedCentsByIncomeItem(
+  incomeItemIds: string[],
+): Promise<Map<string, number>> {
+  if (incomeItemIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      incomeLineItemId: transactions.incomeLineItemId,
+      receivedCents: sql<number>`sum(${transactions.amountCents})`,
+    })
+    .from(transactions)
+    .where(inArray(transactions.incomeLineItemId, incomeItemIds))
+    .groupBy(transactions.incomeLineItemId);
+
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    if (row.incomeLineItemId) map.set(row.incomeLineItemId, Number(row.receivedCents));
   }
   return map;
 }
