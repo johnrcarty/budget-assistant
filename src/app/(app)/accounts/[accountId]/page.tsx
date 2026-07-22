@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { getAccounts } from "@/server/db/queries/accounts";
 import { getDebtDetail } from "@/server/db/queries/debt";
 import { getLinkedDebtTemplate } from "@/server/db/queries/debt-plan";
 import { linkDebtToBudget, unlinkDebtFromBudget } from "@/server/actions/debt-plan";
+import { unlinkSecuredAsset } from "@/server/actions/debt";
 import { formatCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DebtInfoForm } from "@/components/accounts/DebtInfoForm";
 import { DebtBalanceForm } from "@/components/accounts/DebtBalanceForm";
 import { DebtTermsForm } from "@/components/accounts/DebtTermsForm";
+import { SecuredAssetForm } from "@/components/accounts/SecuredAssetForm";
 
 const STALE_BALANCE_DAYS = 30;
 
@@ -20,14 +23,27 @@ export default async function DebtAccountPage({
 }) {
   const { accountId } = await params;
   const householdId = await getCurrentHousehold();
-  const [detail, linkedTemplate] = await Promise.all([
+  const [detail, linkedTemplate, allAccounts] = await Promise.all([
     getDebtDetail(householdId, accountId),
     getLinkedDebtTemplate(householdId, accountId),
+    getAccounts(householdId),
   ]);
 
   if (!detail) notFound();
 
-  const { account, terms, latestBalance, balanceHistory, termsHistory, projection } = detail;
+  const {
+    account,
+    terms,
+    latestBalance,
+    balanceHistory,
+    termsHistory,
+    projection,
+    securedAsset,
+    equityCents,
+  } = detail;
+  const assetOptions = allAccounts
+    .filter((a) => !a.isLiability)
+    .map((a) => ({ id: a.id, name: a.name }));
 
   const balanceAgeDays = latestBalance
     ? Math.floor(
@@ -60,8 +76,13 @@ export default async function DebtAccountPage({
           <CardContent>
             <h2 className="pb-1 font-bold">Current Balance</h2>
             {paidOffCents !== null && (
-              <p className="pb-3 text-sm text-muted-foreground">
+              <p className={`${equityCents !== null ? "pb-1" : "pb-3"} text-sm text-muted-foreground`}>
                 {formatCents(paidOffCents)} paid off so far
+              </p>
+            )}
+            {equityCents !== null && securedAsset && (
+              <p className="pb-3 text-sm text-muted-foreground">
+                {formatCents(equityCents)} equity in {securedAsset.name}
               </p>
             )}
             <DebtBalanceForm accountId={account.id} latestBalance={latestBalance} />
@@ -128,6 +149,34 @@ export default async function DebtAccountPage({
                     Add to budget
                   </Button>
                 </form>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <h2 className="pb-2 font-bold">Secured By</h2>
+            {securedAsset ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Secured by{" "}
+                  <span className="font-medium text-foreground">{securedAsset.name}</span>
+                  {" · "}valued at {formatCents(securedAsset.currentBalanceCents ?? 0)}
+                </p>
+                <form action={unlinkSecuredAsset.bind(null, account.id)}>
+                  <Button type="submit" variant="outline" size="sm">
+                    Unlink
+                  </Button>
+                </form>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Link the asset this loan is secured by — net worth will show your
+                  equity automatically.
+                </p>
+                <SecuredAssetForm accountId={account.id} assetOptions={assetOptions} />
               </div>
             )}
           </CardContent>

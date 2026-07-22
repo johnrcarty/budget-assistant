@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatCents } from "@/server/lib/money";
+import { formatCents, formatCentsCompact } from "@/server/lib/money";
 import {
   Dialog,
   DialogContent,
@@ -17,18 +17,6 @@ const H = 220;
 const M = { top: 16, right: 16, bottom: 26, left: 10 };
 const innerW = W - M.left - M.right;
 const innerH = H - M.top - M.bottom;
-
-const compactUsd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
-  trailingZeroDisplay: "stripIfInteger",
-});
-
-function formatCompactCents(cents: number): string {
-  return compactUsd.format(cents / 100);
-}
 
 function formatPointDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
@@ -145,7 +133,7 @@ export function TrendChart({
               y={y(t) - 4}
               className="fill-muted-foreground text-[10px]"
             >
-              {formatCompactCents(t)}
+              {formatCentsCompact(t)}
             </text>
           </g>
         ))}

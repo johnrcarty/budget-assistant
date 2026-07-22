@@ -3,7 +3,7 @@ import { RefreshCw } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts, getArchivedAccounts } from "@/server/db/queries/accounts";
 import { getBalanceTrends, type BalanceTrends } from "@/server/db/queries/balance-trends";
-import { formatCents } from "@/server/lib/money";
+import { formatCents, formatCentsCompact } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
 import { EditAccountDialog } from "@/components/accounts/EditAccountDialog";
@@ -25,6 +25,29 @@ export default async function AccountsPage() {
   const assets = accounts.filter((a) => !a.isLiability);
   const liabilities = accounts.filter((a) => a.isLiability);
   const netWorthCents = trends.netWorthSeries[trends.netWorthSeries.length - 1];
+
+  // Equity per secured asset: its value minus every liability linked to it
+  // (mortgage + HELOC on one house both subtract). Entries whose asset
+  // isn't in the active assets list (archived, dangling) are dropped.
+  const equityByAsset = new Map<string, { equityCents: number; liabilityNames: string[] }>();
+  for (const liability of liabilities) {
+    if (!liability.securedAssetAccountId) continue;
+    const entry = equityByAsset.get(liability.securedAssetAccountId) ?? {
+      equityCents: 0,
+      liabilityNames: [],
+    };
+    entry.equityCents -= liability.currentBalanceCents ?? 0;
+    entry.liabilityNames.push(liability.name);
+    equityByAsset.set(liability.securedAssetAccountId, entry);
+  }
+  for (const [assetId, entry] of equityByAsset) {
+    const asset = assets.find((a) => a.id === assetId);
+    if (!asset) {
+      equityByAsset.delete(assetId);
+      continue;
+    }
+    entry.equityCents += asset.currentBalanceCents ?? 0;
+  }
 
   return (
     <div>
@@ -70,6 +93,7 @@ export default async function AccountsPage() {
             totalSeries={trends.assetsSeries}
             accounts={assets}
             trends={trends}
+            equityByAsset={equityByAsset}
           />
         )}
 
@@ -131,6 +155,7 @@ function AccountSection({
   totalSeries,
   accounts,
   trends,
+  equityByAsset,
   isLiability = false,
 }: {
   title: string;
@@ -138,6 +163,7 @@ function AccountSection({
   totalSeries: number[];
   accounts: Account[];
   trends: BalanceTrends;
+  equityByAsset?: Map<string, { equityCents: number; liabilityNames: string[] }>;
   isLiability?: boolean;
 }) {
   const seriesByAccount = new Map(trends.accounts.map((t) => [t.accountId, t.series]));
@@ -161,7 +187,9 @@ function AccountSection({
         />
       </div>
       <div className="flex flex-col gap-3">
-        {accounts.map((account) => (
+        {accounts.map((account) => {
+          const equity = equityByAsset?.get(account.id);
+          return (
           <Card key={account.id}>
             <CardContent className="flex items-center justify-between gap-3">
               <EditAccountDialog
@@ -170,6 +198,9 @@ function AccountSection({
                   name: account.name,
                   kind: account.kind,
                   isLiability: account.isLiability,
+                  isManual: account.isManual,
+                  currentBalanceCents: account.currentBalanceCents,
+                  originalBalanceCents: account.originalBalanceCents,
                 }}
                 triggerClassName="min-w-0 flex-1 text-left"
                 trigger={
@@ -178,6 +209,18 @@ function AccountSection({
                     <div className="text-sm text-muted-foreground">
                       {KIND_LABELS[account.kind] ?? account.kind}
                     </div>
+                    {equity && (
+                      <div
+                        className={`truncate text-sm ${
+                          equity.equityCents < 0
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {formatCentsCompact(equity.equityCents)} equity ·{" "}
+                        {equity.liabilityNames.join(", ")}
+                      </div>
+                    )}
                   </div>
                 }
               />
@@ -197,7 +240,8 @@ function AccountSection({
               />
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

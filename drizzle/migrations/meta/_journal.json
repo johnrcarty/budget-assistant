@@ -85,6 +85,13 @@
       "when": 1784751155337,
       "tag": "0011_conscious_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784753101816,
+      "tag": "0012_outgoing_mongu",
+      "breakpoints": true
     }
   ]
 }
