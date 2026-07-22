@@ -174,6 +174,70 @@ export async function createForecast(formData: FormData) {
   redirect(`/income?forecast=${forecast.id}`);
 }
 
+const importRowSchema = z.object({
+  person: z.string().trim().min(1).max(60),
+  year: z.number().int().min(1900).max(2200),
+  source: z.string().trim().min(1).max(40),
+  amountCents: z.number().int().positive(),
+  fedTaxCents: z.number().int().nonnegative().nullable(),
+  stateTaxCents: z.number().int().nonnegative().nullable(),
+  localTaxCents: z.number().int().nonnegative().nullable(),
+  medicareCents: z.number().int().nonnegative().nullable(),
+  socialSecurityCents: z.number().int().nonnegative().nullable(),
+});
+
+export interface IncomeImportResult {
+  imported: number;
+  skippedDuplicates: number;
+}
+
+// Content-based dedup, same trade-off as the transactions CSV import: a row
+// exactly matching an existing entry's (person, year, source, amount) is
+// treated as a re-import and skipped, which makes importing the same file
+// twice safe. Two genuinely identical real entries would collide - add one
+// of them manually in that rare case.
+export async function importIncomeCsv(
+  rows: z.infer<typeof importRowSchema>[],
+): Promise<IncomeImportResult> {
+  const householdId = await getCurrentHousehold();
+  const input = z.array(importRowSchema).min(1).max(5000).parse(rows);
+
+  const existing = await db
+    .select()
+    .from(annualIncomeEntries)
+    .where(eq(annualIncomeEntries.householdId, householdId));
+  const seen = new Set(
+    existing.map(
+      (e) => `${e.person.toLowerCase()}|${e.year}|${e.source}|${e.amountCents}`,
+    ),
+  );
+
+  let imported = 0;
+  await db.transaction(async (tx) => {
+    for (const row of input) {
+      const key = `${row.person.toLowerCase()}|${row.year}|${row.source.toLowerCase()}|${row.amountCents}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      await tx.insert(annualIncomeEntries).values({
+        householdId,
+        person: row.person,
+        year: row.year,
+        source: row.source.toLowerCase(),
+        amountCents: row.amountCents,
+        fedTaxCents: row.fedTaxCents,
+        stateTaxCents: row.stateTaxCents,
+        localTaxCents: row.localTaxCents,
+        medicareCents: row.medicareCents,
+        socialSecurityCents: row.socialSecurityCents,
+      });
+      imported += 1;
+    }
+  });
+
+  revalidatePath("/income");
+  return { imported, skippedDuplicates: input.length - imported };
+}
+
 export async function deleteForecast(forecastId: string) {
   const householdId = await getCurrentHousehold();
   await db
