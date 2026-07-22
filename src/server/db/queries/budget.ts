@@ -8,6 +8,8 @@ import {
   lineItemTemplates,
 } from "@/server/db/schema";
 import { getSpentCentsByLineItem, getReceivedCentsByIncomeItem } from "./transactions";
+import { getStampingScheduleKeys } from "./income-schedules";
+import { incomeSlotGroupKey } from "@/lib/income-slots";
 import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
 
 // Always the 1st of the month - callers pass any date and this normalizes it,
@@ -215,6 +217,9 @@ export async function getMostRecentMonthWithBudget(
 // User-initiated only (the "Create <Month> Budget" button) - never runs
 // silently on page load. Clones the source month's line items and income
 // items as-is, including any one-off items, same as EveryDollar's copy.
+// Income groups with a pay schedule are excluded: the caller stamps those
+// via ensureScheduledIncomeForMonth so the target month gets the slot count
+// its own calendar calls for (2 vs 3 checks), not the source month's.
 export async function copyMonthBudget(
   householdId: string,
   sourceBudgetMonthId: string,
@@ -243,10 +248,13 @@ export async function copyMonthBudget(
     );
   }
 
-  const sourceIncome = await db
-    .select()
-    .from(incomeLineItems)
-    .where(eq(incomeLineItems.budgetMonthId, sourceBudgetMonthId));
+  const scheduledKeys = await getStampingScheduleKeys(householdId);
+  const sourceIncome = (
+    await db
+      .select()
+      .from(incomeLineItems)
+      .where(eq(incomeLineItems.budgetMonthId, sourceBudgetMonthId))
+  ).filter((item) => !scheduledKeys.has(incomeSlotGroupKey(item.name)));
 
   if (sourceIncome.length > 0) {
     await db.insert(incomeLineItems).values(
