@@ -5,10 +5,31 @@ import {
   uuid,
   boolean,
   bigint,
+  integer,
   pgEnum,
+  unique,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { households } from "./household";
+
+// Display-level rollup of accounts (e.g. "Student Loans — John" holding 14
+// individual Nelnet loans). Grouping changes ONLY how the accounts page
+// renders - members stay ordinary accounts everywhere else (debt payoff,
+// trends, budget links all operate per account). Unique name per household
+// gives get-or-create for the inline "New group…" flow.
+export const accountGroups = pgTable(
+  "account_group",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    householdId: uuid()
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    sortOrder: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.householdId, t.name)],
+);
 
 // investment/crypto are reserved now and unused until that phase is built -
 // future holdings tables will key off accounts.id without touching this table.
@@ -56,6 +77,9 @@ export const accounts = pgTable("account", {
   securedAssetAccountId: uuid().references((): AnyPgColumn => accounts.id, {
     onDelete: "set null",
   }),
+  // Optional membership in a display rollup; deleting the group just
+  // ungroups the members (set null), never touches the accounts.
+  accountGroupId: uuid().references(() => accountGroups.id, { onDelete: "set null" }),
   isManual: boolean().notNull().default(true),
   isArchived: boolean().notNull().default(false),
   icon: text(),

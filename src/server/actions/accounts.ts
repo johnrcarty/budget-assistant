@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import {
   accounts,
+  accountGroups,
   accountKindEnum,
   lineItemTemplates,
   accountBalanceSnapshots,
@@ -33,7 +34,49 @@ const createSchema = z.object({
   startingBalance: z.string().trim(),
   purchasePrice: z.string().trim().optional(),
   purchaseDate: z.string().regex(ISO_DATE_PATTERN).optional(),
+  // "none", "__new__" (with newGroupName), or a group uuid.
+  accountGroupId: z.string().optional(),
+  newGroupName: z.string().trim().max(80).optional(),
 });
+
+// Resolves the Group select's value to a group id or null. "__new__" is
+// get-or-create by (household, name) - the unique constraint makes the
+// conflict path race-safe. A uuid is only honored if it belongs to this
+// household. Non-exported, so it never becomes a server-action endpoint.
+async function resolveAccountGroupId(
+  householdId: string,
+  accountGroupId: string | undefined,
+  newGroupName: string | undefined,
+): Promise<string | null> {
+  if (accountGroupId === "__new__" && newGroupName) {
+    const [created] = await db
+      .insert(accountGroups)
+      .values({ householdId, name: newGroupName })
+      .onConflictDoNothing()
+      .returning({ id: accountGroups.id });
+    if (created) return created.id;
+    const [existing] = await db
+      .select({ id: accountGroups.id })
+      .from(accountGroups)
+      .where(
+        and(eq(accountGroups.householdId, householdId), eq(accountGroups.name, newGroupName)),
+      )
+      .limit(1);
+    return existing?.id ?? null;
+  }
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (accountGroupId && UUID_PATTERN.test(accountGroupId)) {
+    const [group] = await db
+      .select({ id: accountGroups.id })
+      .from(accountGroups)
+      .where(
+        and(eq(accountGroups.id, accountGroupId), eq(accountGroups.householdId, householdId)),
+      )
+      .limit(1);
+    return group?.id ?? null;
+  }
+  return null;
+}
 
 export async function createAccount(formData: FormData) {
   const householdId = await getCurrentHousehold();
@@ -43,6 +86,8 @@ export async function createAccount(formData: FormData) {
     startingBalance: formData.get("startingBalance") || "0",
     purchasePrice: formData.get("purchasePrice") || undefined,
     purchaseDate: formData.get("purchaseDate") || undefined,
+    accountGroupId: formData.get("accountGroupId") || undefined,
+    newGroupName: formData.get("newGroupName") || undefined,
   });
 
   const isPhysicalAsset = PHYSICAL_ASSET_KINDS.has(input.kind);
@@ -50,6 +95,11 @@ export async function createAccount(formData: FormData) {
   const purchasePriceCents = input.purchasePrice
     ? Math.abs(dollarsToCents(input.purchasePrice))
     : null;
+  const accountGroupId = await resolveAccountGroupId(
+    householdId,
+    input.accountGroupId,
+    input.newGroupName,
+  );
 
   const [created] = await db
     .insert(accounts)
@@ -60,6 +110,7 @@ export async function createAccount(formData: FormData) {
       isLiability: LIABILITY_KINDS.has(input.kind),
       currentBalanceCents: balanceCents,
       balanceAsOf: new Date(),
+      accountGroupId,
       // For physical assets this means "purchase price" - the same
       // fixed-reference-point role it plays for debts ("balance when this
       // debt started").
@@ -102,6 +153,8 @@ export async function createAccount(formData: FormData) {
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   kind: z.enum(accountKindEnum.enumValues),
+  accountGroupId: z.string().optional(),
+  newGroupName: z.string().trim().max(80).optional(),
 });
 
 // Edits name/kind. isLiability follows the kind - fixing a 401k that was
@@ -111,8 +164,15 @@ export async function updateAccount(accountId: string, formData: FormData) {
   const input = updateSchema.parse({
     name: formData.get("name"),
     kind: formData.get("kind"),
+    accountGroupId: formData.get("accountGroupId") || undefined,
+    newGroupName: formData.get("newGroupName") || undefined,
   });
   const isLiability = LIABILITY_KINDS.has(input.kind);
+  const accountGroupId = await resolveAccountGroupId(
+    householdId,
+    input.accountGroupId,
+    input.newGroupName,
+  );
 
   await db
     .update(accounts)
@@ -120,6 +180,7 @@ export async function updateAccount(accountId: string, formData: FormData) {
       name: input.name,
       kind: input.kind,
       isLiability,
+      accountGroupId,
       // A non-liability can't be secured by anything - clear the outbound
       // link when a debt becomes an asset.
       ...(isLiability ? {} : { securedAssetAccountId: null }),
