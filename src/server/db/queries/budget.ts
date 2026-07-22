@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, lt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   budgetMonths,
@@ -272,7 +272,12 @@ export async function getCategoryGroups(householdId: string) {
         eq(categoryGroups.isArchived, false),
       ),
     )
-    .orderBy(asc(categoryGroups.sortOrder));
+    // The app-managed Debt section (auto-created by debt-to-budget linking)
+    // always sits at the bottom, regardless of sortOrder.
+    .orderBy(
+      sql`case when ${categoryGroups.systemKey} = 'debt' then 1 else 0 end`,
+      asc(categoryGroups.sortOrder),
+    );
 }
 
 export async function getBudgetOverview(householdId: string, monthDate: string) {

@@ -15,7 +15,9 @@ export function MonthHeader({
   rightAction?: React.ReactNode;
 }) {
   return (
-    <header className="px-4 pt-6 pb-3">
+    // Sticky so the month nav and Planned/Spent/Remaining toggle stay
+    // reachable while scrolling a long budget.
+    <header className="sticky top-0 z-30 bg-muted px-4 pt-6 pb-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
