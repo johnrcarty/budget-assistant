@@ -21,10 +21,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createTransaction, updateTransaction, deleteTransaction } from "@/server/actions/transactions";
-import type { accounts, budgetLineItems, transactions } from "@/server/db/schema";
+import type {
+  accounts,
+  budgetLineItems,
+  incomeLineItems,
+  transactions,
+} from "@/server/db/schema";
 
 type Account = typeof accounts.$inferSelect;
 type LineItem = typeof budgetLineItems.$inferSelect;
+type IncomeItem = typeof incomeLineItems.$inferSelect;
 type Transaction = typeof transactions.$inferSelect;
 
 export function TransactionDialog({
@@ -32,12 +38,14 @@ export function TransactionDialog({
   triggerClassName,
   accounts,
   lineItems,
+  incomeItems = [],
   transaction,
 }: {
   trigger: React.ReactNode;
   triggerClassName?: string;
   accounts: Account[];
   lineItems: LineItem[];
+  incomeItems?: IncomeItem[];
   transaction?: Transaction;
 }) {
   const isEdit = !!transaction;
@@ -61,9 +69,32 @@ export function TransactionDialog({
 
   const today = new Date().toISOString().slice(0, 10);
   const defaultType = transaction && transaction.amountCents > 0 ? "income" : "expense";
+  const [type, setType] = useState<"expense" | "income">(defaultType);
   const defaultAmount = transaction
     ? (Math.abs(transaction.amountCents) / 100).toFixed(2)
     : "";
+
+  // Current category value on an edit, in the combined encoding.
+  const defaultCategory = transaction?.incomeLineItemId
+    ? `income:${transaction.incomeLineItemId}`
+    : transaction?.budgetLineItemId
+      ? `expense:${transaction.budgetLineItemId}`
+      : "none";
+
+  // An edited transaction may be linked to a prior month's instance that
+  // isn't in this month's option list - synthesize an entry so the dialog
+  // doesn't display it as Uncategorized.
+  const categoryOptions: { value: string; label: string }[] =
+    type === "income"
+      ? incomeItems.map((item) => ({ value: `income:${item.id}`, label: item.name }))
+      : lineItems.map((item) => ({ value: `expense:${item.id}`, label: item.name }));
+  if (
+    defaultCategory !== "none" &&
+    defaultCategory.startsWith(type === "income" ? "income:" : "expense:") &&
+    !categoryOptions.some((o) => o.value === defaultCategory)
+  ) {
+    categoryOptions.unshift({ value: defaultCategory, label: "(current category)" });
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -98,7 +129,12 @@ export function TransactionDialog({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="txn-type">Type</Label>
-            <Select name="type" defaultValue={defaultType}>
+            <Select
+              name="type"
+              value={type}
+              onValueChange={(v) => setType(v === "income" ? "income" : "expense")}
+              items={{ expense: "Expense", income: "Income" }}
+            >
               <SelectTrigger id="txn-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -144,13 +180,23 @@ export function TransactionDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="txn-category">Category</Label>
+            <Label htmlFor="txn-category">
+              {type === "income" ? "Income source" : "Category"}
+            </Label>
+            {/* key={type} remounts the select when the type flips, so it
+                falls back to a valid default instead of holding a value
+                from the other kind. */}
             <Select
-              name="budgetLineItemId"
-              defaultValue={transaction?.budgetLineItemId ?? "none"}
+              key={type}
+              name="category"
+              defaultValue={
+                categoryOptions.some((o) => o.value === defaultCategory)
+                  ? defaultCategory
+                  : "none"
+              }
               items={{
                 none: "Uncategorized",
-                ...Object.fromEntries(lineItems.map((item) => [item.id, item.name])),
+                ...Object.fromEntries(categoryOptions.map((o) => [o.value, o.label])),
               }}
             >
               <SelectTrigger id="txn-category" className="w-full">
@@ -158,9 +204,9 @@ export function TransactionDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Uncategorized</SelectItem>
-                {lineItems.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
+                {categoryOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
