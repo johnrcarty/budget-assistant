@@ -74,6 +74,11 @@ Optional: set `ANTHROPIC_API_KEY` in `.env.local` to enable AI
 categorization suggestions (Claude Haiku, review-first — nothing applies
 without approval). Everything else works without it.
 
+Optional: set `MCP_AUTH_TOKEN` to enable the read-only MCP endpoint at
+`/api/mcp`, which lets Home Assistant Assist answer questions like "do I
+have any bills coming up?" — see
+[docs/mcp-home-assistant.md](docs/mcp-home-assistant.md).
+
 ## Status
 
 - [x] Phase 1 — scaffold, auth, Docker
@@ -85,6 +90,6 @@ without approval). Everything else works without it.
 - [x] Debt payoff planner (snowball/avalanche simulator, burn-down chart)
 - [x] Annual income tracker with snapshot forecasts
 - [x] Transaction categorization (rules + AI suggestions, income slot filling)
-- [ ] MCP server for Home Assistant Assist (epic #14)
+- [x] MCP server for Home Assistant Assist (epic #14)
 - [ ] Home Assistant ingress add-on (epic #15)
 - [ ] Automated test suite (epic #16 — verification is via `scripts/verify-*.ts` today)

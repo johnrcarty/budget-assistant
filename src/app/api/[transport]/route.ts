@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { createMcpHandler } from "mcp-handler";
 
+import { registerBudgetTools } from "@/server/lib/mcp/tools";
+
 // MCP endpoint for Home Assistant Assist (and any other MCP client) -
 // Streamable HTTP at /api/mcp. The [transport] segment is required by
 // mcp-handler's routing; static routes like /api/auth take precedence, so
@@ -32,6 +34,7 @@ const handler = createMcpHandler(
       },
       async () => ({ content: [{ type: "text", text: "ok" }] }),
     );
+    registerBudgetTools(server);
   },
   { serverInfo: { name: "monthly-budget", version: "1.0.0" } },
   { basePath: "/api" },
