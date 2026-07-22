@@ -37,6 +37,45 @@ export async function createAccount(formData: FormData) {
   revalidatePath("/transactions");
 }
 
+const updateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  kind: z.enum(accountKindEnum.enumValues),
+});
+
+// Edits name/kind. isLiability follows the kind - fixing a 401k that was
+// created as "checking" to "investment" is the motivating case.
+export async function updateAccount(accountId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = updateSchema.parse({
+    name: formData.get("name"),
+    kind: formData.get("kind"),
+  });
+  const isLiability = LIABILITY_KINDS.has(input.kind);
+
+  await db
+    .update(accounts)
+    .set({ name: input.name, kind: input.kind, isLiability })
+    .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
+
+  // If a debt became a non-liability, its linked budget item should stop
+  // stamping into future months (same rule as archiving).
+  if (!isLiability) {
+    await db
+      .update(lineItemTemplates)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(lineItemTemplates.debtAccountId, accountId),
+          eq(lineItemTemplates.householdId, householdId),
+        ),
+      );
+  }
+
+  revalidatePath("/accounts");
+  revalidatePath("/debt");
+  revalidatePath("/transactions");
+}
+
 export async function archiveAccount(accountId: string) {
   const householdId = await getCurrentHousehold();
 
