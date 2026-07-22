@@ -21,16 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createAccount } from "@/server/actions/accounts";
-
-const ACCOUNT_KINDS = [
-  { value: "checking", label: "Checking" },
-  { value: "savings", label: "Savings" },
-  { value: "cash", label: "Cash" },
-  { value: "credit_card", label: "Credit Card" },
-  { value: "loan", label: "Loan" },
-  { value: "line_of_credit", label: "Line of Credit" },
-  { value: "other", label: "Other" },
-] as const;
+import { ACCOUNT_KINDS } from "./account-kinds";
 
 export function AddAccountDialog() {
   const [open, setOpen] = useState(false);
