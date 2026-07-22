@@ -58,6 +58,7 @@ export async function getUncategorizedMerchants(
           eq(transactions.householdId, householdId),
           isNull(transactions.budgetLineItemId),
           isNull(transactions.incomeLineItemId),
+          eq(transactions.isTransfer, false),
         ),
       ),
     getActiveRules(householdId),

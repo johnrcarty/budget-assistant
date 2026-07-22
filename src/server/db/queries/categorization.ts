@@ -56,7 +56,9 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
 
   return rows.map((row) => {
     let targetLabel = "(deleted target)";
-    if (row.incomeName) {
+    if (row.rule.markAsTransfer) {
+      targetLabel = "Transfer between accounts";
+    } else if (row.incomeName) {
       const groupSize = row.rule.incomeTemplateId
         ? (groupSizeByTemplateId.get(row.rule.incomeTemplateId) ?? 1)
         : 1;

@@ -100,6 +100,7 @@ export async function CashflowSection({
       <SankeyChart
         nodes={decoratedNodes}
         links={links}
+        range={range}
         ariaLabel={`Cash flow for ${DATE_RANGE_LABELS[range].toLowerCase()}: ${formatCents(
           data.totalIncomeCents,
         )} in, ${formatCents(data.totalExpenseCents)} out, ${formatCents(

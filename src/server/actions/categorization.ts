@@ -19,8 +19,8 @@ import {
 const ruleSchema = z.object({
   pattern: z.string().trim().min(2).max(120),
   matchType: z.enum(["contains", "starts_with", "exact"]),
-  // "expense:<templateId>" or "income:<templateId>"
-  target: z.string().regex(/^(expense|income):[0-9a-f-]{36}$/),
+  // "expense:<templateId>", "income:<templateId>", or "transfer"
+  target: z.string().regex(/^(transfer|(expense|income):[0-9a-f-]{36})$/),
   accountId: z.uuid().optional(), // extra condition: only this account
   amount: z.string().trim().optional(), // extra condition: exact amount (abs)
   // min 0, not 1: early AI-suggested rules were created with priority 0 and
@@ -38,6 +38,7 @@ function ruleValues(input: z.infer<typeof ruleSchema>) {
     priority: input.priority,
     lineItemTemplateId: kind === "expense" ? templateId : null,
     incomeTemplateId: kind === "income" ? templateId : null,
+    markAsTransfer: kind === "transfer",
   };
 }
 
