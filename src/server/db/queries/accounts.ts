@@ -1,6 +1,14 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { accounts } from "@/server/db/schema";
+import { accounts, accountGroups } from "@/server/db/schema";
+
+export async function getAccountGroups(householdId: string) {
+  return db
+    .select()
+    .from(accountGroups)
+    .where(eq(accountGroups.householdId, householdId))
+    .orderBy(asc(accountGroups.sortOrder), asc(accountGroups.name));
+}
 
 export async function getAccounts(householdId: string) {
   return db
