@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 function subscribeNoop() {
   return () => {};
@@ -21,22 +22,39 @@ function useMounted() {
   );
 }
 
-export function ThemeToggle() {
+// Appearance row on the More page (used to be a floating button on every
+// screen). Tapping anywhere on the card flips light/dark.
+export function ThemeToggleRow() {
   const { resolvedTheme, setTheme } = useTheme();
   const mounted = useMounted();
+  const isDark = mounted && resolvedTheme === "dark";
 
   return (
     <button
       type="button"
       aria-label="Toggle dark mode"
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      className="fixed right-4 bottom-20 z-40 flex size-11 items-center justify-center rounded-full bg-card text-foreground shadow-md ring-1 ring-foreground/10"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="block w-full text-left"
     >
-      {mounted && resolvedTheme === "dark" ? (
-        <Sun className="size-5" />
-      ) : (
-        <Moon className="size-5" />
-      )}
+      <Card>
+        <CardContent className="flex items-center gap-4">
+          {isDark ? (
+            <Sun className="size-6 shrink-0 text-primary" />
+          ) : (
+            <Moon className="size-6 shrink-0 text-primary" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">Appearance</div>
+            <div className="truncate text-sm text-muted-foreground">
+              {mounted
+                ? isDark
+                  ? "Dark mode — tap for light"
+                  : "Light mode — tap for dark"
+                : "Light or dark mode"}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </button>
   );
 }
