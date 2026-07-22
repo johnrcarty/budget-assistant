@@ -166,7 +166,10 @@ export default async function TransactionsPage({
                                 )}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {accountName} · {lineItemName ?? incomeItemName ?? "Uncategorized"}
+                                {accountName} ·{" "}
+                                {lineItemName ??
+                                  incomeItemName ??
+                                  (transaction.isTransfer ? "Transfer" : "Uncategorized")}
                               </div>
                             </div>
                             <div

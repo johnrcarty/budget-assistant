@@ -64,6 +64,7 @@ function buildFilterConditions(householdId: string, filters: TransactionFilters)
   if (filters.uncategorized) {
     conditions.push(isNull(transactions.budgetLineItemId));
     conditions.push(isNull(transactions.incomeLineItemId));
+    conditions.push(eq(transactions.isTransfer, false));
   }
 
   return and(...conditions);
@@ -84,6 +85,7 @@ async function resolveFlowCondition(householdId: string, flow: string) {
     return and(
       isNull(transactions.budgetLineItemId),
       isNull(transactions.incomeLineItemId),
+      eq(transactions.isTransfer, false),
       gt(transactions.amountCents, 0),
     );
   }
@@ -91,6 +93,7 @@ async function resolveFlowCondition(householdId: string, flow: string) {
     return and(
       isNull(transactions.budgetLineItemId),
       isNull(transactions.incomeLineItemId),
+      eq(transactions.isTransfer, false),
       lt(transactions.amountCents, 0),
     );
   }
@@ -153,7 +156,8 @@ async function resolveFlowCondition(householdId: string, flow: string) {
 }
 
 // Transactions not yet assigned to a budget line item or income source -
-// the "needs review" inbox. All-time on purpose.
+// the "needs review" inbox. All-time on purpose. Transfers are handled,
+// not pending review, so they don't count.
 export async function getUncategorizedCount(householdId: string): Promise<number> {
   const [{ total }] = await db
     .select({ total: count() })
@@ -163,6 +167,7 @@ export async function getUncategorizedCount(householdId: string): Promise<number
         eq(transactions.householdId, householdId),
         isNull(transactions.budgetLineItemId),
         isNull(transactions.incomeLineItemId),
+        eq(transactions.isTransfer, false),
       ),
     );
 

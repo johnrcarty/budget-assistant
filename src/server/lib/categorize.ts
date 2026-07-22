@@ -161,6 +161,7 @@ export async function applyRulesToUncategorized(
         eq(transactions.householdId, householdId),
         isNull(transactions.budgetLineItemId),
         isNull(transactions.incomeLineItemId),
+        eq(transactions.isTransfer, false),
       ),
     )
     .orderBy(
@@ -182,7 +183,13 @@ export async function applyRulesToUncategorized(
 
     const month = `${tx.postedDate.slice(0, 7)}-01`;
 
-    if (rule.lineItemTemplateId) {
+    if (rule.markAsTransfer) {
+      await db
+        .update(transactions)
+        .set({ isTransfer: true, updatedAt: new Date() })
+        .where(eq(transactions.id, tx.id));
+      matched += 1;
+    } else if (rule.lineItemTemplateId) {
       const cacheKey = `item:${rule.lineItemTemplateId}:${month}`;
       let instanceId = instanceCache.get(cacheKey);
       if (instanceId === undefined) {

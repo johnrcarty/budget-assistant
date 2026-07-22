@@ -118,7 +118,8 @@ export async function getCashflow(
         .orderBy(desc(sql`max(${transactions.postedDate})`)),
       // Positive transactions linked to neither side. (A positive transaction
       // linked to a budget line item is a refund - it nets against that
-      // category below, and never counts as income.)
+      // category below, and never counts as income. Transfers between own
+      // accounts are neither income nor spending.)
       db
         .select({ totalCents: sql<number>`coalesce(sum(${transactions.amountCents}), 0)` })
         .from(transactions)
@@ -127,6 +128,7 @@ export async function getCashflow(
             eq(transactions.householdId, householdId),
             isNull(transactions.budgetLineItemId),
             isNull(transactions.incomeLineItemId),
+            eq(transactions.isTransfer, false),
             gt(transactions.amountCents, 0),
             ...dates,
           ),
@@ -162,6 +164,7 @@ export async function getCashflow(
             eq(transactions.householdId, householdId),
             isNull(transactions.budgetLineItemId),
             isNull(transactions.incomeLineItemId),
+            eq(transactions.isTransfer, false),
             lt(transactions.amountCents, 0),
             ...dates,
           ),

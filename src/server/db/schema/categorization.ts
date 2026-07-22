@@ -41,6 +41,9 @@ export const categorizationRules = pgTable("categorization_rule", {
   incomeTemplateId: uuid().references(() => incomeTemplates.id, {
     onDelete: "cascade",
   }),
+  // Third target kind: mark matches as transfers between own accounts
+  // (no template link). When set, both template columns are null.
+  markAsTransfer: boolean().notNull().default(false),
   priority: integer().notNull().default(0),
   isActive: boolean().notNull().default(true),
   createdAt: timestamp().notNull().defaultNow(),
