@@ -8,11 +8,18 @@ export function MonthHeader({
   basePath,
   mode,
   rightAction,
+  backHref,
+  backLabel,
 }: {
   month: string;
   basePath: string;
   mode?: DisplayMode;
   rightAction?: React.ReactNode;
+  // Breadcrumb back to a parent page (e.g. Income -> Budget). Carries no
+  // month param itself - callers append it so the parent opens on the
+  // same month.
+  backHref?: string;
+  backLabel?: string;
 }) {
   return (
     // Sticky so the month nav and Planned/Spent/Remaining toggle stay
@@ -20,6 +27,15 @@ export function MonthHeader({
     // page's bg-muted) plus the border gives it visible division from
     // the content sliding underneath.
     <header className="sticky top-0 z-30 border-b bg-background px-4 pt-6 pb-3">
+      {backHref && (
+        <Link
+          href={backHref}
+          className="mb-1 -ml-1 flex w-fit items-center text-sm font-medium text-muted-foreground"
+        >
+          <ChevronLeft className="size-4" />
+          {backLabel ?? "Back"}
+        </Link>
+      )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
