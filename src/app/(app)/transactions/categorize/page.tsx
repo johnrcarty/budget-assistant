@@ -43,6 +43,7 @@ export default async function CategorizePage() {
       label: `Income › ${t.name}`,
     })),
   ];
+  const accountOptions = accountList.map((a) => ({ value: a.id, label: a.name }));
 
   return (
     <div>
@@ -70,7 +71,7 @@ export default async function CategorizePage() {
             <h2 className="font-semibold">Rules</h2>
             <RuleDialog
               targets={targets}
-              accounts={accountList.map((a) => ({ value: a.id, label: a.name }))}
+              accounts={accountOptions}
               triggerClassName="text-foreground"
               trigger={<Plus className="size-5" aria-label="Add rule" />}
             />
@@ -101,14 +102,38 @@ export default async function CategorizePage() {
                         : ""}
                     </div>
                   </div>
-                  <form action={deleteRule.bind(null, rule.id)}>
-                    <button
-                      type="submit"
-                      className="text-xs text-muted-foreground hover:text-destructive"
-                    >
-                      Delete
-                    </button>
-                  </form>
+                  <div className="flex items-center gap-3">
+                    <RuleDialog
+                      targets={targets}
+                      accounts={accountOptions}
+                      triggerClassName="text-xs text-muted-foreground hover:text-foreground"
+                      trigger="Edit"
+                      initial={{
+                        ruleId: rule.id,
+                        pattern: rule.pattern,
+                        matchType: rule.matchType,
+                        target: rule.lineItemTemplateId
+                          ? `expense:${rule.lineItemTemplateId}`
+                          : rule.incomeTemplateId
+                            ? `income:${rule.incomeTemplateId}`
+                            : null,
+                        accountId: rule.accountId,
+                        amount:
+                          rule.amountCents != null
+                            ? (rule.amountCents / 100).toFixed(2)
+                            : null,
+                        priority: rule.priority,
+                      }}
+                    />
+                    <form action={deleteRule.bind(null, rule.id)}>
+                      <button
+                        type="submit"
+                        className="text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </div>
                 </div>
               ))}
             </div>
