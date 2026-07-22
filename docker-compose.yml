@@ -30,6 +30,8 @@ services:
       HOUSEHOLD_LOGIN_EMAIL: ${HOUSEHOLD_LOGIN_EMAIL}
       HOUSEHOLD_LOGIN_PASSWORD: ${HOUSEHOLD_LOGIN_PASSWORD}
       SIMPLEFIN_ENCRYPTION_KEY: ${SIMPLEFIN_ENCRYPTION_KEY}
+      # Optional - enables AI categorization suggestions (Claude Haiku).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "3410:3000"
     command: sh -c "node_modules/.bin/tsx src/server/db/migrate.ts && node server.js"
