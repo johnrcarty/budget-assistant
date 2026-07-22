@@ -39,6 +39,10 @@ export function MonthHeader({
             <Link
               key={m}
               href={`${basePath}?month=${month}&mode=${m}`}
+              // Keep the scroll position - switching the display mode
+              // re-renders the same list, and jumping to the top loses
+              // your place. (Month prev/next still resets, deliberately.)
+              scroll={false}
               className={`flex-1 rounded-md py-1.5 text-center capitalize ${
                 m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
               }`}
