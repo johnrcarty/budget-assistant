@@ -23,13 +23,22 @@ import {
 } from "@/components/ui/dialog";
 import { archiveAccount, updateAccount } from "@/server/actions/accounts";
 import { ACCOUNT_KINDS } from "./account-kinds";
+import { AssetValueForm } from "./AssetValueForm";
 
 export function EditAccountDialog({
   account,
   trigger,
   triggerClassName,
 }: {
-  account: { id: string; name: string; kind: string; isLiability: boolean };
+  account: {
+    id: string;
+    name: string;
+    kind: string;
+    isLiability: boolean;
+    isManual?: boolean;
+    currentBalanceCents?: number | null;
+    originalBalanceCents?: number | null;
+  };
   trigger: React.ReactNode;
   triggerClassName?: string;
 }) {
@@ -76,7 +85,7 @@ export function EditAccountDialog({
           </div>
           <p className="text-xs text-muted-foreground">
             Credit cards, loans, and lines of credit are tracked as debts; everything
-            else counts as an asset.
+            else — including property and vehicles — counts as an asset.
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
@@ -85,6 +94,22 @@ export function EditAccountDialog({
             </Button>
           </DialogFooter>
         </form>
+
+        {/* UI-gated to property/vehicle (tighter than the server guard):
+            transaction-driven manual accounts derive their trend from
+            transactions, and a manual value write would fight that anchor. */}
+        {!account.isLiability &&
+          account.isManual &&
+          (account.kind === "property" || account.kind === "vehicle") && (
+            <div className="border-t pt-3">
+              <h3 className="pb-2 text-sm font-medium">Update value</h3>
+              <AssetValueForm
+                accountId={account.id}
+                currentBalanceCents={account.currentBalanceCents ?? null}
+                originalBalanceCents={account.originalBalanceCents ?? null}
+              />
+            </div>
+          )}
 
         {account.isLiability && (
           <Link
