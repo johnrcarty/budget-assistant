@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, Wand2 } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts } from "@/server/db/queries/accounts";
 import { getFilteredTransactions } from "@/server/db/queries/transactions";
@@ -66,6 +66,9 @@ export default async function TransactionsPage({
         rightAction={
           accountList.length > 0 ? (
             <div className="flex items-center gap-4">
+              <Link href="/transactions/categorize" aria-label="Categorize transactions">
+                <Wand2 className="size-5" />
+              </Link>
               <Link href="/transactions/import" aria-label="Import CSV">
                 <Upload className="size-5" />
               </Link>

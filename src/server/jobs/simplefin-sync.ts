@@ -11,6 +11,7 @@ import {
 import { decryptSecret } from "@/server/lib/crypto/secret-box";
 import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
 import { dollarsToCents } from "@/server/lib/money";
+import { applyRulesToUncategorized } from "@/server/lib/categorize";
 
 // A day short of the protocol's actual 90-day cap - avoids tripping the
 // "date range exceeds limit" notice from clock skew/rounding at the boundary.
@@ -222,6 +223,10 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         transactionsImported += 1;
       }
     }
+
+    // Auto-categorize newly synced (and any backlogged) transactions via
+    // the household's categorization rules. Idempotent.
+    await applyRulesToUncategorized(connection.householdId);
   } catch (error) {
     status = "error";
     errorDetail = error instanceof Error ? error.message : String(error);
