@@ -9,6 +9,7 @@ import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import {
   applyRulesToUncategorized,
+  applyRuleToMatching,
   type ApplyRulesResult,
 } from "@/server/lib/categorize";
 import {
@@ -101,6 +102,20 @@ export async function deleteRule(ruleId: string) {
 export async function runRules(): Promise<ApplyRulesResult> {
   const householdId = await getCurrentHousehold();
   const result = await applyRulesToUncategorized(householdId);
+  revalidatePath("/transactions/categorize");
+  revalidatePath("/transactions");
+  revalidatePath("/budget");
+  revalidatePath("/budget/income");
+  revalidatePath("/summary");
+  return result;
+}
+
+// Re-runs rules over every transaction matching this rule's conditions,
+// including already-categorized ones - the "my rule changed, fix history"
+// button.
+export async function reapplyRule(ruleId: string): Promise<ApplyRulesResult> {
+  const householdId = await getCurrentHousehold();
+  const result = await applyRuleToMatching(householdId, ruleId);
   revalidatePath("/transactions/categorize");
   revalidatePath("/transactions");
   revalidatePath("/budget");
