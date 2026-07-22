@@ -6,12 +6,12 @@ export function NeedsReviewBanner({ count }: { count: number }) {
 
   return (
     <Link
-      href="/transactions?uncategorized=1&range=all"
+      href="/transactions/categorize"
       className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
     >
       <CircleAlert className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
       <span className="flex-1 font-medium">
-        {count} {count === 1 ? "transaction needs" : "transactions need"} review
+        {count} {count === 1 ? "transaction" : "transactions"} to categorize
       </span>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
     </Link>

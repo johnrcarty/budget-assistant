@@ -6,3 +6,4 @@ export * from "./transactions";
 export * from "./debt";
 export * from "./simplefin";
 export * from "./income-tracking";
+export * from "./categorization";
