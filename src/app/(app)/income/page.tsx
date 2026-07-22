@@ -1,4 +1,5 @@
-import { Plus, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { Plus, TrendingUp, Upload } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import {
   getAnnualIncomeData,
@@ -56,12 +57,17 @@ export default async function IncomePage({
     : null;
 
   const addButton = (
-    <IncomeEntryDialog
-      persons={data.persons}
-      defaultYear={currentYear}
-      triggerClassName="text-foreground"
-      trigger={<Plus className="size-6" aria-label="Add income" />}
-    />
+    <div className="flex items-center gap-4">
+      <Link href="/income/import" aria-label="Import CSV">
+        <Upload className="size-5" />
+      </Link>
+      <IncomeEntryDialog
+        persons={data.persons}
+        defaultYear={currentYear}
+        triggerClassName="text-foreground"
+        trigger={<Plus className="size-6" aria-label="Add income" />}
+      />
+    </div>
   );
 
   if (data.entries.length === 0) {
