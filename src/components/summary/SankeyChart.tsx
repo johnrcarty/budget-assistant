@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   layoutSankey,
@@ -34,14 +35,24 @@ function visibleLabelIds(nodes: PositionedNode[]): Set<string> {
   return visible;
 }
 
+// Only these node kinds map to a concrete transaction set (see
+// resolveFlowCondition); cashflow/surplus/deficit are computed totals.
+function isFilterable(nodeId: string): boolean {
+  return (
+    nodeId.startsWith("src:") || nodeId.startsWith("grp:") || nodeId.startsWith("item:")
+  );
+}
+
 export function SankeyChart({
   nodes,
   links,
   ariaLabel,
+  range,
 }: {
   nodes: SankeyGraphNode[];
   links: SankeyGraphLink[];
   ariaLabel: string;
+  range: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -166,16 +177,28 @@ export function SankeyChart({
               );
             })}
           </svg>
-          <div className="flex h-9 items-center text-sm">
+          <div className="flex h-9 items-center justify-between gap-3 text-sm">
             {selected ? (
-              <p className="truncate">
-                <span className="font-medium">{selected.label}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  — {selected.valueFormatted}
-                  {selected.shareLabel ? ` · ${selected.shareLabel}` : ""}
-                </span>
-              </p>
+              <>
+                <p className="min-w-0 truncate">
+                  <span className="font-medium">{selected.label}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {selected.valueFormatted}
+                    {selected.shareLabel ? ` · ${selected.shareLabel}` : ""}
+                  </span>
+                </p>
+                {isFilterable(selected.id) && (
+                  <Link
+                    href={`/transactions?range=${range}&flow=${encodeURIComponent(
+                      selected.id,
+                    )}&flowLabel=${encodeURIComponent(selected.label)}`}
+                    className="shrink-0 font-medium text-primary"
+                  >
+                    View transactions
+                  </Link>
+                )}
+              </>
             ) : (
               <p className="text-muted-foreground">Tap a bar for details.</p>
             )}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Upload, Wand2 } from "lucide-react";
+import { Plus, Upload, Wand2, X } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts } from "@/server/db/queries/accounts";
 import { getFilteredTransactions } from "@/server/db/queries/transactions";
@@ -26,6 +26,8 @@ export default async function TransactionsPage({
     status?: string;
     accounts?: string;
     uncategorized?: string;
+    flow?: string;
+    flowLabel?: string;
     page?: string;
     pageSize?: string;
   }>;
@@ -40,6 +42,15 @@ export default async function TransactionsPage({
   const accountIds = params.accounts?.split(",").filter(Boolean);
   const pending = params.status === "pending" ? true : params.status === "cleared" ? false : undefined;
   const uncategorized = params.uncategorized === "1" ? true : undefined;
+  const flow = params.flow || undefined;
+  // Display-only caption for the flow chip; the actual filter comes from
+  // the flow id. Fallback covers hand-edited URLs.
+  const flowLabel = params.flowLabel?.slice(0, 80) || "Cash flow selection";
+  const clearFlowParams = new URLSearchParams(
+    Object.entries(params).filter(
+      ([key, value]) => value && !["flow", "flowLabel", "page"].includes(key),
+    ) as [string, string][],
+  ).toString();
 
   const householdId = await getCurrentHousehold();
   const [accountList, { rows, totalCount }, overview] = await Promise.all([
@@ -51,6 +62,7 @@ export default async function TransactionsPage({
       endDate,
       pending,
       uncategorized,
+      flow,
       page,
       pageSize,
     }),
@@ -86,6 +98,20 @@ export default async function TransactionsPage({
       {accountList.length > 0 && <TransactionsToolbar accountList={accountList} />}
 
       <div className="px-4 pb-4">
+        {flow && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-secondary px-3 py-2 text-sm">
+            <span className="min-w-0 truncate">
+              Cash flow: <span className="font-medium">{flowLabel}</span>
+            </span>
+            <Link
+              href={`/transactions${clearFlowParams ? `?${clearFlowParams}` : ""}`}
+              className="shrink-0 font-medium text-muted-foreground"
+              aria-label="Clear cash flow filter"
+            >
+              <X className="size-4" />
+            </Link>
+          </div>
+        )}
         {accountList.length === 0 ? (
           <p className="pt-8 text-center text-muted-foreground">
             Add an account first (Accounts tab) before logging transactions.
