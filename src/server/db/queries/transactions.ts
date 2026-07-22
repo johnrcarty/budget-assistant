@@ -1,4 +1,19 @@
-import { and, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { transactions, accounts, budgetLineItems, incomeLineItems } from "@/server/db/schema";
 import { incomeSlotGroupKey } from "@/lib/income-slots";
@@ -34,7 +49,15 @@ export interface TransactionFilters {
   startDate?: string;
   endDate?: string;
   pending?: boolean;
-  uncategorized?: boolean;
+  // false = the "needs review" set (no line item, no income item, not a
+  // transfer); true = its complement (assigned or a transfer).
+  categorized?: boolean;
+  // Sign of amountCents: income = inflows (> 0), expense = outflows (< 0).
+  direction?: "income" | "expense";
+  // Bounds compare against abs(amountCents) so "at least $50" matches a
+  // $50 expense (stored negative) as well as $50 of income.
+  minAmountCents?: number;
+  maxAmountCents?: number;
   // A Summary-Sankey node id ("src:slot:natasha", "grp:<uuid>",
   // "item:<uuid>:<mergeKey>", "src:uncategorized", "grp:uncategorized") -
   // filters to the transactions behind that node.
@@ -61,10 +84,28 @@ function buildFilterConditions(householdId: string, filters: TransactionFilters)
   if (filters.pending !== undefined) {
     conditions.push(eq(transactions.pending, filters.pending));
   }
-  if (filters.uncategorized) {
+  if (filters.categorized === false) {
     conditions.push(isNull(transactions.budgetLineItemId));
     conditions.push(isNull(transactions.incomeLineItemId));
     conditions.push(eq(transactions.isTransfer, false));
+  } else if (filters.categorized === true) {
+    const assigned = or(
+      isNotNull(transactions.budgetLineItemId),
+      isNotNull(transactions.incomeLineItemId),
+      eq(transactions.isTransfer, true),
+    );
+    if (assigned) conditions.push(assigned);
+  }
+  if (filters.direction === "income") {
+    conditions.push(gt(transactions.amountCents, 0));
+  } else if (filters.direction === "expense") {
+    conditions.push(lt(transactions.amountCents, 0));
+  }
+  if (filters.minAmountCents !== undefined) {
+    conditions.push(gte(sql`abs(${transactions.amountCents})`, filters.minAmountCents));
+  }
+  if (filters.maxAmountCents !== undefined) {
+    conditions.push(lte(sql`abs(${transactions.amountCents})`, filters.maxAmountCents));
   }
 
   return and(...conditions);
