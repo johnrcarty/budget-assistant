@@ -12,7 +12,7 @@ const TABS = [
   { href: "/budget", label: "Budget", icon: Wallet },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/accounts", label: "Accounts", icon: Landmark },
-  { href: "/more", label: "More", icon: Ellipsis, matches: ["/debt", "/settings"] },
+  { href: "/more", label: "More", icon: Ellipsis, matches: ["/debt", "/income", "/settings"] },
 ] as const;
 
 export function BottomTabBar() {
