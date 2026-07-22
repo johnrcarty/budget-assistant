@@ -6,6 +6,7 @@ import {
   boolean,
   bigint,
   pgEnum,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { households } from "./household";
 
@@ -21,6 +22,11 @@ export const accountKindEnum = pgEnum("account_kind", [
   "other",
   "investment",
   "crypto",
+  // Physical assets tracked at an appraised/estimated value, updated
+  // manually - never SimpleFin-synced. Kept at the END of the enum so
+  // additions stay plain ALTER TYPE ... ADD VALUE migrations.
+  "property",
+  "vehicle",
 ]);
 
 export const accounts = pgTable("account", {
@@ -43,6 +49,13 @@ export const accounts = pgTable("account", {
   // snapshot - unlike debtBalanceSnapshots this never changes on its own, so
   // it doesn't belong in that time-series. Powers "$X paid off so far".
   originalBalanceCents: bigint({ mode: "number" }),
+  // Set only on liabilities: the asset account (house, car) this debt is
+  // secured by. Deliberately NOT unique - multiple loans can share one
+  // asset (mortgage + HELOC on the same house). Equity for an asset is its
+  // value minus the sum of all liabilities pointing at it.
+  securedAssetAccountId: uuid().references((): AnyPgColumn => accounts.id, {
+    onDelete: "set null",
+  }),
   isManual: boolean().notNull().default(true),
   isArchived: boolean().notNull().default(false),
   icon: text(),

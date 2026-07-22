@@ -179,5 +179,51 @@ export async function getDebtDetail(householdId: string, accountId: string) {
 
   const projection = terms && latestBalance ? projectPayoff(latestBalance.balanceCents, terms) : null;
 
-  return { account, terms, latestBalance, balanceHistory, termsHistory, projection };
+  // Secured-asset resolution: equity is the asset's value minus EVERY
+  // non-archived liability secured by it (mortgage + HELOC on one house
+  // both subtract), not just this one. An archived asset displays as
+  // unlinked; the link itself survives for unarchive.
+  let securedAsset: typeof accounts.$inferSelect | null = null;
+  let equityCents: number | null = null;
+  if (account.securedAssetAccountId) {
+    const [asset] = await db
+      .select()
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.id, account.securedAssetAccountId),
+          eq(accounts.householdId, householdId),
+          eq(accounts.isLiability, false),
+          eq(accounts.isArchived, false),
+        ),
+      )
+      .limit(1);
+    if (asset) {
+      securedAsset = asset;
+      const linkedLiabilities = await db
+        .select({ balanceCents: accounts.currentBalanceCents })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.securedAssetAccountId, asset.id),
+            eq(accounts.householdId, householdId),
+            eq(accounts.isArchived, false),
+          ),
+        );
+      equityCents =
+        (asset.currentBalanceCents ?? 0) -
+        linkedLiabilities.reduce((sum, l) => sum + (l.balanceCents ?? 0), 0);
+    }
+  }
+
+  return {
+    account,
+    terms,
+    latestBalance,
+    balanceHistory,
+    termsHistory,
+    projection,
+    securedAsset,
+    equityCents,
+  };
 }

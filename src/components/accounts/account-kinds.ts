@@ -4,6 +4,8 @@ export const ACCOUNT_KINDS = [
   { value: "cash", label: "Cash" },
   { value: "investment", label: "Investment" },
   { value: "crypto", label: "Crypto" },
+  { value: "property", label: "Property" },
+  { value: "vehicle", label: "Vehicle" },
   { value: "credit_card", label: "Credit Card" },
   { value: "loan", label: "Loan" },
   { value: "line_of_credit", label: "Line of Credit" },
