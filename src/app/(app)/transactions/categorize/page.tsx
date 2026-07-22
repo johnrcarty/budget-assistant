@@ -1,0 +1,110 @@
+import { Plus } from "lucide-react";
+import { getCurrentHousehold } from "@/server/lib/dal";
+import { getUncategorizedCount } from "@/server/db/queries/transactions";
+import {
+  getExpenseTargets,
+  getIncomeTargets,
+  getRules,
+} from "@/server/db/queries/categorization";
+import { getUncategorizedMerchants } from "@/server/lib/ai-categorize";
+import { deleteRule } from "@/server/actions/categorization";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { AiSuggestPanel } from "@/components/categorize/AiSuggestPanel";
+import { RuleDialog } from "@/components/categorize/RuleDialog";
+import { RunRulesButton } from "@/components/categorize/RunRulesButton";
+
+const MATCH_LABELS: Record<string, string> = {
+  contains: "contains",
+  starts_with: "starts with",
+  exact: "is exactly",
+};
+
+export default async function CategorizePage() {
+  const householdId = await getCurrentHousehold();
+  const [uncategorizedCount, merchants, rules, expenseTargets, incomeTargets] =
+    await Promise.all([
+      getUncategorizedCount(householdId),
+      getUncategorizedMerchants(householdId),
+      getRules(householdId),
+      getExpenseTargets(householdId),
+      getIncomeTargets(householdId),
+    ]);
+
+  const targets = [
+    ...expenseTargets.map((t) => ({
+      value: `expense:${t.id}`,
+      label: `${t.groupName} › ${t.name}`,
+    })),
+    ...incomeTargets.map((t) => ({
+      value: `income:${t.id}`,
+      label: `Income › ${t.name}`,
+    })),
+  ];
+
+  return (
+    <div>
+      <AppHeader title="Categorize" backHref="/transactions" />
+      <div className="flex flex-col gap-4 px-4 pb-4">
+        <div className="rounded-xl bg-card p-4 shadow-xs">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{uncategorizedCount}</span>{" "}
+            uncategorized {uncategorizedCount === 1 ? "transaction" : "transactions"}{" "}
+            across{" "}
+            <span className="font-semibold text-foreground">{merchants.length}</span>{" "}
+            {merchants.length === 1 ? "merchant" : "merchants"} not covered by a rule.
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between pb-2">
+            <h2 className="font-semibold">AI suggestions</h2>
+          </div>
+          <AiSuggestPanel hasApiKey={Boolean(process.env.ANTHROPIC_API_KEY)} />
+        </div>
+
+        <div className="rounded-xl bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between pb-1">
+            <h2 className="font-semibold">Rules</h2>
+            <RuleDialog
+              targets={targets}
+              triggerClassName="text-foreground"
+              trigger={<Plus className="size-5" aria-label="Add rule" />}
+            />
+          </div>
+          {rules.length === 0 ? (
+            <p className="py-3 text-sm text-muted-foreground">
+              No rules yet. Add one manually or accept AI suggestions above -
+              rules also run automatically on every bank sync and CSV import.
+            </p>
+          ) : (
+            <div className="pb-3">
+              {rules.map(({ rule, targetLabel }) => (
+                <div
+                  key={rule.id}
+                  className="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1 text-sm">
+                    <span className="text-muted-foreground">
+                      {MATCH_LABELS[rule.matchType]}
+                    </span>{" "}
+                    <span className="font-medium">&ldquo;{rule.pattern}&rdquo;</span>{" "}
+                    <span className="text-muted-foreground">→ {targetLabel}</span>
+                  </div>
+                  <form action={deleteRule.bind(null, rule.id)}>
+                    <button
+                      type="submit"
+                      className="text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+          <RunRulesButton />
+        </div>
+      </div>
+    </div>
+  );
+}

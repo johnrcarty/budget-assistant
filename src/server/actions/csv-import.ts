@@ -8,6 +8,7 @@ import { db } from "@/server/db/client";
 import { accounts, transactions } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { adjustAccountBalance } from "@/server/lib/account-balance";
+import { applyRulesToUncategorized } from "@/server/lib/categorize";
 
 const rowSchema = z.object({
   postedDate: z.iso.date(),
@@ -85,6 +86,9 @@ export async function importTransactionsCsv(
 
     await adjustAccountBalance(tx, input.accountId, netDelta);
   });
+
+  // Categorization rules run over the fresh rows (and any backlog).
+  await applyRulesToUncategorized(householdId);
 
   revalidatePath("/transactions");
   revalidatePath("/budget");
