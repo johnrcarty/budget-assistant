@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { DATE_RANGE_LABELS, type DateRangePreset } from "@/lib/date-range";
+import { DATE_RANGE_LABELS, isDateRangePreset, type DateRangePreset } from "@/lib/date-range";
 import type { accounts } from "@/server/db/schema";
 
 export function TransactionsToolbar({
@@ -37,10 +37,23 @@ export function TransactionsToolbar({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [filterOpen, setFilterOpen] = useState(false);
-  const [range, setRange] = useState<DateRangePreset>(
-    (searchParams.get("range") as DateRangePreset | null) ?? "30d",
+  const rangeParam = searchParams.get("range") ?? undefined;
+  const [range, setRange] = useState<DateRangePreset | "custom">(
+    rangeParam === "custom" ? "custom" : isDateRangePreset(rangeParam) ? rangeParam : "30d",
   );
+  const [customFrom, setCustomFrom] = useState(searchParams.get("from") ?? "");
+  const [customTo, setCustomTo] = useState(searchParams.get("to") ?? "");
   const [status, setStatus] = useState(searchParams.get("status") ?? "all");
+  const [type, setType] = useState(searchParams.get("type") ?? "all");
+  const [categorized, setCategorized] = useState(
+    searchParams.get("categorized") === "1"
+      ? "yes"
+      : searchParams.get("categorized") === "0" || searchParams.get("uncategorized") === "1"
+        ? "no"
+        : "all",
+  );
+  const [minAmount, setMinAmount] = useState(searchParams.get("min") ?? "");
+  const [maxAmount, setMaxAmount] = useState(searchParams.get("max") ?? "");
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(
     new Set(searchParams.get("accounts")?.split(",").filter(Boolean) ?? []),
   );
@@ -71,14 +84,26 @@ export function TransactionsToolbar({
   function applyFilters() {
     pushParams({
       range: range === "30d" ? null : range,
+      from: range === "custom" ? customFrom || null : null,
+      to: range === "custom" ? customTo || null : null,
       status: status === "all" ? null : status,
+      type: type === "all" ? null : type,
+      categorized: categorized === "yes" ? "1" : categorized === "no" ? "0" : null,
+      uncategorized: null, // legacy spelling of categorized=0; superseded on apply
+      min: minAmount || null,
+      max: maxAmount || null,
       accounts: selectedAccounts.size > 0 ? [...selectedAccounts].join(",") : null,
     });
     setFilterOpen(false);
   }
 
   const activeFilterCount =
-    (range !== "30d" ? 1 : 0) + (status !== "all" ? 1 : 0) + (selectedAccounts.size > 0 ? 1 : 0);
+    (range !== "30d" ? 1 : 0) +
+    (status !== "all" ? 1 : 0) +
+    (type !== "all" ? 1 : 0) +
+    (categorized !== "all" ? 1 : 0) +
+    (minAmount || maxAmount ? 1 : 0) +
+    (selectedAccounts.size > 0 ? 1 : 0);
 
   return (
     <div className="flex items-center gap-2 px-4 pb-3">
@@ -105,10 +130,13 @@ export function TransactionsToolbar({
           <DialogHeader>
             <DialogTitle>Filter Transactions</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col gap-4">
+          <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto">
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Date range</span>
-              <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>
+              <Select
+                value={range}
+                onValueChange={(v) => v && setRange(v as DateRangePreset | "custom")}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -118,8 +146,81 @@ export function TransactionsToolbar({
                       {label}
                     </SelectItem>
                   ))}
+                  <SelectItem value="custom">Custom range</SelectItem>
                 </SelectContent>
               </Select>
+              {range === "custom" && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    aria-label="From date"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    aria-label="To date"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Type</span>
+              <Select value={type} onValueChange={(v) => v && setType(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="income">Income</SelectItem>
+                  <SelectItem value="expense">Expenses</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Category</span>
+              <Select value={categorized} onValueChange={(v) => v && setCategorized(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="yes">Categorized</SelectItem>
+                  <SelectItem value="no">Uncategorized</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Amount</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  placeholder="Min $"
+                  value={minAmount}
+                  onChange={(e) => setMinAmount(e.target.value)}
+                  aria-label="Minimum amount"
+                />
+                <span className="text-sm text-muted-foreground">to</span>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  placeholder="Max $"
+                  value={maxAmount}
+                  onChange={(e) => setMaxAmount(e.target.value)}
+                  aria-label="Maximum amount"
+                />
+              </div>
             </div>
 
             <div className="flex flex-col gap-2">
