@@ -17,16 +17,24 @@ export function CategoryGroupCard({
   month: string;
   mode: DisplayMode;
 }) {
+  // The app-managed Debt section wears the liability color, not the brand
+  // green - debt payments aren't "wins" the way funded categories are.
+  const isDebtGroup = group.systemKey === "debt";
+
   return (
     <Card>
       <CardContent>
         <div className="flex items-center justify-between pb-2">
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-full bg-muted">
+            <div
+              className={`flex size-9 items-center justify-center rounded-full ${
+                isDebtGroup ? "bg-destructive/10" : "bg-muted"
+              }`}
+            >
               <CategoryIcon
                 name={group.name}
                 storedIcon={group.icon}
-                className="size-4 text-primary"
+                className={`size-4 ${isDebtGroup ? "text-destructive" : "text-primary"}`}
               />
             </div>
             <h2 className="text-lg font-bold">{group.name}</h2>
