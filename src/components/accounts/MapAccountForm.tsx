@@ -14,6 +14,9 @@ import { mapConnectionAccount } from "@/server/actions/simplefin";
 import { formatCents } from "@/server/lib/money";
 import type { accounts } from "@/server/db/schema";
 
+// Deliberately narrower than the global ACCOUNT_KINDS list: only kinds a
+// bank feed can plausibly be. Property/vehicle values are manual-only and
+// must never be mapped to a SimpleFin account.
 const ACCOUNT_KINDS = [
   { value: "checking", label: "Checking" },
   { value: "savings", label: "Savings" },

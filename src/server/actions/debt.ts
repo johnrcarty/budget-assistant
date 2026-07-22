@@ -218,3 +218,58 @@ export async function addDebtTermsVersion(accountId: string, formData: FormData)
   revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/debt");
 }
+
+const secureLinkSchema = z.object({
+  assetAccountId: z.uuid(),
+});
+
+// Links a secured debt to the asset account backing it (house, car).
+// Multiple debts may point at the same asset (mortgage + HELOC); equity
+// displays subtract every linked debt from the asset's value.
+export async function linkSecuredAsset(accountId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = secureLinkSchema.parse({
+    assetAccountId: formData.get("assetAccountId"),
+  });
+
+  // The target must be this household's own non-archived asset.
+  const [asset] = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.id, input.assetAccountId),
+        eq(accounts.householdId, householdId),
+        eq(accounts.isLiability, false),
+        eq(accounts.isArchived, false),
+      ),
+    )
+    .limit(1);
+  if (!asset || asset.id === accountId) return;
+
+  await db
+    .update(accounts)
+    .set({ securedAssetAccountId: asset.id })
+    .where(
+      and(
+        eq(accounts.id, accountId),
+        eq(accounts.householdId, householdId),
+        eq(accounts.isLiability, true),
+      ),
+    );
+
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/accounts");
+}
+
+export async function unlinkSecuredAsset(accountId: string) {
+  const householdId = await getCurrentHousehold();
+
+  await db
+    .update(accounts)
+    .set({ securedAssetAccountId: null })
+    .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
+
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/accounts");
+}

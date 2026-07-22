@@ -4,16 +4,35 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
-import { accounts, accountKindEnum, lineItemTemplates } from "@/server/db/schema";
+import {
+  accounts,
+  accountKindEnum,
+  lineItemTemplates,
+  accountBalanceSnapshots,
+} from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 
 const LIABILITY_KINDS = new Set(["credit_card", "loan", "line_of_credit"]);
+// Physical assets: valued manually, never synced, and the only kinds whose
+// balance history is exclusively manual snapshots.
+const PHYSICAL_ASSET_KINDS = new Set(["property", "vehicle"]);
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function todayIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+}
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
   kind: z.enum(accountKindEnum.enumValues),
   startingBalance: z.string().trim(),
+  purchasePrice: z.string().trim().optional(),
+  purchaseDate: z.string().regex(ISO_DATE_PATTERN).optional(),
 });
 
 export async function createAccount(formData: FormData) {
@@ -22,16 +41,59 @@ export async function createAccount(formData: FormData) {
     name: formData.get("name"),
     kind: formData.get("kind"),
     startingBalance: formData.get("startingBalance") || "0",
+    purchasePrice: formData.get("purchasePrice") || undefined,
+    purchaseDate: formData.get("purchaseDate") || undefined,
   });
 
-  await db.insert(accounts).values({
-    householdId,
-    name: input.name,
-    kind: input.kind,
-    isLiability: LIABILITY_KINDS.has(input.kind),
-    currentBalanceCents: dollarsToCents(input.startingBalance),
-    balanceAsOf: new Date(),
-  });
+  const isPhysicalAsset = PHYSICAL_ASSET_KINDS.has(input.kind);
+  const balanceCents = dollarsToCents(input.startingBalance);
+  const purchasePriceCents = input.purchasePrice
+    ? Math.abs(dollarsToCents(input.purchasePrice))
+    : null;
+
+  const [created] = await db
+    .insert(accounts)
+    .values({
+      householdId,
+      name: input.name,
+      kind: input.kind,
+      isLiability: LIABILITY_KINDS.has(input.kind),
+      currentBalanceCents: balanceCents,
+      balanceAsOf: new Date(),
+      // For physical assets this means "purchase price" - the same
+      // fixed-reference-point role it plays for debts ("balance when this
+      // debt started").
+      originalBalanceCents: isPhysicalAsset ? purchasePriceCents : null,
+    })
+    .returning();
+
+  // Physical assets have no transactions and no sync, so manual snapshots
+  // are their only trend history - seed it at creation: current value
+  // today, plus the purchase point if given, so the trend line starts at
+  // the purchase and shows appreciation since.
+  if (isPhysicalAsset) {
+    const today = todayIso();
+    await db
+      .insert(accountBalanceSnapshots)
+      .values({
+        accountId: created.id,
+        asOfDate: today,
+        balanceCents: Math.abs(balanceCents),
+        source: "manual",
+      })
+      .onConflictDoNothing();
+    if (purchasePriceCents !== null && input.purchaseDate && input.purchaseDate < today) {
+      await db
+        .insert(accountBalanceSnapshots)
+        .values({
+          accountId: created.id,
+          asOfDate: input.purchaseDate,
+          balanceCents: purchasePriceCents,
+          source: "manual",
+        })
+        .onConflictDoNothing();
+    }
+  }
 
   revalidatePath("/accounts");
   revalidatePath("/transactions");
@@ -54,7 +116,14 @@ export async function updateAccount(accountId: string, formData: FormData) {
 
   await db
     .update(accounts)
-    .set({ name: input.name, kind: input.kind, isLiability })
+    .set({
+      name: input.name,
+      kind: input.kind,
+      isLiability,
+      // A non-liability can't be secured by anything - clear the outbound
+      // link when a debt becomes an asset.
+      ...(isLiability ? {} : { securedAssetAccountId: null }),
+    })
     .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
 
   // If a debt became a non-liability, its linked budget item should stop
@@ -71,9 +140,104 @@ export async function updateAccount(accountId: string, formData: FormData) {
       );
   }
 
+  // If an asset became a liability, loans secured by it now point at
+  // another debt - sever those inbound links so equity math never counts
+  // a liability as collateral.
+  if (isLiability) {
+    await db
+      .update(accounts)
+      .set({ securedAssetAccountId: null })
+      .where(
+        and(
+          eq(accounts.securedAssetAccountId, accountId),
+          eq(accounts.householdId, householdId),
+        ),
+      );
+  }
+
   revalidatePath("/accounts");
   revalidatePath("/debt");
   revalidatePath("/transactions");
+}
+
+const assetValueSchema = z.object({
+  value: z.string().trim().min(1),
+  asOfDate: z.string().regex(ISO_DATE_PATTERN),
+});
+
+// Manual asset-value update with history: the asset analog of
+// addBalanceSnapshot in actions/debt.ts. Writes an account_balance_snapshot
+// row (source "manual") so the trend line moves, and refreshes the cached
+// balance only when the new date is the newest known.
+export async function addAssetValueSnapshot(accountId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = assetValueSchema.parse({
+    value: formData.get("value"),
+    asOfDate: formData.get("asOfDate"),
+  });
+
+  const [account] = await db
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.id, accountId),
+        eq(accounts.householdId, householdId),
+        eq(accounts.isLiability, false),
+        eq(accounts.isManual, true),
+      ),
+    )
+    .limit(1);
+  if (!account) return;
+
+  const balanceCents = Math.abs(dollarsToCents(input.value));
+
+  await db
+    .insert(accountBalanceSnapshots)
+    .values({ accountId, asOfDate: input.asOfDate, balanceCents, source: "manual" })
+    .onConflictDoUpdate({
+      target: [
+        accountBalanceSnapshots.accountId,
+        accountBalanceSnapshots.asOfDate,
+        accountBalanceSnapshots.source,
+      ],
+      set: { balanceCents },
+    });
+
+  if (!account.balanceAsOf || new Date(input.asOfDate) >= account.balanceAsOf) {
+    await db
+      .update(accounts)
+      .set({ currentBalanceCents: balanceCents, balanceAsOf: new Date(input.asOfDate) })
+      .where(eq(accounts.id, accountId));
+  }
+
+  revalidatePath("/accounts");
+}
+
+const purchasePriceSchema = z.object({
+  purchasePrice: z.string().trim().min(1),
+});
+
+// Backfill path for assets created before purchase price existed (or when
+// the price was simply skipped at creation).
+export async function setAssetPurchasePrice(accountId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const input = purchasePriceSchema.parse({
+    purchasePrice: formData.get("purchasePrice"),
+  });
+
+  await db
+    .update(accounts)
+    .set({ originalBalanceCents: Math.abs(dollarsToCents(input.purchasePrice)) })
+    .where(
+      and(
+        eq(accounts.id, accountId),
+        eq(accounts.householdId, householdId),
+        eq(accounts.isLiability, false),
+      ),
+    );
+
+  revalidatePath("/accounts");
 }
 
 export async function archiveAccount(accountId: string) {
