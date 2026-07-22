@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import { categoryGroups } from "@/server/db/schema";
@@ -52,6 +52,8 @@ export async function renameCategoryGroup(
 export async function archiveCategoryGroup(categoryGroupId: string) {
   const householdId = await getCurrentHousehold();
 
+  // System-managed groups (the Debt section) are permanent once created -
+  // the UI hides the control, and this guard backs it up.
   await db
     .update(categoryGroups)
     .set({ isArchived: true })
@@ -59,6 +61,7 @@ export async function archiveCategoryGroup(categoryGroupId: string) {
       and(
         eq(categoryGroups.id, categoryGroupId),
         eq(categoryGroups.householdId, householdId),
+        isNull(categoryGroups.systemKey),
       ),
     );
 
