@@ -43,6 +43,13 @@
       "when": 1784677162557,
       "tag": "0005_cool_maverick",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784682500031,
+      "tag": "0006_fair_master_chief",
+      "breakpoints": true
     }
   ]
 }
