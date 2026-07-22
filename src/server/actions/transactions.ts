@@ -4,7 +4,11 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
-import { transactions } from "@/server/db/schema";
+import { transactions, budgetLineItems, incomeLineItems } from "@/server/db/schema";
+import {
+  bulkSetTransactionCategory,
+  type TransactionWhereFilters,
+} from "@/server/db/queries/transactions";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import { adjustAccountBalance } from "@/server/lib/account-balance";
@@ -14,10 +18,8 @@ import { adjustAccountBalance } from "@/server/lib/account-balance";
 // or "transfer" for money moved between own accounts. Decoding sets at most
 // one of the two link columns and the transfer flag exclusively, so a
 // transaction can never be two of those things at once.
-const categoryField = z
-  .string()
-  .regex(/^(none|transfer|expense:[0-9a-f-]{36}|income:[0-9a-f-]{36})$/i)
-  .optional();
+const CATEGORY_PATTERN = /^(none|transfer|expense:[0-9a-f-]{36}|income:[0-9a-f-]{36})$/i;
+const categoryField = z.string().regex(CATEGORY_PATTERN).optional();
 
 function decodeCategory(value: string | undefined): {
   budgetLineItemId: string | null;
@@ -145,6 +147,75 @@ export async function updateTransaction(transactionId: string, formData: FormDat
   revalidatePath("/budget");
   revalidatePath("/budget/income");
   revalidatePath("/accounts");
+}
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// The filter set the transactions page computed server-side, echoed back by
+// the client. Every condition is additionally scoped to the session's
+// household, so a tampered filter can only re-slice the household's own
+// transactions.
+const bulkFiltersSchema = z.object({
+  search: z.string().max(200).optional(),
+  accountIds: z.array(z.uuid()).max(100).optional(),
+  startDate: z.string().regex(ISO_DATE_PATTERN).optional(),
+  endDate: z.string().regex(ISO_DATE_PATTERN).optional(),
+  pending: z.boolean().optional(),
+  categorized: z.boolean().optional(),
+  direction: z.enum(["income", "expense"]).optional(),
+  minAmountCents: z.number().int().nonnegative().optional(),
+  maxAmountCents: z.number().int().nonnegative().optional(),
+  flow: z.string().max(200).optional(),
+});
+
+// Applies one category to every transaction matching the given filters
+// (all pages, not just the visible one). Returns the number updated.
+export async function bulkCategorizeTransactions(
+  rawFilters: TransactionWhereFilters,
+  rawCategory: string,
+): Promise<number> {
+  const householdId = await getCurrentHousehold();
+  const filters = bulkFiltersSchema.parse(rawFilters);
+  const category = z.string().regex(CATEGORY_PATTERN).parse(rawCategory);
+  const links = decodeCategory(category);
+
+  // A mass update deserves the ownership check the per-row path skips:
+  // the target line item / income source must belong to this household.
+  if (links.budgetLineItemId) {
+    const [item] = await db
+      .select({ id: budgetLineItems.id })
+      .from(budgetLineItems)
+      .where(
+        and(
+          eq(budgetLineItems.id, links.budgetLineItemId),
+          eq(budgetLineItems.householdId, householdId),
+        ),
+      )
+      .limit(1);
+    if (!item) throw new Error("Unknown budget line item");
+  }
+  if (links.incomeLineItemId) {
+    const [item] = await db
+      .select({ id: incomeLineItems.id })
+      .from(incomeLineItems)
+      .where(
+        and(
+          eq(incomeLineItems.id, links.incomeLineItemId),
+          eq(incomeLineItems.householdId, householdId),
+        ),
+      )
+      .limit(1);
+    if (!item) throw new Error("Unknown income source");
+  }
+
+  const updatedCount = await bulkSetTransactionCategory(householdId, filters, links);
+
+  revalidatePath("/transactions");
+  revalidatePath("/budget");
+  revalidatePath("/budget/income");
+  revalidatePath("/accounts");
+
+  return updatedCount;
 }
 
 export async function deleteTransaction(transactionId: string) {
