@@ -108,4 +108,5 @@ automatically — no manual migration step needed).
 | `ANTHROPIC_API_KEY` | If you use AI categorization | Feature is silently disabled without it. |
 | `MCP_AUTH_TOKEN` | If you use HA Assist | Feature returns 503 without it; you can also just rotate it and reconnect HA. |
 | `HOUSEHOLD_LOGIN_EMAIL` / `_PASSWORD` | Not needed | Only used by `scripts/seed.ts` on a from-scratch install. **Do not run `pnpm run seed` against a restored DB** — it would try to create a duplicate household/user. |
-| `DATABASE_URL` | N/A | Regenerated from the new host's own compose setup, always `postgres://budget:budget@db:5432/monthly_budget` inside compose. |
+| `POSTGRES_PASSWORD` | Yes | Needed for `db`/`app`/`worker`/`backup` to agree on the same role password - generate one with `openssl rand -hex 24` on the new host if not reusing the old one (rotating requires an `ALTER USER` against the running instance, not just an env change - see the `db` service's password comment). |
+| `DATABASE_URL` | N/A | Regenerated from the new host's own compose setup (`postgres://budget:${POSTGRES_PASSWORD}@db:5432/monthly_budget` inside compose). |
