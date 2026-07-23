@@ -38,14 +38,14 @@ export interface ScheduleInitialValues {
 }
 
 export function EditIncomeScheduleDialog({
-  groupKey,
+  personId,
   groupLabel,
   month,
   initial,
   trigger,
   triggerClassName,
 }: {
-  groupKey: string;
+  personId: string;
   groupLabel: string;
   month: string;
   initial?: ScheduleInitialValues;
@@ -77,7 +77,7 @@ export function EditIncomeScheduleDialog({
           <DialogTitle>{groupLabel} pay schedule</DialogTitle>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
-          <input type="hidden" name="groupKey" value={groupKey} />
+          <input type="hidden" name="personId" value={personId} />
           <input type="hidden" name="month" value={month} />
 
           <div className="flex flex-col gap-2">

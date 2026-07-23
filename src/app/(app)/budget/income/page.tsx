@@ -4,8 +4,9 @@ import {
   getActiveIncomeTemplates,
   getIncomeSchedules,
 } from "@/server/db/queries/income-schedules";
+import { getActivePersons } from "@/server/db/queries/people";
 import { currentDateString, currentMonthString } from "@/lib/month";
-import { buildSlotGroups, incomeSlotGroupKey, incomeSlotGroupLabel } from "@/lib/income-slots";
+import { buildSlotGroups } from "@/lib/income-slots";
 import { formatCents } from "@/server/lib/money";
 import { MonthHeader } from "@/components/budget/MonthHeader";
 import { AddIncomeItemDialog } from "@/components/budget/AddIncomeItemDialog";
@@ -23,31 +24,35 @@ export default async function IncomePage({
   const today = currentDateString();
 
   const householdId = await getCurrentHousehold();
-  const [overview, templates, schedules] = await Promise.all([
+  const [overview, templates, schedules, activePersons] = await Promise.all([
     getBudgetOverview(householdId, month),
     getActiveIncomeTemplates(householdId),
     getIncomeSchedules(householdId),
+    getActivePersons(householdId),
   ]);
 
-  const scheduleByKey = new Map(schedules.map((s) => [s.groupKey, s]));
+  const scheduleByPersonId = new Map(schedules.map((s) => [s.personId, s]));
+  const personNameById = new Map(activePersons.map((p) => [p.id, p.name]));
   const templateAmountById = new Map(templates.map((t) => [t.id, t.defaultAmountCents]));
+  const personIdByTemplateId = new Map(templates.map((t) => [t.id, t.personId]));
   const slotGroups = buildSlotGroups(templates);
 
-  // A "person" is any multi-slot group or any group with a pay schedule;
-  // singleton unscheduled items ("Bonus") stay in the flat list below.
+  // A "person card" is any group whose templates belong to a real person -
+  // even their very first, unscheduled slot renders as a person card, so a
+  // new person's income can be set up without a workaround. Personless
+  // singletons (Bonus, Interest, ...) stay in the flat list below.
   const personGroups = [...slotGroups.entries()].filter(
-    ([key, members]) => members.length > 1 || scheduleByKey.has(key),
+    ([, members]) => members[0].personId !== null,
   );
-  const personKeys = new Set(personGroups.map(([key]) => key));
 
   const itemsByGroup = new Map<string, typeof overview.income>();
   const otherItems: typeof overview.income = [];
   for (const item of overview.income) {
-    const key = incomeSlotGroupKey(item.name);
-    if (personKeys.has(key)) {
-      const list = itemsByGroup.get(key) ?? [];
+    const personId = item.templateItemId ? personIdByTemplateId.get(item.templateItemId) : null;
+    if (personId) {
+      const list = itemsByGroup.get(personId) ?? [];
       list.push(item);
-      itemsByGroup.set(key, list);
+      itemsByGroup.set(personId, list);
     } else {
       otherItems.push(item);
     }
@@ -82,18 +87,18 @@ export default async function IncomePage({
           </CardContent>
         </Card>
 
-        {personGroups.map(([key, members]) => {
-          const schedule = scheduleByKey.get(key) ?? null;
-          const items = (itemsByGroup.get(key) ?? []).sort((a, b) =>
+        {personGroups.map(([personId, members]) => {
+          const schedule = scheduleByPersonId.get(personId) ?? null;
+          const items = (itemsByGroup.get(personId) ?? []).sort((a, b) =>
             a.expectedDate && b.expectedDate
               ? a.expectedDate.localeCompare(b.expectedDate)
               : a.sortOrder - b.sortOrder,
           );
           return (
             <IncomeSourceCard
-              key={key}
-              groupKey={key}
-              groupLabel={incomeSlotGroupLabel(members[0].name)}
+              key={personId}
+              personId={personId}
+              groupLabel={personNameById.get(personId) ?? members[0].name}
               schedule={schedule}
               perCheckAmountCents={
                 schedule?.perCheckAmountCents ||
@@ -150,12 +155,12 @@ export default async function IncomePage({
             ))}
 
             <div className="pt-3">
-              <AddIncomeItemDialog month={month} />
+              <AddIncomeItemDialog month={month} persons={activePersons} />
             </div>
             <p className="pt-2 text-xs text-muted-foreground">
-              Numbered names like &ldquo;Person A 1&rdquo; / &ldquo;Person A 2&rdquo; are
-              treated as paycheck slots for one source - rules fill them in
-              deposit order.
+              Pick a person when adding income to make it their paycheck slot -
+              rules fill a person&rsquo;s slots in deposit order. Leave it as
+              &ldquo;Other income&rdquo; for one-off amounts like bonuses.
             </p>
           </CardContent>
         </Card>

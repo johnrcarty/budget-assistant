@@ -34,7 +34,7 @@ function relativeLabel(today: string, date: string): string {
 }
 
 export function IncomeSourceCard({
-  groupKey,
+  personId,
   groupLabel,
   schedule,
   perCheckAmountCents,
@@ -42,7 +42,7 @@ export function IncomeSourceCard({
   month,
   today,
 }: {
-  groupKey: string;
+  personId: string;
   groupLabel: string;
   schedule: IncomeSchedule | null;
   perCheckAmountCents: number;
@@ -168,7 +168,7 @@ export function IncomeSourceCard({
 
         <div className="pt-3">
           <EditIncomeScheduleDialog
-            groupKey={groupKey}
+            personId={personId}
             groupLabel={groupLabel}
             month={month}
             initial={initial}

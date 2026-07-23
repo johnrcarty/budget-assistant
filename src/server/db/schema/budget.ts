@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { households } from "./household";
 import { accounts } from "./accounts";
+import { persons } from "./person";
 
 export const categoryGroups = pgTable(
   "category_group",
@@ -106,17 +107,30 @@ export const budgetLineItems = pgTable("budget_line_item", {
   updatedAt: timestamp().notNull().defaultNow(),
 });
 
-export const incomeTemplates = pgTable("income_template", {
-  id: uuid().primaryKey().defaultRandom(),
-  householdId: uuid()
-    .notNull()
-    .references(() => households.id, { onDelete: "cascade" }),
-  name: text().notNull(),
-  defaultAmountCents: bigint({ mode: "number" }).notNull().default(0),
-  isActive: boolean().notNull().default(true),
-  sortOrder: integer().notNull().default(0),
-  createdAt: timestamp().notNull().defaultNow(),
-});
+export const incomeTemplates = pgTable(
+  "income_template",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    householdId: uuid()
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    // Null for templates that aren't tied to a person (bonuses, interest,
+    // tax returns, ...) - stays nullable forever, unlike incomeSchedules.
+    // restrict, not cascade - persons are never hard-deleted in this app.
+    personId: uuid().references(() => persons.id, { onDelete: "restrict" }),
+    // Which paycheck slot this is within its person. Meaningless (default 1)
+    // for personId=null rows.
+    slotNumber: integer().notNull().default(1),
+    name: text().notNull(),
+    defaultAmountCents: bigint({ mode: "number" }).notNull().default(0),
+    isActive: boolean().notNull().default(true),
+    sortOrder: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  // Postgres treats every NULL personId as distinct, so multiple personless
+  // singleton templates (slotNumber always 1) never collide here.
+  (t) => [unique().on(t.personId, t.slotNumber)],
+);
 
 export const incomeLineItems = pgTable("income_line_item", {
   id: uuid().primaryKey().defaultRandom(),
@@ -139,11 +153,7 @@ export const incomeLineItems = pgTable("income_line_item", {
   updatedAt: timestamp().notNull().defaultNow(),
 });
 
-// Pay schedule per paycheck slot-group ("person a", "person b"), keyed by the
-// same name-derived group key the slot-filling engine uses
-// (incomeSlotGroupKey). Renaming every slot in a group orphans its schedule
-// row - the UI treats that as "no schedule yet" and the next save upserts on
-// the new key.
+// Pay schedule per person.
 export const incomeSchedules = pgTable(
   "income_schedule",
   {
@@ -151,7 +161,10 @@ export const incomeSchedules = pgTable(
     householdId: uuid()
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
-    groupKey: text().notNull(),
+    // restrict, not cascade - persons are never hard-deleted in this app.
+    personId: uuid()
+      .notNull()
+      .references(() => persons.id, { onDelete: "restrict" }),
     // 'weekly' | 'biweekly' | 'semimonthly' | 'monthly' | 'irregular'
     frequency: text().notNull(),
     // One known check date anchoring the series; null only for 'irregular'.
@@ -163,5 +176,5 @@ export const incomeSchedules = pgTable(
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [unique().on(t.householdId, t.groupKey)],
+  (t) => [unique().on(t.householdId, t.personId)],
 );
