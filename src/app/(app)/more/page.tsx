@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronRight, KeyRound, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ThemeToggleRow } from "@/components/layout/ThemeToggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,12 @@ const SECTIONS = [
     title: "Bank Sync",
     description: "SimpleFin connection and account mapping",
     icon: RefreshCw,
+  },
+  {
+    href: "/more/account",
+    title: "Login & Security",
+    description: "Change the household login email and password",
+    icon: KeyRound,
   },
 ] as const;
 
