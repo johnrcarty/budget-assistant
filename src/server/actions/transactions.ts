@@ -38,6 +38,41 @@ function decodeCategory(value: string | undefined): {
     : { budgetLineItemId: id, incomeLineItemId: null, isTransfer: false };
 }
 
+// The target line item / income source must belong to this household -
+// otherwise a tampered category value could link a transaction to another
+// household's budget row.
+async function verifyCategoryLinks(
+  householdId: string,
+  links: { budgetLineItemId: string | null; incomeLineItemId: string | null },
+) {
+  if (links.budgetLineItemId) {
+    const [item] = await db
+      .select({ id: budgetLineItems.id })
+      .from(budgetLineItems)
+      .where(
+        and(
+          eq(budgetLineItems.id, links.budgetLineItemId),
+          eq(budgetLineItems.householdId, householdId),
+        ),
+      )
+      .limit(1);
+    if (!item) throw new Error("Unknown budget line item");
+  }
+  if (links.incomeLineItemId) {
+    const [item] = await db
+      .select({ id: incomeLineItems.id })
+      .from(incomeLineItems)
+      .where(
+        and(
+          eq(incomeLineItems.id, links.incomeLineItemId),
+          eq(incomeLineItems.householdId, householdId),
+        ),
+      )
+      .limit(1);
+    if (!item) throw new Error("Unknown income source");
+  }
+}
+
 const createSchema = z.object({
   accountId: z.uuid(),
   type: z.enum(["expense", "income"]),
@@ -60,6 +95,7 @@ export async function createTransaction(formData: FormData) {
     note: formData.get("note") || undefined,
   });
   const links = decodeCategory(input.category);
+  await verifyCategoryLinks(householdId, links);
 
   const magnitude = Math.abs(dollarsToCents(input.amount));
   const amountCents = input.type === "expense" ? -magnitude : magnitude;
@@ -107,6 +143,7 @@ export async function updateTransaction(transactionId: string, formData: FormDat
     note: formData.get("note") || undefined,
   });
   const links = decodeCategory(input.category);
+  await verifyCategoryLinks(householdId, links);
 
   const magnitude = Math.abs(dollarsToCents(input.amount));
   const newAmountCents = input.type === "expense" ? -magnitude : magnitude;
@@ -178,35 +215,7 @@ export async function bulkCategorizeTransactions(
   const filters = bulkFiltersSchema.parse(rawFilters);
   const category = z.string().regex(CATEGORY_PATTERN).parse(rawCategory);
   const links = decodeCategory(category);
-
-  // A mass update deserves the ownership check the per-row path skips:
-  // the target line item / income source must belong to this household.
-  if (links.budgetLineItemId) {
-    const [item] = await db
-      .select({ id: budgetLineItems.id })
-      .from(budgetLineItems)
-      .where(
-        and(
-          eq(budgetLineItems.id, links.budgetLineItemId),
-          eq(budgetLineItems.householdId, householdId),
-        ),
-      )
-      .limit(1);
-    if (!item) throw new Error("Unknown budget line item");
-  }
-  if (links.incomeLineItemId) {
-    const [item] = await db
-      .select({ id: incomeLineItems.id })
-      .from(incomeLineItems)
-      .where(
-        and(
-          eq(incomeLineItems.id, links.incomeLineItemId),
-          eq(incomeLineItems.householdId, householdId),
-        ),
-      )
-      .limit(1);
-    if (!item) throw new Error("Unknown income source");
-  }
+  await verifyCategoryLinks(householdId, links);
 
   const updatedCount = await bulkSetTransactionCategory(householdId, filters, links);
 

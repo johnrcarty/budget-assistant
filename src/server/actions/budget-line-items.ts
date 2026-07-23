@@ -34,6 +34,18 @@ export async function createLineItem(formData: FormData) {
   });
   const plannedAmountCents = dollarsToCents(input.plannedAmount);
 
+  const [targetGroup] = await db
+    .select({ id: categoryGroups.id })
+    .from(categoryGroups)
+    .where(
+      and(
+        eq(categoryGroups.id, input.categoryGroupId),
+        eq(categoryGroups.householdId, householdId),
+      ),
+    )
+    .limit(1);
+  if (!targetGroup) throw new Error("Unknown category group");
+
   const [lastTemplate] = await db
     .select({ sortOrder: lineItemTemplates.sortOrder })
     .from(lineItemTemplates)
