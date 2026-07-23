@@ -1,0 +1,5 @@
+# Daily DB backup. Times are UTC (this container has no TZ set, matching
+# the rest of the stack - see worker's 4-hourly SimpleFin sync for
+# precedent). To change the schedule: edit this file, then
+# `docker compose restart backup`.
+0 3 * * * /scripts/backup.sh >> /proc/1/fd/1 2>> /proc/1/fd/2
