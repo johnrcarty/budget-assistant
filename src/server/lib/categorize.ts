@@ -344,7 +344,8 @@ async function applyIncomeSlotAssignments(
   const activeTemplates: SlotTemplate[] = await db
     .select({
       id: incomeTemplates.id,
-      name: incomeTemplates.name,
+      personId: incomeTemplates.personId,
+      slotNumber: incomeTemplates.slotNumber,
       sortOrder: incomeTemplates.sortOrder,
     })
     .from(incomeTemplates)
@@ -356,35 +357,37 @@ async function applyIncomeSlotAssignments(
     );
 
   const groups = buildSlotGroups(activeTemplates);
-  const groupKeyByTemplateId = new Map<string, string>();
+  const slotGroupIdByTemplateId = new Map<string, string>();
   for (const [key, members] of groups) {
-    for (const member of members) groupKeyByTemplateId.set(member.id, key);
+    for (const member of members) slotGroupIdByTemplateId.set(member.id, key);
   }
 
   // A rule may target a deactivated template (rule outlived the item) -
   // treat it as its own single-slot group, preserving the old behavior.
+  // buildSlotGroups never sees it (the query above filters isActive=true),
+  // so it can't already be in the map above.
   const planInputs: SlotPlanInput[] = [];
   for (const match of incomeMatches) {
-    let groupKey = groupKeyByTemplateId.get(match.targetTemplateId);
-    if (!groupKey) {
-      groupKey = `orphan:${match.targetTemplateId}`;
-      groups.set(groupKey, [
-        { id: match.targetTemplateId, name: groupKey, sortOrder: 0 },
+    let slotGroupId = slotGroupIdByTemplateId.get(match.targetTemplateId);
+    if (!slotGroupId) {
+      slotGroupId = `orphan:${match.targetTemplateId}`;
+      groups.set(slotGroupId, [
+        { id: match.targetTemplateId, personId: null, slotNumber: 1, sortOrder: 0 },
       ]);
-      groupKeyByTemplateId.set(match.targetTemplateId, groupKey);
+      slotGroupIdByTemplateId.set(match.targetTemplateId, slotGroupId);
     }
-    planInputs.push({ txId: match.txId, month: match.month, groupKey });
+    planInputs.push({ txId: match.txId, month: match.month, personId: slotGroupId });
   }
 
   // Occupancy per (group, month): which slot templates already have a
   // transaction linked to their instance this month.
   const occupancy = new Map<string, ReadonlySet<string>>();
   const instanceIdByTemplateMonth = new Map<string, string>();
-  const neededPairs = new Set(planInputs.map((p) => `${p.groupKey}|${p.month}`));
+  const neededPairs = new Set(planInputs.map((p) => `${p.personId}|${p.month}`));
 
   for (const pairKey of neededPairs) {
-    const [groupKey, month] = pairKey.split("|");
-    const members = groups.get(groupKey) ?? [];
+    const [slotGroupId, month] = pairKey.split("|");
+    const members = groups.get(slotGroupId) ?? [];
     if (members.length === 0) continue;
 
     const budgetMonth = await getOrCreateBudgetMonth(householdId, month);

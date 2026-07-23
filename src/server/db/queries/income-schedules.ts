@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { incomeLineItems, incomeSchedules, incomeTemplates } from "@/server/db/schema";
-import { buildSlotGroups, incomeSlotGroupLabel } from "@/lib/income-slots";
+import { incomeLineItems, incomeSchedules, incomeTemplates, persons } from "@/server/db/schema";
+import { buildSlotGroups } from "@/lib/income-slots";
 import {
   checkDatesInMonth,
   type PayFrequency,
@@ -33,7 +33,7 @@ export function scheduleStamps(schedule: IncomeSchedule): boolean {
 export async function upsertIncomeSchedule(
   householdId: string,
   input: {
-    groupKey: string;
+    personId: string;
     frequency: PayFrequency;
     anchorDate: string | null;
     secondDayOfMonth: number | null;
@@ -44,7 +44,7 @@ export async function upsertIncomeSchedule(
     .insert(incomeSchedules)
     .values({ householdId, ...input })
     .onConflictDoUpdate({
-      target: [incomeSchedules.householdId, incomeSchedules.groupKey],
+      target: [incomeSchedules.householdId, incomeSchedules.personId],
       set: {
         frequency: input.frequency,
         anchorDate: input.anchorDate,
@@ -66,10 +66,10 @@ export async function deleteIncomeSchedule(householdId: string, scheduleId: stri
 }
 
 // Idempotent top-up: for each schedule that can stamp, ensure the month has
-// one line item per expected check - minting extra slot templates ("Person A
-// 3") when a 3-check month needs one. Never deletes line items or edits
-// planned amounts, so manual edits and mid-month removals stick. Months with
-// more items than expected checks are left alone.
+// one line item per expected check - minting extra slot templates when a
+// 3-check month needs one. Never deletes line items or edits planned
+// amounts, so manual edits and mid-month removals stick. Months with more
+// items than expected checks are left alone.
 export async function ensureScheduledIncomeForMonth(
   householdId: string,
   budgetMonthId: string,
@@ -101,30 +101,38 @@ export async function ensureScheduledIncomeForMonth(
     const dates = checkDatesInMonth(scheduleSpec(schedule), month);
     if (dates.length === 0) continue;
 
-    // An orphaned schedule (all slots renamed/deactivated) stamps nothing.
-    const members = [...(groups.get(schedule.groupKey) ?? [])];
+    // A schedule whose person has no active templates left stamps nothing.
+    const members = [...(groups.get(schedule.personId) ?? [])];
     if (members.length === 0) continue;
 
-    while (members.length < dates.length) {
-      const label = incomeSlotGroupLabel(members[0].name);
-      const name = `${label} ${members.length + 1}`;
-      // Skip if a same-name template already exists (deduped by buildSlotGroups).
-      if (members.some((m) => m.name.trim().toLowerCase() === name.toLowerCase())) break;
-      const [{ maxSort }] = await db
-        .select({ maxSort: sql<number>`coalesce(max(${incomeTemplates.sortOrder}), 0)` })
-        .from(incomeTemplates)
-        .where(eq(incomeTemplates.householdId, householdId));
-      const [minted] = await db
-        .insert(incomeTemplates)
-        .values({
-          householdId,
-          name,
-          defaultAmountCents: schedule.perCheckAmountCents,
-          sortOrder: Number(maxSort) + 1,
-        })
-        .returning();
-      members.push(minted);
-      mintedTemplates++;
+    if (members.length < dates.length) {
+      const [person] = await db
+        .select({ name: persons.name })
+        .from(persons)
+        .where(eq(persons.id, schedule.personId))
+        .limit(1);
+      const personName = person?.name ?? "Income";
+
+      while (members.length < dates.length) {
+        const slotNumber = members.length + 1;
+        const [{ maxSort }] = await db
+          .select({ maxSort: sql<number>`coalesce(max(${incomeTemplates.sortOrder}), 0)` })
+          .from(incomeTemplates)
+          .where(eq(incomeTemplates.householdId, householdId));
+        const [minted] = await db
+          .insert(incomeTemplates)
+          .values({
+            householdId,
+            personId: schedule.personId,
+            slotNumber,
+            name: `${personName} ${slotNumber}`,
+            defaultAmountCents: schedule.perCheckAmountCents,
+            sortOrder: Number(maxSort) + 1,
+          })
+          .returning();
+        members.push(minted);
+        mintedTemplates++;
+      }
     }
 
     for (let i = 0; i < dates.length && i < members.length; i++) {
@@ -154,12 +162,12 @@ export async function ensureScheduledIncomeForMonth(
   return { createdItems, mintedTemplates };
 }
 
-// Group keys whose schedules stamp line items - copyMonthBudget skips these
+// Person ids whose schedules stamp line items - copyMonthBudget skips these
 // so schedule-driven groups get the correct slot count for the target month
 // instead of a clone of the source month's.
-export async function getStampingScheduleKeys(householdId: string): Promise<Set<string>> {
+export async function getStampingSchedulePersonIds(householdId: string): Promise<Set<string>> {
   const schedules = await getIncomeSchedules(householdId);
-  return new Set(schedules.filter(scheduleStamps).map((s) => s.groupKey));
+  return new Set(schedules.filter(scheduleStamps).map((s) => s.personId));
 }
 
 export async function getActiveIncomeTemplates(householdId: string) {

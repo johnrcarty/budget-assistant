@@ -7,11 +7,12 @@ import {
   categoryGroups,
   incomeTemplates,
   lineItemTemplates,
+  persons,
   transactions,
 } from "@/server/db/schema";
 import { getActiveRules } from "./categorize";
 import { findMatchingRule, merchantKey, ruleMatches } from "@/lib/rule-match";
-import { buildSlotGroups, incomeSlotGroupLabel } from "@/lib/income-slots";
+import { buildSlotGroups } from "@/lib/income-slots";
 
 // The owner explicitly chose Haiku for this: it's a bulk classification
 // task where cost matters more than depth.
@@ -107,9 +108,13 @@ export async function getCategoryOptions(householdId: string): Promise<CategoryO
       .select({
         id: incomeTemplates.id,
         name: incomeTemplates.name,
+        personId: incomeTemplates.personId,
+        slotNumber: incomeTemplates.slotNumber,
         sortOrder: incomeTemplates.sortOrder,
+        personName: persons.name,
       })
       .from(incomeTemplates)
+      .leftJoin(persons, eq(incomeTemplates.personId, persons.id))
       .where(
         and(
           eq(incomeTemplates.householdId, householdId),
@@ -119,9 +124,9 @@ export async function getCategoryOptions(householdId: string): Promise<CategoryO
       .orderBy(asc(incomeTemplates.sortOrder)),
   ]);
 
-  // Income options collapse to one per slot group ("Person A", not
-  // "Person A 1"/"Person A 2") - the engine fills slots in deposit order, so
-  // the model can't pick a wrong slot, and the prompt spends fewer tokens.
+  // Income options collapse to one per slot group (a person, not each of
+  // their numbered slots) - the engine fills slots in deposit order, so the
+  // model can't pick a wrong slot, and the prompt spends fewer tokens.
   const incomeGroups = [...buildSlotGroups(income).values()];
 
   return [
@@ -135,7 +140,7 @@ export async function getCategoryOptions(householdId: string): Promise<CategoryO
       code: `I${i + 1}`,
       kind: "income" as const,
       templateId: members[0].id,
-      label: `Income › ${incomeSlotGroupLabel(members[0].name)}`,
+      label: `Income › ${members[0].personName ?? members[0].name}`,
     })),
   ];
 }

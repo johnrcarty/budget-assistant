@@ -15,8 +15,14 @@ import {
   sql,
 } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { transactions, accounts, budgetLineItems, incomeLineItems } from "@/server/db/schema";
-import { incomeSlotGroupKey } from "@/lib/income-slots";
+import {
+  transactions,
+  accounts,
+  budgetLineItems,
+  incomeLineItems,
+  incomeTemplates,
+} from "@/server/db/schema";
+import { parseIncomeSlotIdentifier } from "@/lib/income-slots";
 import { shiftMonthString } from "@/lib/month";
 
 export async function getTransactionsForMonth(householdId: string, month: string) {
@@ -58,8 +64,9 @@ export interface TransactionFilters {
   // $50 expense (stored negative) as well as $50 of income.
   minAmountCents?: number;
   maxAmountCents?: number;
-  // A Summary-Sankey node id ("src:slot:person a", "grp:<uuid>",
-  // "item:<uuid>:<mergeKey>", "src:uncategorized", "grp:uncategorized") -
+  // A Summary-Sankey node id ("src:slot:person:<uuid>", "src:slot:tpl:<uuid>",
+  // "grp:<uuid>", "item:<uuid>:<mergeKey>", "src:uncategorized",
+  // "grp:uncategorized") -
   // filters to the transactions behind that node.
   flow?: string;
   page: number;
@@ -120,10 +127,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 // Resolves a Sankey node id into the condition matching that node's
 // transaction set, mirroring getCashflow's semantics exactly (sign-aware
-// uncategorized buckets; income slots merged by name-derived group key;
-// line items merged by templateItemId-or-normalized-name within a group).
-// Returns null for ids with no transaction set (cashflow/surplus/deficit)
-// and a never-true condition for ids that resolve to nothing.
+// uncategorized buckets; income slots merged by personId (or templateId for
+// a personless template); line items merged by templateItemId-or-normalized-
+// name within a group). Returns null for ids with no transaction set
+// (cashflow/surplus/deficit) and a never-true condition for ids that
+// resolve to nothing.
 async function resolveFlowCondition(householdId: string, flow: string) {
   const nothing = sql`false`;
 
@@ -144,15 +152,35 @@ async function resolveFlowCondition(householdId: string, flow: string) {
     );
   }
   if (flow.startsWith("src:slot:")) {
-    const groupKey = flow.slice("src:slot:".length);
-    const items = await db
-      .select({ id: incomeLineItems.id, name: incomeLineItems.name })
-      .from(incomeLineItems)
-      .where(eq(incomeLineItems.householdId, householdId));
-    const ids = items
-      .filter((item) => incomeSlotGroupKey(item.name) === groupKey)
-      .map((item) => item.id);
-    return ids.length > 0 ? inArray(transactions.incomeLineItemId, ids) : nothing;
+    const parsed = parseIncomeSlotIdentifier(flow.slice("src:slot:".length));
+    if (!parsed) return nothing;
+    if (parsed.kind === "person") {
+      return inArray(
+        transactions.incomeLineItemId,
+        db
+          .select({ id: incomeLineItems.id })
+          .from(incomeLineItems)
+          .innerJoin(incomeTemplates, eq(incomeLineItems.templateItemId, incomeTemplates.id))
+          .where(
+            and(
+              eq(incomeLineItems.householdId, householdId),
+              eq(incomeTemplates.personId, parsed.personId),
+            ),
+          ),
+      );
+    }
+    return inArray(
+      transactions.incomeLineItemId,
+      db
+        .select({ id: incomeLineItems.id })
+        .from(incomeLineItems)
+        .where(
+          and(
+            eq(incomeLineItems.householdId, householdId),
+            eq(incomeLineItems.templateItemId, parsed.templateId),
+          ),
+        ),
+    );
   }
   if (flow.startsWith("item:")) {
     const rest = flow.slice("item:".length);

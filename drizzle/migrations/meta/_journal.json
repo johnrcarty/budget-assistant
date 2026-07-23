@@ -120,6 +120,20 @@
       "when": 1784828310689,
       "tag": "0016_drop_income_person_text",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784835900733,
+      "tag": "0017_add_income_person_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784836022582,
+      "tag": "0018_drop_income_schedule_group_key",
+      "breakpoints": true
     }
   ]
 }

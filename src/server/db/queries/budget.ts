@@ -5,11 +5,11 @@ import {
   categoryGroups,
   budgetLineItems,
   incomeLineItems,
+  incomeTemplates,
   lineItemTemplates,
 } from "@/server/db/schema";
 import { getSpentCentsByLineItem, getReceivedCentsByIncomeItem } from "./transactions";
-import { getStampingScheduleKeys } from "./income-schedules";
-import { incomeSlotGroupKey } from "@/lib/income-slots";
+import { getStampingSchedulePersonIds } from "./income-schedules";
 import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
 
 // Always the 1st of the month - callers pass any date and this normalizes it,
@@ -248,13 +248,16 @@ export async function copyMonthBudget(
     );
   }
 
-  const scheduledKeys = await getStampingScheduleKeys(householdId);
+  const stampingPersonIds = await getStampingSchedulePersonIds(householdId);
   const sourceIncome = (
     await db
-      .select()
+      .select({ item: incomeLineItems, personId: incomeTemplates.personId })
       .from(incomeLineItems)
+      .leftJoin(incomeTemplates, eq(incomeLineItems.templateItemId, incomeTemplates.id))
       .where(eq(incomeLineItems.budgetMonthId, sourceBudgetMonthId))
-  ).filter((item) => !scheduledKeys.has(incomeSlotGroupKey(item.name)));
+  )
+    .filter((row) => !(row.personId && stampingPersonIds.has(row.personId)))
+    .map((row) => row.item);
 
   if (sourceIncome.length > 0) {
     await db.insert(incomeLineItems).values(

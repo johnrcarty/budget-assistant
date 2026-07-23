@@ -1,11 +1,13 @@
 import { and, desc, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
-import { incomeSlotGroupKey, incomeSlotGroupLabel } from "@/lib/income-slots";
+import { incomeSlotIdentifier } from "@/lib/income-slots";
 import { db } from "@/server/db/client";
 import {
   transactions,
   budgetLineItems,
   categoryGroups,
   incomeLineItems,
+  incomeTemplates,
+  persons,
 } from "@/server/db/schema";
 
 export interface CashflowRange {
@@ -52,24 +54,34 @@ function mergeKey(templateItemId: string | null, name: string): string {
   return templateItemId ?? `name:${name.trim().toLowerCase()}`;
 }
 
-// Income merges one level coarser than expenses: numbered paycheck slots
-// ("Person A 1", "Person A 2") collapse into a single per-person source via the
-// same name convention the slot-filling engine uses.
+// Income merges one level coarser than expenses: a person's paycheck slots
+// collapse into a single per-person source. A personless template (bonus,
+// interest, ...) merges across months by templateItemId instead, same idea
+// as mergeItems' fallback below; the rare income row with no template link
+// at all falls back to its own name, like mergeItems does for expenses.
 function mergeIncomeSources(
-  rows: { name: string; totalCents: number }[],
+  rows: {
+    templateItemId: string | null;
+    personId: string | null;
+    personName: string | null;
+    templateName: string | null;
+    itemName: string;
+    totalCents: number;
+  }[],
 ): CashflowItem[] {
   const merged = new Map<string, CashflowItem>();
   for (const row of rows) {
-    const key = `slot:${incomeSlotGroupKey(row.name)}`;
+    const key = row.personId
+      ? `slot:${incomeSlotIdentifier(row.personId, row.templateItemId ?? "")}`
+      : row.templateItemId
+        ? `slot:${incomeSlotIdentifier(null, row.templateItemId)}`
+        : `slot:name:${row.itemName.trim().toLowerCase()}`;
+    const label = row.personName ?? row.templateName ?? row.itemName;
     const existing = merged.get(key);
     if (existing) {
       existing.totalCents += row.totalCents;
     } else {
-      merged.set(key, {
-        key,
-        name: incomeSlotGroupLabel(row.name),
-        totalCents: row.totalCents,
-      });
+      merged.set(key, { key, name: label, totalCents: row.totalCents });
     }
   }
   return [...merged.values()]
@@ -108,13 +120,24 @@ export async function getCashflow(
       db
         .select({
           templateItemId: incomeLineItems.templateItemId,
-          name: incomeLineItems.name,
+          personId: incomeTemplates.personId,
+          personName: persons.name,
+          templateName: incomeTemplates.name,
+          itemName: incomeLineItems.name,
           totalCents: sql<number>`sum(${transactions.amountCents})`,
         })
         .from(transactions)
         .innerJoin(incomeLineItems, eq(transactions.incomeLineItemId, incomeLineItems.id))
+        .leftJoin(incomeTemplates, eq(incomeLineItems.templateItemId, incomeTemplates.id))
+        .leftJoin(persons, eq(incomeTemplates.personId, persons.id))
         .where(and(eq(transactions.householdId, householdId), ...dates))
-        .groupBy(incomeLineItems.templateItemId, incomeLineItems.name)
+        .groupBy(
+          incomeLineItems.templateItemId,
+          incomeTemplates.personId,
+          persons.name,
+          incomeTemplates.name,
+          incomeLineItems.name,
+        )
         .orderBy(desc(sql`max(${transactions.postedDate})`)),
       // Positive transactions linked to neither side. (A positive transaction
       // linked to a budget line item is a refund - it nets against that
@@ -172,7 +195,14 @@ export async function getCashflow(
     ]);
 
   const incomeSources = mergeIncomeSources(
-    incomeRows.map((row) => ({ name: row.name, totalCents: Number(row.totalCents) })),
+    incomeRows.map((row) => ({
+      templateItemId: row.templateItemId,
+      personId: row.personId,
+      personName: row.personName,
+      templateName: row.templateName,
+      itemName: row.itemName,
+      totalCents: Number(row.totalCents),
+    })),
   );
 
   const groupMap = new Map<

@@ -1,63 +1,66 @@
 // Pure slot-group logic for income categorization - no server imports, so
 // it's shared by the rules engine, UI labels, and verification scripts.
 //
-// The household budgets one income line item per expected paycheck
-// ("Person A 1", "Person A 2"). A person's paychecks are indistinguishable to
-// description rules (same text, account, amount), so the engine treats
-// numbered templates as SLOTS of one group and fills them in deposit order.
-// Grouping is derived from the template name by convention: one trailing
-// integer is stripped ("Person A 1" and "Person A 2" -> group "person a").
-// Names without a trailing number are their own group.
-
-export function incomeSlotGroupKey(name: string): string {
-  const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
-  const stripped = normalized.replace(/\s*\d+$/, "").trim();
-  return stripped || normalized;
-}
-
-// Display form: original casing minus the trailing number ("Person A").
-export function incomeSlotGroupLabel(name: string): string {
-  const collapsed = name.trim().replace(/\s+/g, " ");
-  const stripped = collapsed.replace(/\s*\d+$/, "").trim();
-  return stripped || collapsed;
-}
+// The household budgets one income line item per expected paycheck. A
+// person's paychecks are indistinguishable to description rules (same text,
+// account, amount), so the engine treats a person's numbered templates as
+// SLOTS of one group and fills them in deposit order. Grouping is a real
+// personId FK + an explicit slotNumber column - a template with no personId
+// (a bonus, interest, a tax return, ...) is its own singleton "orphan" group.
 
 export interface SlotTemplate {
   id: string;
-  name: string;
+  personId: string | null;
+  slotNumber: number;
   sortOrder: number;
 }
 
-// Groups active templates by slot-group key; members ordered by sortOrder,
-// then numeric-aware name compare ("Person A 2" before "Person A 10").
-// Duplicate normalized full names dedupe to the first member - an artifact
-// of the income "Add" action always minting a new template.
-export function buildSlotGroups(templates: SlotTemplate[]): Map<string, SlotTemplate[]> {
-  const groups = new Map<string, SlotTemplate[]>();
-  const sorted = [...templates].sort(
-    (a, b) =>
-      a.sortOrder - b.sortOrder ||
-      a.name.localeCompare(b.name, undefined, { numeric: true }),
-  );
-
-  const seenNames = new Set<string>();
-  for (const template of sorted) {
-    const normalizedName = template.name.trim().toLowerCase().replace(/\s+/g, " ");
-    if (seenNames.has(normalizedName)) continue;
-    seenNames.add(normalizedName);
-
-    const key = incomeSlotGroupKey(template.name);
+// Groups templates by personId (a template with no person is its own
+// singleton group, keyed by its own id so it never collides with another
+// personless template). Members ordered by slotNumber. Generic so callers
+// that select extra display columns (name, a joined person's name, ...) get
+// them back on the grouped members instead of being narrowed away.
+export function buildSlotGroups<T extends SlotTemplate>(templates: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const template of templates) {
+    const key = template.personId ?? `orphan:${template.id}`;
     const members = groups.get(key) ?? [];
     members.push(template);
     groups.set(key, members);
   }
+  for (const members of groups.values()) {
+    members.sort((a, b) => a.slotNumber - b.slotNumber);
+  }
   return groups;
+}
+
+// The identifier embedded in a Sankey source node id ("src:slot:<id>") -
+// a person's slots all merge into one node; a personless template is its
+// own node, keyed by template id so two differently-named personless
+// templates never merge just because of a naming coincidence.
+export function incomeSlotIdentifier(personId: string | null, templateId: string): string {
+  return personId ? `person:${personId}` : `tpl:${templateId}`;
+}
+
+export type ParsedIncomeSlotIdentifier =
+  | { kind: "person"; personId: string }
+  | { kind: "template"; templateId: string }
+  | null;
+
+export function parseIncomeSlotIdentifier(identifier: string): ParsedIncomeSlotIdentifier {
+  if (identifier.startsWith("person:")) {
+    return { kind: "person", personId: identifier.slice("person:".length) };
+  }
+  if (identifier.startsWith("tpl:")) {
+    return { kind: "template", templateId: identifier.slice("tpl:".length) };
+  }
+  return null;
 }
 
 export interface SlotPlanInput {
   txId: string;
   month: string; // YYYY-MM-01
-  groupKey: string;
+  personId: string; // a real person id, or the buildSlotGroups orphan key
 }
 
 export interface SlotPlanAssignment {
@@ -68,7 +71,7 @@ export interface SlotPlanAssignment {
 
 // Core planner. `txs` MUST already be ordered (postedDate, createdAt, id)
 // ascending - the Nth deposit of a month fills the Nth open slot. Occupancy
-// is per (groupKey, month): a slot is occupied when its month-instance
+// is per (personId, month): a slot is occupied when its month-instance
 // already has at least one linked transaction (engine or manual). When
 // every slot is taken, further deposits overflow onto the LAST slot - a
 // three-paycheck month shows received > planned, which downstream sums
@@ -90,10 +93,10 @@ export function planSlotAssignments(
 
   const assignments: SlotPlanAssignment[] = [];
   for (const tx of txs) {
-    const members = groups.get(tx.groupKey);
+    const members = groups.get(tx.personId);
     if (!members || members.length === 0) continue;
 
-    const key = `${tx.groupKey}|${tx.month}`;
+    const key = `${tx.personId}|${tx.month}`;
     const occupied = occupiedFor(key);
     const target = members.find((m) => !occupied.has(m.id)) ?? members[members.length - 1];
     occupied.add(target.id);

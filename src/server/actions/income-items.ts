@@ -1,18 +1,22 @@
 "use server";
 
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import { incomeLineItems, incomeTemplates } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import { getOrCreateBudgetMonth } from "@/server/db/queries/budget";
+import { getValidPersonIds } from "@/server/db/queries/people";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
   plannedAmount: z.string().trim(),
   month: z.string(),
+  // Omitted/empty = today's "Other income" behavior (no person). Set = this
+  // becomes that person's next open slot.
+  personId: z.string().uuid().optional(),
 });
 
 export async function createIncomeItem(formData: FormData) {
@@ -21,8 +25,14 @@ export async function createIncomeItem(formData: FormData) {
     name: formData.get("name"),
     plannedAmount: formData.get("plannedAmount") || "0",
     month: formData.get("month"),
+    personId: formData.get("personId") || undefined,
   });
   const plannedAmountCents = dollarsToCents(input.plannedAmount);
+
+  const [validPersonId] = input.personId
+    ? await getValidPersonIds(householdId, [input.personId])
+    : [];
+  const personId = validPersonId ?? null;
 
   const [lastTemplate] = await db
     .select({ sortOrder: incomeTemplates.sortOrder })
@@ -32,10 +42,21 @@ export async function createIncomeItem(formData: FormData) {
     .limit(1);
   const sortOrder = (lastTemplate?.sortOrder ?? 0) + 1;
 
+  let slotNumber = 1;
+  if (personId) {
+    const [{ maxSlot }] = await db
+      .select({ maxSlot: sql<number>`coalesce(max(${incomeTemplates.slotNumber}), 0)` })
+      .from(incomeTemplates)
+      .where(eq(incomeTemplates.personId, personId));
+    slotNumber = Number(maxSlot) + 1;
+  }
+
   const [template] = await db
     .insert(incomeTemplates)
     .values({
       householdId,
+      personId,
+      slotNumber,
       name: input.name,
       defaultAmountCents: plannedAmountCents,
       sortOrder,

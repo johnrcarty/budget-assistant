@@ -6,6 +6,7 @@ import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import { isPayFrequency } from "@/lib/income-schedule";
 import { getOrCreateBudgetMonth } from "@/server/db/queries/budget";
+import { getPerson } from "@/server/db/queries/people";
 import {
   deleteIncomeSchedule as deleteScheduleRow,
   ensureScheduledIncomeForMonth,
@@ -14,7 +15,7 @@ import {
 
 const saveSchema = z
   .object({
-    groupKey: z.string().trim().min(1),
+    personId: z.string().uuid(),
     frequency: z.string().refine(isPayFrequency, "Unknown frequency"),
     anchorDate: z
       .string()
@@ -33,7 +34,7 @@ const saveSchema = z
 export async function saveIncomeSchedule(formData: FormData) {
   const householdId = await getCurrentHousehold();
   const input = saveSchema.parse({
-    groupKey: formData.get("groupKey"),
+    personId: formData.get("personId"),
     frequency: formData.get("frequency"),
     anchorDate: formData.get("anchorDate") || null,
     secondDayOfMonth: formData.get("secondDayOfMonth") || null,
@@ -41,8 +42,11 @@ export async function saveIncomeSchedule(formData: FormData) {
     perCheckAmount: formData.get("perCheckAmount") || "0",
   });
 
+  const person = await getPerson(householdId, input.personId);
+  if (!person) throw new Error("Unknown person");
+
   await upsertIncomeSchedule(householdId, {
-    groupKey: input.groupKey,
+    personId: input.personId,
     frequency: input.frequency,
     anchorDate: input.anchorDate,
     secondDayOfMonth: input.frequency === "semimonthly" ? input.secondDayOfMonth : null,

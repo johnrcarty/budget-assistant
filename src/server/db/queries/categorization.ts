@@ -6,8 +6,9 @@ import {
   categoryGroups,
   incomeTemplates,
   lineItemTemplates,
+  persons,
 } from "@/server/db/schema";
-import { buildSlotGroups, incomeSlotGroupLabel } from "@/lib/income-slots";
+import { buildSlotGroups } from "@/lib/income-slots";
 
 export interface RuleWithTarget {
   rule: typeof categorizationRules.$inferSelect;
@@ -36,22 +37,27 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
     .orderBy(asc(categorizationRules.priority), asc(categorizationRules.createdAt));
 
   // Income targets display as their slot GROUP when the target template is
-  // one of several numbered paycheck slots - the engine fills the group's
-  // next open slot, so the label should say so.
+  // one of several paycheck slots - the engine fills the group's next open
+  // slot, so the label should say so.
   const activeIncome = await db
     .select({
       id: incomeTemplates.id,
       name: incomeTemplates.name,
+      personId: incomeTemplates.personId,
+      slotNumber: incomeTemplates.slotNumber,
       sortOrder: incomeTemplates.sortOrder,
+      personName: persons.name,
     })
     .from(incomeTemplates)
+    .leftJoin(persons, eq(incomeTemplates.personId, persons.id))
     .where(
       and(eq(incomeTemplates.householdId, householdId), eq(incomeTemplates.isActive, true)),
     );
   const slotGroups = buildSlotGroups(activeIncome);
-  const groupSizeByTemplateId = new Map<string, number>();
+  const groupInfoByTemplateId = new Map<string, { size: number; label: string }>();
   for (const members of slotGroups.values()) {
-    for (const member of members) groupSizeByTemplateId.set(member.id, members.length);
+    const label = members[0].personName ?? members[0].name;
+    for (const member of members) groupInfoByTemplateId.set(member.id, { size: members.length, label });
   }
 
   return rows.map((row) => {
@@ -59,12 +65,12 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
     if (row.rule.markAsTransfer) {
       targetLabel = "Transfer between accounts";
     } else if (row.incomeName) {
-      const groupSize = row.rule.incomeTemplateId
-        ? (groupSizeByTemplateId.get(row.rule.incomeTemplateId) ?? 1)
-        : 1;
+      const info = row.rule.incomeTemplateId
+        ? groupInfoByTemplateId.get(row.rule.incomeTemplateId)
+        : undefined;
       targetLabel =
-        groupSize > 1
-          ? `Income › ${incomeSlotGroupLabel(row.incomeName)} (fills next open check)`
+        (info?.size ?? 1) > 1
+          ? `Income › ${info!.label} (fills next open check)`
           : `Income › ${row.incomeName}`;
     } else if (row.groupName && row.itemName) {
       targetLabel = `${row.groupName} › ${row.itemName}`;
@@ -100,9 +106,13 @@ export async function getIncomeTargets(
     .select({
       id: incomeTemplates.id,
       name: incomeTemplates.name,
+      personId: incomeTemplates.personId,
+      slotNumber: incomeTemplates.slotNumber,
       sortOrder: incomeTemplates.sortOrder,
+      personName: persons.name,
     })
     .from(incomeTemplates)
+    .leftJoin(persons, eq(incomeTemplates.personId, persons.id))
     .where(
       and(
         eq(incomeTemplates.householdId, householdId),
@@ -114,7 +124,7 @@ export async function getIncomeTargets(
   const groups = buildSlotGroups(templates);
   return [...groups.values()].map((members) => ({
     id: members[0].id,
-    name: incomeSlotGroupLabel(members[0].name),
+    name: members[0].personName ?? members[0].name,
     slotCount: members.length,
   }));
 }
