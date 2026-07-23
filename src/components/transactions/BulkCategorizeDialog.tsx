@@ -21,21 +21,18 @@ import {
 } from "@/components/ui/dialog";
 import { bulkCategorizeTransactions } from "@/server/actions/transactions";
 import type { TransactionWhereFilters } from "@/server/db/queries/transactions";
-import type { budgetLineItems, incomeLineItems } from "@/server/db/schema";
-
-type LineItem = typeof budgetLineItems.$inferSelect;
-type IncomeItem = typeof incomeLineItems.$inferSelect;
+import type { ExpenseTarget, IncomeTarget } from "./TransactionDialog";
 
 export function BulkCategorizeDialog({
   filters,
   totalCount,
-  lineItems,
-  incomeItems,
+  expenseTargets,
+  incomeTargets,
 }: {
   filters: TransactionWhereFilters;
   totalCount: number;
-  lineItems: LineItem[];
-  incomeItems: IncomeItem[];
+  expenseTargets: ExpenseTarget[];
+  incomeTargets: IncomeTarget[];
 }) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState("none");
@@ -56,8 +53,8 @@ export function BulkCategorizeDialog({
   const options: { value: string; label: string }[] = [
     { value: "none", label: "Uncategorized" },
     { value: "transfer", label: "Transfer between accounts" },
-    ...lineItems.map((item) => ({ value: `expense:${item.id}`, label: item.name })),
-    ...incomeItems.map((item) => ({ value: `income:${item.id}`, label: `Income: ${item.name}` })),
+    ...expenseTargets.map((t) => ({ value: `expense:${t.id}`, label: `${t.groupName} › ${t.name}` })),
+    ...incomeTargets.map((t) => ({ value: `income:${t.id}`, label: `Income: ${t.name}` })),
   ];
 
   return (
@@ -75,7 +72,8 @@ export function BulkCategorizeDialog({
             Applies this category to all{" "}
             <span className="font-medium text-foreground">{totalCount}</span>{" "}
             {totalCount === 1 ? "transaction" : "transactions"} matching the current
-            filters, including those on other pages. Existing categories are
+            filters, including those on other pages - each lands on its own
+            month, even if the filter spans several. Existing categories are
             overwritten.
           </p>
 
