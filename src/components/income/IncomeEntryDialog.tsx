@@ -88,34 +88,36 @@ export function IncomeEntryDialog({
           <DialogTitle>{isEdit ? "Edit Income" : "Add Income"}</DialogTitle>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
-          <div className="flex gap-3">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="income-person">Person</Label>
-              <Select name="personId" defaultValue={entry?.personId ?? persons[0].id}>
-                <SelectTrigger id="income-person" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {persons.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex w-28 flex-col gap-2">
-              <Label htmlFor="income-year">Year</Label>
-              <Input
-                id="income-year"
-                name="year"
-                type="number"
-                min="1900"
-                max="2200"
-                defaultValue={entry?.year ?? defaultYear}
-                required
-              />
-            </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="income-person">Person</Label>
+            <Select
+              name="personId"
+              defaultValue={entry?.personId ?? persons[0].id}
+              items={Object.fromEntries(persons.map((p) => [p.id, p.name]))}
+            >
+              <SelectTrigger id="income-person" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {persons.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="income-year">Year</Label>
+            <Input
+              id="income-year"
+              name="year"
+              type="number"
+              min="1900"
+              max="2200"
+              defaultValue={entry?.year ?? defaultYear}
+              required
+            />
           </div>
 
           <div className="flex gap-3">
