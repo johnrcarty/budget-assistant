@@ -59,7 +59,11 @@ export function AddPersonDialog() {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="person-type">Type</Label>
-            <Select name="personType" defaultValue="adult">
+            <Select
+              name="personType"
+              defaultValue="adult"
+              items={Object.fromEntries(PERSON_TYPES.map((t) => [t.value, t.label]))}
+            >
               <SelectTrigger id="person-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>

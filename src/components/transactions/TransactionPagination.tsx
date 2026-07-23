@@ -49,7 +49,11 @@ export function TransactionPagination({
     <div className="flex items-center justify-between gap-3 py-4 text-sm">
       <div className="flex items-center gap-2 text-muted-foreground">
         <span>Show</span>
-        <Select value={String(pageSize)} onValueChange={(v) => v && changePageSize(v)}>
+        <Select
+          value={String(pageSize)}
+          onValueChange={(v) => v && changePageSize(v)}
+          items={Object.fromEntries(PAGE_SIZES.map((size) => [String(size), String(size)]))}
+        >
           <SelectTrigger size="sm">
             <SelectValue />
           </SelectTrigger>
