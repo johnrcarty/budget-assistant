@@ -52,5 +52,25 @@ services:
       SIMPLEFIN_ENCRYPTION_KEY: ${SIMPLEFIN_ENCRYPTION_KEY}
     command: node_modules/.bin/tsx src/server/jobs/scheduler.ts
 
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: budget
+      PGPASSWORD: budget
+      PGDATABASE: monthly_budget
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup/backup.sh:/scripts/backup.sh:ro
+      - ./scripts/backup/restore.sh:/scripts/restore.sh:ro
+      - ./scripts/backup/crontab:/etc/crontabs/root:ro
+    command: ["crond", "-f", "-l", "8"]
+
 volumes:
   db-data:
