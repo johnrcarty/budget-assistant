@@ -19,7 +19,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { archivePerson, unarchivePerson, updatePerson } from "@/server/actions/people";
+import {
+  archivePerson,
+  recordNetWorthSnapshot,
+  unarchivePerson,
+  updatePerson,
+} from "@/server/actions/people";
+import { formatCents } from "@/server/lib/money";
+import { TrendDialog } from "@/components/accounts/TrendDialog";
 import { PersonColorField } from "./PersonColorField";
 
 const PERSON_TYPES = [
@@ -27,8 +34,22 @@ const PERSON_TYPES = [
   { value: "child", label: "Child" },
 ] as const;
 
+function formatShortDate(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+interface NetWorthPoint {
+  asOfDate: string;
+  assetsCents: number;
+  liabilitiesCents: number;
+}
+
 export function EditPersonDialog({
   person,
+  netWorthHistory = [],
   trigger,
   triggerClassName,
 }: {
@@ -39,6 +60,9 @@ export function EditPersonDialog({
     color: string | null;
     isActive: boolean;
   };
+  // Oldest-first, sparse (one row per year-end snapshot recorded, not one
+  // per calendar year) - matches the append-only convention used elsewhere.
+  netWorthHistory?: NetWorthPoint[];
   trigger: React.ReactNode;
   triggerClassName?: string;
 }) {
@@ -55,6 +79,20 @@ export function EditPersonDialog({
     },
     undefined,
   );
+  const [snapshotError, snapshotAction, snapshotPending] = useActionState(
+    async (_prevState: string | undefined, formData: FormData) => {
+      try {
+        await recordNetWorthSnapshot(formData);
+        return undefined;
+      } catch {
+        return "Couldn't record that snapshot.";
+      }
+    },
+    undefined,
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  const latest = netWorthHistory[netWorthHistory.length - 1];
+  const netWorthSeries = netWorthHistory.map((p) => p.assetsCents - p.liabilitiesCents);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -95,6 +133,52 @@ export function EditPersonDialog({
             </Button>
           </DialogFooter>
         </form>
+
+        <div className="flex flex-col gap-3 border-t pt-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-muted-foreground">Net worth</div>
+              {latest ? (
+                <div className="text-lg font-semibold">
+                  {formatCents(latest.assetsCents - latest.liabilitiesCents)}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">No snapshots yet</div>
+              )}
+            </div>
+            {netWorthHistory.length >= 2 && (
+              <TrendDialog
+                title={`${person.name}'s net worth`}
+                points={netWorthHistory.map((p) => p.asOfDate)}
+                series={netWorthSeries}
+                changeLabel="since first snapshot"
+                lastPointLabel={formatShortDate(latest.asOfDate)}
+                trigger={
+                  <span className="text-sm text-primary underline underline-offset-2">
+                    View history
+                  </span>
+                }
+              />
+            )}
+          </div>
+          <form action={snapshotAction} className="flex items-end gap-2">
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor={`net-worth-date-${person.id}`}>Record snapshot as of</Label>
+              <p className="text-xs text-muted-foreground">Records net worth for everyone.</p>
+              <Input
+                id={`net-worth-date-${person.id}`}
+                name="asOfDate"
+                type="date"
+                defaultValue={today}
+                required
+              />
+            </div>
+            <Button type="submit" variant="secondary" disabled={snapshotPending}>
+              {snapshotPending ? "Recording…" : "Record"}
+            </Button>
+          </form>
+          {snapshotError && <p className="text-sm text-destructive">{snapshotError}</p>}
+        </div>
 
         {person.isActive ? (
           <form action={archivePerson.bind(null, person.id)} className="border-t pt-3">

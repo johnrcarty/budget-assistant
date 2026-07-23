@@ -1,10 +1,14 @@
 import {
+  accountBalanceSnapshots,
+  accountOwners,
   accounts,
   debtBalanceSnapshots,
   debtTermsVersions,
   households,
+  persons,
   simplefinConnectionAccounts,
   simplefinConnections,
+  transactions,
 } from "@/server/db/schema";
 import { encryptSecret } from "@/server/lib/crypto/secret-box";
 
@@ -103,6 +107,64 @@ export async function seedConnectionAccount(
     })
     .returning();
   return connAccount;
+}
+
+export async function seedPerson(
+  db: TestDb,
+  householdId: string,
+  overrides: Partial<typeof persons.$inferInsert> = {},
+) {
+  const [person] = await db
+    .insert(persons)
+    .values({
+      householdId,
+      name: "Test Person",
+      ...overrides,
+    })
+    .returning();
+  return person;
+}
+
+export async function seedAccountOwner(db: TestDb, accountId: string, personId: string) {
+  const [owner] = await db.insert(accountOwners).values({ accountId, personId }).returning();
+  return owner;
+}
+
+export async function seedTransaction(
+  db: TestDb,
+  householdId: string,
+  accountId: string,
+  overrides: Partial<typeof transactions.$inferInsert> = {},
+) {
+  const [transaction] = await db
+    .insert(transactions)
+    .values({
+      householdId,
+      accountId,
+      amountCents: -1000,
+      description: "Test Transaction",
+      postedDate: "2025-01-01",
+      ...overrides,
+    })
+    .returning();
+  return transaction;
+}
+
+export async function seedAccountBalanceSnapshot(
+  db: TestDb,
+  accountId: string,
+  overrides: Partial<typeof accountBalanceSnapshots.$inferInsert> = {},
+) {
+  const [snapshot] = await db
+    .insert(accountBalanceSnapshots)
+    .values({
+      accountId,
+      asOfDate: "2025-01-01",
+      balanceCents: 100000,
+      ...overrides,
+    })
+    .returning();
+  return snapshot;
 }
 
 export async function seedDebtSnapshot(

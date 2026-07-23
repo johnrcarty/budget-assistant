@@ -1,5 +1,6 @@
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getActivePersons, getArchivedPersons } from "@/server/db/queries/people";
+import { getNetWorthHistoryByPersonIds } from "@/server/db/queries/net-worth-snapshot";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,10 @@ export default async function PeopleSettingsPage() {
   const [people, archived] = await Promise.all([
     getActivePersons(householdId),
     getArchivedPersons(householdId),
+  ]);
+  const netWorthHistory = await getNetWorthHistoryByPersonIds(householdId, [
+    ...people.map((p) => p.id),
+    ...archived.map((p) => p.id),
   ]);
 
   return (
@@ -39,6 +44,7 @@ export default async function PeopleSettingsPage() {
             <EditPersonDialog
               key={person.id}
               person={person}
+              netWorthHistory={netWorthHistory[person.id] ?? []}
               triggerClassName="block w-full text-left"
               trigger={
                 <Card>
@@ -72,6 +78,7 @@ export default async function PeopleSettingsPage() {
                 <EditPersonDialog
                   key={person.id}
                   person={person}
+                  netWorthHistory={netWorthHistory[person.id] ?? []}
                   triggerClassName="block w-full text-left"
                   trigger={
                     <Card className="opacity-70">

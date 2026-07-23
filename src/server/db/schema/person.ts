@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, boolean, integer, pgEnum, unique, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, boolean, integer, bigint, date, pgEnum, unique, primaryKey } from "drizzle-orm/pg-core";
 import { households } from "./household";
 import { users } from "./auth";
 import { accounts } from "./accounts";
@@ -51,4 +51,38 @@ export const accountOwners = pgTable(
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.accountId, t.personId] })],
+);
+
+// Only 'computed' exists today - a snapshot is always derived from account
+// balances, never hand-typed. A future 'manual' override tier is a plain
+// ALTER TYPE ... ADD VALUE away; deliberately not built now.
+export const personNetWorthSourceEnum = pgEnum("person_net_worth_source", ["computed"]);
+
+// Sparse, append-only, one row per (person, date) snapshot of that person's
+// share of household net worth - computed from account balances + whatever
+// accountOwners assignments were current at the time the snapshot was
+// recorded, not a live-recomputed view. Same liabilities-positive
+// convention as every other balance table. netWorthCents is deliberately
+// NOT stored - always derive assetsCents - liabilitiesCents at read time,
+// so there is exactly one source of truth.
+export const personNetWorthSnapshots = pgTable(
+  "person_net_worth_snapshot",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    householdId: uuid()
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    // restrict, not cascade - persons are never hard-deleted in this app,
+    // this is a backstop against ever silently wiping net-worth history.
+    personId: uuid()
+      .notNull()
+      .references(() => persons.id, { onDelete: "restrict" }),
+    asOfDate: date().notNull(),
+    assetsCents: bigint({ mode: "number" }).notNull(),
+    liabilitiesCents: bigint({ mode: "number" }).notNull(),
+    source: personNetWorthSourceEnum().notNull().default("computed"),
+    note: text(),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.personId, t.asOfDate, t.source)],
 );
