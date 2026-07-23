@@ -4,12 +4,20 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: budget
-      POSTGRES_PASSWORD: budget
+      # Only takes effect on a fresh volume (initdb). To rotate the password
+      # on an EXISTING db-data volume, this env change alone does nothing -
+      # also run: docker compose exec db psql -U budget -d monthly_budget
+      #   -c "ALTER USER budget WITH PASSWORD '<new-value>';"
+      # then restart app/worker/backup with the matching .env.local value.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: monthly_budget
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      - "5439:5432"
+      # Loopback-only: reachable from this host (e.g. `pnpm dev` running
+      # outside Docker) but not from other devices on the LAN. app/worker/
+      # backup reach db over the compose network, not this port.
+      - "127.0.0.1:5439:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U budget -d monthly_budget"]
       interval: 5s
@@ -25,7 +33,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://budget:budget@db:5432/monthly_budget
+      DATABASE_URL: postgres://budget:${POSTGRES_PASSWORD}@db:5432/monthly_budget
       AUTH_SECRET: ${AUTH_SECRET}
       HOUSEHOLD_LOGIN_EMAIL: ${HOUSEHOLD_LOGIN_EMAIL}
       HOUSEHOLD_LOGIN_PASSWORD: ${HOUSEHOLD_LOGIN_PASSWORD}
@@ -38,6 +46,12 @@ services:
     ports:
       - "3410:3000"
     command: sh -c "node_modules/.bin/tsx src/server/db/migrate.ts && node server.js"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   worker:
     build:
@@ -48,7 +62,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://budget:budget@db:5432/monthly_budget
+      DATABASE_URL: postgres://budget:${POSTGRES_PASSWORD}@db:5432/monthly_budget
       SIMPLEFIN_ENCRYPTION_KEY: ${SIMPLEFIN_ENCRYPTION_KEY}
     command: node_modules/.bin/tsx src/server/jobs/scheduler.ts
 
@@ -62,7 +76,7 @@ services:
       PGHOST: db
       PGPORT: 5432
       PGUSER: budget
-      PGPASSWORD: budget
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: monthly_budget
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
