@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -24,6 +25,10 @@ import {
 } from "@/server/db/schema";
 import { parseIncomeSlotIdentifier } from "@/lib/income-slots";
 import { shiftMonthString } from "@/lib/month";
+import {
+  ensureLineItemInstance,
+  applyIncomeSlotAssignments,
+} from "@/server/db/queries/line-item-instances";
 
 export async function getTransactionsForMonth(householdId: string, month: string) {
   const nextMonth = shiftMonthString(month, 1);
@@ -257,25 +262,101 @@ async function buildTransactionWhere(householdId: string, filters: TransactionWh
   return where;
 }
 
-// Sets the category links on every transaction matching the filters.
-// Category changes never touch amountCents, so account balances are
-// unaffected. Returns the number of rows updated.
+// A category choice targets a recurring TEMPLATE, never a specific month's
+// instance directly - the instance for each transaction's own month is
+// resolved (or created) at write time. This is what makes bulk-categorizing
+// a multi-month filter result correct: each transaction lands on its own
+// month's instance of the template, not whichever month happened to be
+// on screen when the category was picked.
+export type CategoryTarget =
+  | { kind: "none" }
+  | { kind: "transfer" }
+  | { kind: "expense"; templateId: string }
+  | { kind: "income"; templateId: string };
+
+// Sets the category on every transaction matching the filters, resolving
+// each transaction's OWN month's instance of the target template (creating
+// it if needed) rather than one fixed instance for all of them. Category
+// changes never touch amountCents, so account balances are unaffected.
+// Returns the number of rows updated.
 export async function bulkSetTransactionCategory(
   householdId: string,
   filters: TransactionWhereFilters,
-  links: {
-    budgetLineItemId: string | null;
-    incomeLineItemId: string | null;
-    isTransfer: boolean;
-  },
+  target: CategoryTarget,
 ): Promise<number> {
   const where = await buildTransactionWhere(householdId, filters);
-  const updated = await db
-    .update(transactions)
-    .set({ ...links, updatedAt: new Date() })
+
+  if (target.kind === "none" || target.kind === "transfer") {
+    const updated = await db
+      .update(transactions)
+      .set({
+        budgetLineItemId: null,
+        incomeLineItemId: null,
+        isTransfer: target.kind === "transfer",
+        updatedAt: new Date(),
+      })
+      .where(where)
+      .returning({ id: transactions.id });
+    return updated.length;
+  }
+
+  const matching = await db
+    .select({ id: transactions.id, postedDate: transactions.postedDate })
+    .from(transactions)
     .where(where)
-    .returning({ id: transactions.id });
-  return updated.length;
+    .orderBy(asc(transactions.postedDate), asc(transactions.createdAt), asc(transactions.id));
+  if (matching.length === 0) return 0;
+
+  if (target.kind === "expense") {
+    const instanceByMonth = new Map<string, string | null>();
+    let updated = 0;
+    for (const tx of matching) {
+      const month = `${tx.postedDate.slice(0, 7)}-01`;
+      let instanceId = instanceByMonth.get(month);
+      if (instanceId === undefined) {
+        instanceId = await ensureLineItemInstance(householdId, target.templateId, month);
+        instanceByMonth.set(month, instanceId);
+      }
+      if (!instanceId) continue;
+      await db
+        .update(transactions)
+        .set({
+          budgetLineItemId: instanceId,
+          incomeLineItemId: null,
+          isTransfer: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, tx.id));
+      updated += 1;
+    }
+    return updated;
+  }
+
+  // Income: re-targeting an already-categorized batch needs its old links
+  // cleared first, so slot occupancy is computed without the rows being
+  // moved (same reasoning as applyRuleToMatching's incomeClearIds).
+  await db
+    .update(transactions)
+    .set({
+      budgetLineItemId: null,
+      incomeLineItemId: null,
+      isTransfer: false,
+      updatedAt: new Date(),
+    })
+    .where(
+      inArray(
+        transactions.id,
+        matching.map((tx) => tx.id),
+      ),
+    );
+  return applyIncomeSlotAssignments(
+    householdId,
+    matching.map((tx) => ({
+      txId: tx.id,
+      month: `${tx.postedDate.slice(0, 7)}-01`,
+      targetTemplateId: target.templateId,
+    })),
+  );
 }
 
 export async function getFilteredTransactions(householdId: string, filters: TransactionFilters) {
@@ -287,7 +368,9 @@ export async function getFilteredTransactions(householdId: string, filters: Tran
         transaction: transactions,
         accountName: accounts.name,
         lineItemName: budgetLineItems.name,
+        lineItemTemplateId: budgetLineItems.templateItemId,
         incomeItemName: incomeLineItems.name,
+        incomeTemplateId: incomeLineItems.templateItemId,
       })
       .from(transactions)
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))

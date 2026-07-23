@@ -51,6 +51,32 @@ on its debt detail page (`/accounts/<accountId>`).
 To run against the production DB, run the same command on the server inside the
 app container (or with `DATABASE_URL` pointed at the prod DB).
 
+## Fixing mis-monthed categorizations (`fix-mismonthed-categorizations.ts`)
+
+One-time data fix for a bug (fixed in code, this script repairs data from
+before the fix): manually categorizing a transaction via the Edit
+Transaction dialog or Bulk categorize linked it to whichever month's line-
+item instance happened to be on screen, not the transaction's own month —
+e.g. categorizing a May transaction while viewing July silently linked it
+to July's instance instead of May's, inflating that month's category
+totals with spending that actually happened elsewhere.
+
+```bash
+npx tsx --env-file=.env.local scripts/fix-mismonthed-categorizations.ts <householdId>
+```
+
+Re-links every affected transaction to the correct month's instance of the
+SAME template/person it was already assigned to — it never changes what
+category or person a transaction is assigned to, only which month's
+instance it points at. Income transactions move to the correct month's
+instance without re-running slot planning, so a manually-assigned slot
+can't shift as a side effect. Safe to run more than once (a no-op the
+second time). Prints every change it makes.
+
+**Run this once against the production DB after deploying the fix** (same
+command, on the server, with `DATABASE_URL` pointed at the prod DB) — the
+code fix only stops new mis-links, it doesn't repair ones already made.
+
 ## Backup / restore (`scripts/backup/`)
 
 Unlike the scripts above, these are `sh` scripts that run *inside the

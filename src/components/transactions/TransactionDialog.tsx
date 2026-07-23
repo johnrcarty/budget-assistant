@@ -21,32 +21,47 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createTransaction, updateTransaction, deleteTransaction } from "@/server/actions/transactions";
-import type {
-  accounts,
-  budgetLineItems,
-  incomeLineItems,
-  transactions,
-} from "@/server/db/schema";
+import type { accounts, transactions } from "@/server/db/schema";
 
 type Account = typeof accounts.$inferSelect;
-type LineItem = typeof budgetLineItems.$inferSelect;
-type IncomeItem = typeof incomeLineItems.$inferSelect;
 type Transaction = typeof transactions.$inferSelect;
+
+export interface ExpenseTarget {
+  id: string;
+  name: string;
+  groupName: string;
+}
+
+export interface IncomeTarget {
+  id: string;
+  name: string;
+  slotCount: number;
+}
 
 export function TransactionDialog({
   trigger,
   triggerClassName,
   accounts,
-  lineItems,
-  incomeItems = [],
+  expenseTargets,
+  incomeTargets = [],
   transaction,
+  currentExpenseTemplateId,
+  currentIncomeTemplateId,
+  currentCategoryName,
 }: {
   trigger: React.ReactNode;
   triggerClassName?: string;
   accounts: Account[];
-  lineItems: LineItem[];
-  incomeItems?: IncomeItem[];
+  expenseTargets: ExpenseTarget[];
+  incomeTargets?: IncomeTarget[];
   transaction?: Transaction;
+  // The transaction's CURRENT instance resolves back to one of these
+  // templates - needed to default the picker, since a category choice is
+  // always a template, not the specific month's instance the transaction
+  // happens to be linked to.
+  currentExpenseTemplateId?: string | null;
+  currentIncomeTemplateId?: string | null;
+  currentCategoryName?: string | null;
 }) {
   const isEdit = !!transaction;
   const [open, setOpen] = useState(false);
@@ -74,28 +89,34 @@ export function TransactionDialog({
     ? (Math.abs(transaction.amountCents) / 100).toFixed(2)
     : "";
 
-  // Current category value on an edit, in the combined encoding.
+  // Current category value on an edit, in the combined encoding - always a
+  // TEMPLATE id, resolved from whichever instance the transaction is
+  // currently linked to.
   const defaultCategory = transaction?.isTransfer
     ? "transfer"
-    : transaction?.incomeLineItemId
-      ? `income:${transaction.incomeLineItemId}`
-      : transaction?.budgetLineItemId
-        ? `expense:${transaction.budgetLineItemId}`
+    : currentIncomeTemplateId
+      ? `income:${currentIncomeTemplateId}`
+      : currentExpenseTemplateId
+        ? `expense:${currentExpenseTemplateId}`
         : "none";
 
-  // An edited transaction may be linked to a prior month's instance that
-  // isn't in this month's option list - synthesize an entry so the dialog
-  // doesn't display it as Uncategorized.
+  // Templates are stable across months, so the only way a "current
+  // category" can be missing from the options list is a since-deactivated
+  // template - synthesize an entry so the dialog doesn't display it as
+  // Uncategorized.
   const categoryOptions: { value: string; label: string }[] =
     type === "income"
-      ? incomeItems.map((item) => ({ value: `income:${item.id}`, label: item.name }))
-      : lineItems.map((item) => ({ value: `expense:${item.id}`, label: item.name }));
+      ? incomeTargets.map((t) => ({ value: `income:${t.id}`, label: t.name }))
+      : expenseTargets.map((t) => ({ value: `expense:${t.id}`, label: `${t.groupName} › ${t.name}` }));
   if (
     defaultCategory !== "none" &&
     defaultCategory.startsWith(type === "income" ? "income:" : "expense:") &&
     !categoryOptions.some((o) => o.value === defaultCategory)
   ) {
-    categoryOptions.unshift({ value: defaultCategory, label: "(current category)" });
+    categoryOptions.unshift({
+      value: defaultCategory,
+      label: currentCategoryName ? `${currentCategoryName} (archived)` : "(current category)",
+    });
   }
 
   return (

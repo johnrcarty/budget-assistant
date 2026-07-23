@@ -6,8 +6,8 @@ import {
   getFilteredTransactions,
   type TransactionWhereFilters,
 } from "@/server/db/queries/transactions";
-import { getBudgetOverview } from "@/server/db/queries/budget";
-import { currentMonthString, formatFullDate } from "@/lib/month";
+import { getExpenseTargets, getIncomeTargets } from "@/server/db/queries/categorization";
+import { formatFullDate } from "@/lib/month";
 import { resolveDateRange, isDateRangePreset } from "@/lib/date-range";
 import { formatCents, dollarsToCents } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -103,13 +103,12 @@ export default async function TransactionsPage({
   };
 
   const householdId = await getCurrentHousehold();
-  const [accountList, { rows, totalCount }, overview] = await Promise.all([
+  const [accountList, { rows, totalCount }, expenseTargets, incomeTargets] = await Promise.all([
     getAccounts(householdId),
     getFilteredTransactions(householdId, { ...whereFilters, page, pageSize }),
-    getBudgetOverview(householdId, currentMonthString()),
+    getExpenseTargets(householdId),
+    getIncomeTargets(householdId),
   ]);
-
-  const lineItems = overview.groups.flatMap((g) => g.items);
 
   return (
     <div>
@@ -126,8 +125,8 @@ export default async function TransactionsPage({
               </Link>
               <TransactionDialog
                 accounts={accountList}
-                lineItems={lineItems}
-                incomeItems={overview.income}
+                expenseTargets={expenseTargets}
+                incomeTargets={incomeTargets}
                 trigger={<Plus className="size-6" />}
               />
             </div>
@@ -169,13 +168,20 @@ export default async function TransactionsPage({
               <BulkCategorizeDialog
                 filters={whereFilters}
                 totalCount={totalCount}
-                lineItems={lineItems}
-                incomeItems={overview.income}
+                expenseTargets={expenseTargets}
+                incomeTargets={incomeTargets}
               />
             </div>
             <Card>
               <CardContent>
-                {rows.map(({ transaction, accountName, lineItemName, incomeItemName }, index) => {
+                {rows.map(({
+                  transaction,
+                  accountName,
+                  lineItemName,
+                  lineItemTemplateId,
+                  incomeItemName,
+                  incomeTemplateId,
+                }, index) => {
                   const isNewDay =
                     index === 0 ||
                     rows[index - 1].transaction.postedDate !== transaction.postedDate;
@@ -199,9 +205,12 @@ export default async function TransactionsPage({
                       )}
                       <TransactionDialog
                         accounts={accountList}
-                        lineItems={lineItems}
-                        incomeItems={overview.income}
+                        expenseTargets={expenseTargets}
+                        incomeTargets={incomeTargets}
                         transaction={transaction}
+                        currentExpenseTemplateId={lineItemTemplateId}
+                        currentIncomeTemplateId={incomeTemplateId}
+                        currentCategoryName={lineItemName ?? incomeItemName}
                         triggerClassName="block w-full text-left"
                         trigger={
                           <div className="flex w-full items-center justify-between gap-3 border-b py-3 text-left last:border-b-0">
