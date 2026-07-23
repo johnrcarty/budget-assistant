@@ -49,3 +49,11 @@ on its debt detail page (`/accounts/<accountId>`).
 
 To run against the production DB, run the same command on the server inside the
 app container (or with `DATABASE_URL` pointed at the prod DB).
+
+## Backup / restore (`scripts/backup/`)
+
+Unlike the scripts above, these are `sh` scripts that run *inside the
+`backup` Docker Compose service*, not via `tsx` on the host — they call
+`pg_dump`/`pg_restore` directly against the `db` container. See
+`docs/backup-restore.md` for the full runbook (scheduled backups, manual
+trigger, and the host-migration restore procedure).

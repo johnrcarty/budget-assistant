@@ -44,6 +44,9 @@ yarn-error.log*
 # keep local-only, never push
 scripts/seed.ts
 
+# real household DB dumps produced by scripts/backup/backup.sh - never push
+/backups/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
