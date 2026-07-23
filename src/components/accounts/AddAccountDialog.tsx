@@ -21,7 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createAccount } from "@/server/actions/accounts";
-import { ACCOUNT_KINDS } from "./account-kinds";
+import { ACCOUNT_KINDS, KIND_LABELS } from "./account-kinds";
 import { GroupSelectField } from "./GroupSelectField";
 import { OwnerSelectField } from "./OwnerSelectField";
 
@@ -66,7 +66,12 @@ export function AddAccountDialog({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="account-kind">Type</Label>
-            <Select name="kind" value={kind} onValueChange={(v) => v && setKind(v)}>
+            <Select
+              name="kind"
+              value={kind}
+              onValueChange={(v) => v && setKind(v)}
+              items={KIND_LABELS}
+            >
               <SelectTrigger id="account-kind" className="w-full">
                 <SelectValue />
               </SelectTrigger>

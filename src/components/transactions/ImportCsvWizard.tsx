@@ -215,6 +215,10 @@ export function ImportCsvWizard({
                   onValueChange={(v) => {
                     if (v === "single" || v === "split") updateMapping({ amountMode: v });
                   }}
+                  items={{
+                    single: "One column (signed)",
+                    split: "Separate debit/credit columns",
+                  }}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -354,6 +358,7 @@ function ColumnSelect({
     <Select
       value={value !== null ? String(value) : "none"}
       onValueChange={(v) => onChange(v === "none" || v === null ? null : Number(v))}
+      items={{ none: "Not in file", ...Object.fromEntries(options.map((o) => [o.value, o.label])) }}
     >
       <SelectTrigger className="w-full">
         <SelectValue placeholder="Not in file" />

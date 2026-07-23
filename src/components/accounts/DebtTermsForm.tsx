@@ -82,6 +82,10 @@ export function DebtTermsForm({
             name="termsType"
             value={termsType}
             onValueChange={(v) => setTermsType(v as "revolving" | "installment")}
+            items={{
+              revolving: "Revolving (credit card, line of credit)",
+              installment: "Installment (fixed loan)",
+            }}
           >
             <SelectTrigger id="termsType" className="w-full">
               <SelectValue />
@@ -98,6 +102,7 @@ export function DebtTermsForm({
             name="paymentFrequency"
             value={frequency}
             onValueChange={(v) => setFrequency(v as PaymentFrequency)}
+            items={FREQUENCY_LABELS}
           >
             <SelectTrigger id="paymentFrequency" className="w-full">
               <SelectValue />

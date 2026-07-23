@@ -107,7 +107,11 @@ export function ForecastDialog({
             </div>
             <div className="flex flex-1 flex-col gap-2">
               <Label htmlFor="forecast-base">Based on data through</Label>
-              <Select name="baseYear" defaultValue={String(latestYear)}>
+              <Select
+                name="baseYear"
+                defaultValue={String(latestYear)}
+                items={Object.fromEntries(years.map((y) => [String(y), String(y)]))}
+              >
                 <SelectTrigger id="forecast-base" className="w-full">
                   <SelectValue />
                 </SelectTrigger>

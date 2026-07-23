@@ -136,6 +136,7 @@ export function TransactionsToolbar({
               <Select
                 value={range}
                 onValueChange={(v) => v && setRange(v as DateRangePreset | "custom")}
+                items={{ ...DATE_RANGE_LABELS, custom: "Custom range" }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -170,7 +171,11 @@ export function TransactionsToolbar({
 
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Type</span>
-              <Select value={type} onValueChange={(v) => v && setType(v)}>
+              <Select
+                value={type}
+                onValueChange={(v) => v && setType(v)}
+                items={{ all: "All", income: "Income", expense: "Expenses" }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -184,7 +189,11 @@ export function TransactionsToolbar({
 
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Category</span>
-              <Select value={categorized} onValueChange={(v) => v && setCategorized(v)}>
+              <Select
+                value={categorized}
+                onValueChange={(v) => v && setCategorized(v)}
+                items={{ all: "All", yes: "Categorized", no: "Uncategorized" }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -225,7 +234,11 @@ export function TransactionsToolbar({
 
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Status</span>
-              <Select value={status} onValueChange={(v) => v && setStatus(v)}>
+              <Select
+                value={status}
+                onValueChange={(v) => v && setStatus(v)}
+                items={{ all: "All", pending: "Pending", cleared: "Cleared" }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>

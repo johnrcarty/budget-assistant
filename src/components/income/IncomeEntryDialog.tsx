@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -13,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { deleteIncomeEntry, saveIncomeEntry } from "@/server/actions/annual-income";
-import type { AnnualIncomeEntry } from "@/server/db/queries/annual-income";
+import type { AnnualIncomeEntry, IncomePersonSummary } from "@/server/db/queries/annual-income";
 
 const SOURCE_SUGGESTIONS = ["w2", "1099", "k1", "self-employed", "interest", "other"];
 
@@ -37,7 +44,7 @@ export function IncomeEntryDialog({
   triggerClassName,
 }: {
   entry?: AnnualIncomeEntry;
-  persons: string[];
+  persons: IncomePersonSummary[];
   defaultYear: number;
   trigger: React.ReactNode;
   triggerClassName?: string;
@@ -57,6 +64,22 @@ export function IncomeEntryDialog({
     undefined,
   );
 
+  if (persons.length === 0) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger className={triggerClassName}>{trigger}</DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{isEdit ? "Edit Income" : "Add Income"}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Add a person in Settings → People first, then come back to record income.
+          </p>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger className={triggerClassName}>{trigger}</DialogTrigger>
@@ -65,34 +88,36 @@ export function IncomeEntryDialog({
           <DialogTitle>{isEdit ? "Edit Income" : "Add Income"}</DialogTitle>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-4">
-          <div className="flex gap-3">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="income-person">Person</Label>
-              <Input
-                id="income-person"
-                name="person"
-                list="income-persons"
-                defaultValue={entry?.person ?? persons[0] ?? ""}
-                required
-              />
-              <datalist id="income-persons">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="income-person">Person</Label>
+            <Select
+              name="personId"
+              defaultValue={entry?.personId ?? persons[0].id}
+              items={Object.fromEntries(persons.map((p) => [p.id, p.name]))}
+            >
+              <SelectTrigger id="income-person" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {persons.map((p) => (
-                  <option key={p} value={p} />
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
                 ))}
-              </datalist>
-            </div>
-            <div className="flex w-28 flex-col gap-2">
-              <Label htmlFor="income-year">Year</Label>
-              <Input
-                id="income-year"
-                name="year"
-                type="number"
-                min="1900"
-                max="2200"
-                defaultValue={entry?.year ?? defaultYear}
-                required
-              />
-            </div>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="income-year">Year</Label>
+            <Input
+              id="income-year"
+              name="year"
+              type="number"
+              min="1900"
+              max="2200"
+              defaultValue={entry?.year ?? defaultYear}
+              required
+            />
           </div>
 
           <div className="flex gap-3">

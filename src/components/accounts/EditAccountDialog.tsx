@@ -22,7 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { archiveAccount, updateAccount } from "@/server/actions/accounts";
-import { ACCOUNT_KINDS } from "./account-kinds";
+import { ACCOUNT_KINDS, KIND_LABELS } from "./account-kinds";
 import { AssetValueForm } from "./AssetValueForm";
 import { GroupSelectField } from "./GroupSelectField";
 import { OwnerSelectField } from "./OwnerSelectField";
@@ -79,7 +79,7 @@ export function EditAccountDialog({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-account-kind">Type</Label>
-            <Select name="kind" defaultValue={account.kind}>
+            <Select name="kind" defaultValue={account.kind} items={KIND_LABELS}>
               <SelectTrigger id="edit-account-kind" className="w-full">
                 <SelectValue />
               </SelectTrigger>

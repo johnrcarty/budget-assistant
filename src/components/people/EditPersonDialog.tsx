@@ -70,7 +70,11 @@ export function EditPersonDialog({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-person-type">Type</Label>
-            <Select name="personType" defaultValue={person.personType}>
+            <Select
+              name="personType"
+              defaultValue={person.personType}
+              items={Object.fromEntries(PERSON_TYPES.map((t) => [t.value, t.label]))}
+            >
               <SelectTrigger id="edit-person-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>

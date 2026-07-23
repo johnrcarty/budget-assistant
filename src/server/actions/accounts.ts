@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import {
@@ -11,9 +11,9 @@ import {
   lineItemTemplates,
   accountBalanceSnapshots,
   accountOwners,
-  persons,
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { getValidPersonIds } from "@/server/db/queries/people";
 import { dollarsToCents } from "@/server/lib/money";
 
 const LIABILITY_KINDS = new Set(["credit_card", "loan", "line_of_credit"]);
@@ -43,22 +43,6 @@ const createSchema = z.object({
   ownerPersonIds: z.array(z.string()).default([]),
 });
 
-// Checks candidate person ids against the household so a stray/foreign id
-// can't slip an ownership row onto someone else's person. Silently drops ids
-// that don't resolve, rather than failing the whole save over a stale
-// picker value.
-async function resolveValidPersonIds(
-  householdId: string,
-  ownerPersonIds: string[],
-): Promise<string[]> {
-  if (ownerPersonIds.length === 0) return [];
-  const rows = await db
-    .select({ id: persons.id })
-    .from(persons)
-    .where(and(eq(persons.householdId, householdId), inArray(persons.id, ownerPersonIds)));
-  return rows.map((p) => p.id);
-}
-
 // Replaces one account's owner rows wholesale with personIds (already
 // household-validated).
 async function writeAccountOwners(accountId: string, personIds: string[]) {
@@ -76,7 +60,7 @@ async function syncAccountOwners(
   accountId: string,
   ownerPersonIds: string[],
 ) {
-  const validIds = await resolveValidPersonIds(householdId, ownerPersonIds);
+  const validIds = await getValidPersonIds(householdId, ownerPersonIds);
   await writeAccountOwners(accountId, validIds);
 }
 
@@ -86,7 +70,7 @@ async function syncAccountOwners(
 // wholesale, same as editing them one at a time.
 export async function setAccountGroupOwners(groupId: string, formData: FormData) {
   const householdId = await getCurrentHousehold();
-  const validIds = await resolveValidPersonIds(
+  const validIds = await getValidPersonIds(
     householdId,
     formData.getAll("ownerPersonIds").map(String),
   );

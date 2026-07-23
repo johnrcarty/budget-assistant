@@ -1,19 +1,30 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   annualIncomeEntries,
   incomeForecasts,
   incomeForecastPoints,
+  persons,
 } from "@/server/db/schema";
 
 export type AnnualIncomeEntry = typeof annualIncomeEntries.$inferSelect;
 export type IncomeForecast = typeof incomeForecasts.$inferSelect;
 
+export interface IncomePersonSummary {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
 export interface AnnualIncomeData {
   entries: AnnualIncomeEntry[];
-  persons: string[]; // ordered by first appearance year, then name
+  // Every person referenced by an entry OR a forecast point in this
+  // household - including archived ones, since income history is append-only
+  // historical fact and shouldn't vanish from the chart just because a
+  // person was archived later.
+  persons: IncomePersonSummary[];
   years: number[]; // ascending, only years with data
-  // person -> year -> gross cents
+  // personId -> year -> gross cents
   byPersonYear: Record<string, Record<number, number>>;
   // year -> totals across persons
   yearTotals: Record<number, { grossCents: number; withheldCents: number }>;
@@ -31,42 +42,54 @@ export function entryWithheldCents(entry: AnnualIncomeEntry): number {
 }
 
 export async function getAnnualIncomeData(householdId: string): Promise<AnnualIncomeData> {
-  const [entries, forecasts] = await Promise.all([
+  const [entries, forecasts, forecastPersonIdRows] = await Promise.all([
     db
       .select()
       .from(annualIncomeEntries)
       .where(eq(annualIncomeEntries.householdId, householdId))
-      .orderBy(
-        asc(annualIncomeEntries.year),
-        asc(annualIncomeEntries.person),
-        asc(annualIncomeEntries.createdAt),
-      ),
+      .orderBy(asc(annualIncomeEntries.year), asc(annualIncomeEntries.createdAt)),
     db
       .select()
       .from(incomeForecasts)
       .where(eq(incomeForecasts.householdId, householdId))
       .orderBy(desc(incomeForecasts.createdAt)),
+    db
+      .selectDistinct({ personId: incomeForecastPoints.personId })
+      .from(incomeForecastPoints)
+      .innerJoin(incomeForecasts, eq(incomeForecastPoints.forecastId, incomeForecasts.id))
+      .where(eq(incomeForecasts.householdId, householdId)),
   ]);
 
-  const persons: string[] = [];
   const byPersonYear: Record<string, Record<number, number>> = {};
   const yearTotals: Record<number, { grossCents: number; withheldCents: number }> = {};
   const yearSet = new Set<number>();
+  const referencedPersonIds = new Set(forecastPersonIdRows.map((r) => r.personId));
 
   for (const entry of entries) {
-    if (!persons.includes(entry.person)) persons.push(entry.person);
+    referencedPersonIds.add(entry.personId);
     yearSet.add(entry.year);
-    byPersonYear[entry.person] ??= {};
-    byPersonYear[entry.person][entry.year] =
-      (byPersonYear[entry.person][entry.year] ?? 0) + entry.amountCents;
+    byPersonYear[entry.personId] ??= {};
+    byPersonYear[entry.personId][entry.year] =
+      (byPersonYear[entry.personId][entry.year] ?? 0) + entry.amountCents;
     yearTotals[entry.year] ??= { grossCents: 0, withheldCents: 0 };
     yearTotals[entry.year].grossCents += entry.amountCents;
     yearTotals[entry.year].withheldCents += entryWithheldCents(entry);
   }
 
+  const personRows =
+    referencedPersonIds.size > 0
+      ? await db
+          .select({ id: persons.id, name: persons.name, color: persons.color, sortOrder: persons.sortOrder })
+          .from(persons)
+          .where(inArray(persons.id, [...referencedPersonIds]))
+      : [];
+  const personsList: IncomePersonSummary[] = personRows
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map(({ id, name, color }) => ({ id, name, color }));
+
   return {
     entries,
-    persons,
+    persons: personsList,
     years: [...yearSet].sort((a, b) => a - b),
     byPersonYear,
     yearTotals,
@@ -88,7 +111,7 @@ export async function getForecastPoints(householdId: string, forecastId: string)
     .select()
     .from(incomeForecastPoints)
     .where(eq(incomeForecastPoints.forecastId, forecastId))
-    .orderBy(asc(incomeForecastPoints.year), asc(incomeForecastPoints.person));
+    .orderBy(asc(incomeForecastPoints.year), asc(incomeForecastPoints.personId));
 
   return { forecast, points };
 }

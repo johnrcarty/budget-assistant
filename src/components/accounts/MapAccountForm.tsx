@@ -83,7 +83,11 @@ export function MapAccountForm({
         {mode === "new" ? (
           <div className="flex gap-2">
             <Input name="newAccountName" placeholder="Account name" required />
-            <Select name="newAccountKind" defaultValue="checking">
+            <Select
+              name="newAccountKind"
+              defaultValue="checking"
+              items={Object.fromEntries(ACCOUNT_KINDS.map((k) => [k.value, k.label]))}
+            >
               <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>
