@@ -50,13 +50,15 @@ pnpm run seed                    # creates the household + login user from .env.
 pnpm dev
 ```
 
-Verification scripts for the pure math modules (no DB needed):
+Tests (Vitest; DB-backed tests run against in-memory PGlite, so no
+database or env setup is needed):
 
 ```bash
-npx tsx scripts/verify-debt-sim.ts
-npx tsx scripts/verify-income-forecast.ts
-npx tsx scripts/verify-income-slots.ts
+pnpm test
 ```
+
+Older standalone verification scripts for the pure math modules still
+exist (`npx tsx scripts/verify-*.ts`).
 
 ## Self-hosting (production)
 
@@ -90,6 +92,7 @@ have any bills coming up?" — see
 - [x] Debt payoff planner (snowball/avalanche simulator, burn-down chart)
 - [x] Annual income tracker with snapshot forecasts
 - [x] Transaction categorization (rules + AI suggestions, income slot filling)
-- [x] MCP server for Home Assistant Assist (epic #14)
-- [ ] Home Assistant ingress add-on (epic #15)
-- [ ] Automated test suite (epic #16 — verification is via `scripts/verify-*.ts` today)
+- [x] MCP server for Home Assistant Assist (epic #14 — verified end to end with Assist)
+- [x] Automated test suite (epic #16 — `pnpm test`, Vitest + PGlite)
+- [x] Login & Security screen (change the household login under More)
+- [ ] Home Assistant ingress add-on (epic #15) — the last item on the original roadmap
