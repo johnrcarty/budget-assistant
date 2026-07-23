@@ -43,32 +43,64 @@ const createSchema = z.object({
   ownerPersonIds: z.array(z.string()).default([]),
 });
 
-// Replaces this account's owner rows wholesale with ownerPersonIds. Each id
-// is checked against the household so a stray/foreign id can't slip an
-// ownership row onto someone else's person. Silently drops ids that don't
-// resolve, rather than failing the whole save over a stale picker value.
+// Checks candidate person ids against the household so a stray/foreign id
+// can't slip an ownership row onto someone else's person. Silently drops ids
+// that don't resolve, rather than failing the whole save over a stale
+// picker value.
+async function resolveValidPersonIds(
+  householdId: string,
+  ownerPersonIds: string[],
+): Promise<string[]> {
+  if (ownerPersonIds.length === 0) return [];
+  const rows = await db
+    .select({ id: persons.id })
+    .from(persons)
+    .where(and(eq(persons.householdId, householdId), inArray(persons.id, ownerPersonIds)));
+  return rows.map((p) => p.id);
+}
+
+// Replaces one account's owner rows wholesale with personIds (already
+// household-validated).
+async function writeAccountOwners(accountId: string, personIds: string[]) {
+  await db.delete(accountOwners).where(eq(accountOwners.accountId, accountId));
+  if (personIds.length > 0) {
+    await db
+      .insert(accountOwners)
+      .values(personIds.map((personId) => ({ accountId, personId })))
+      .onConflictDoNothing();
+  }
+}
+
 async function syncAccountOwners(
   householdId: string,
   accountId: string,
   ownerPersonIds: string[],
 ) {
-  const validIds =
-    ownerPersonIds.length === 0
-      ? []
-      : (
-          await db
-            .select({ id: persons.id })
-            .from(persons)
-            .where(and(eq(persons.householdId, householdId), inArray(persons.id, ownerPersonIds)))
-        ).map((p) => p.id);
+  const validIds = await resolveValidPersonIds(householdId, ownerPersonIds);
+  await writeAccountOwners(accountId, validIds);
+}
 
-  await db.delete(accountOwners).where(eq(accountOwners.accountId, accountId));
-  if (validIds.length > 0) {
-    await db
-      .insert(accountOwners)
-      .values(validIds.map((personId) => ({ accountId, personId })))
-      .onConflictDoNothing();
+// Cascades an owner selection from a group down to every member account -
+// e.g. setting "Person A" once on the "Student Loans" group instead of
+// editing each loan individually. Overwrites each member's existing owners
+// wholesale, same as editing them one at a time.
+export async function setAccountGroupOwners(groupId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const validIds = await resolveValidPersonIds(
+    householdId,
+    formData.getAll("ownerPersonIds").map(String),
+  );
+
+  const members = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(and(eq(accounts.accountGroupId, groupId), eq(accounts.householdId, householdId)));
+
+  for (const member of members) {
+    await writeAccountOwners(member.id, validIds);
   }
+
+  revalidatePath("/accounts");
 }
 
 // Resolves the Group select's value to a group id or null. "__new__" is
