@@ -28,6 +28,22 @@ export async function getPerson(householdId: string, personId: string) {
   return person ?? null;
 }
 
+// Filters candidate person ids down to ones that actually belong to this
+// household, so a stray/foreign id can't slip data onto someone else's
+// person. Shared by any action that accepts a person id (or ids) from a
+// form and needs to trust it before writing.
+export async function getValidPersonIds(
+  householdId: string,
+  personIds: string[],
+): Promise<string[]> {
+  if (personIds.length === 0) return [];
+  const rows = await db
+    .select({ id: persons.id })
+    .from(persons)
+    .where(and(eq(persons.householdId, householdId), inArray(persons.id, personIds)));
+  return rows.map((p) => p.id);
+}
+
 // Owner ids per account, for accounts within one household - batched for the
 // accounts list page rather than one query per card.
 export async function getOwnersByAccountIds(

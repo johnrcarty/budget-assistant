@@ -5,6 +5,7 @@ import {
   getAnnualIncomeData,
   getForecastPoints,
   entryWithheldCents,
+  type IncomePersonSummary,
 } from "@/server/db/queries/annual-income";
 import { deleteForecast } from "@/server/actions/annual-income";
 import { formatCents } from "@/server/lib/money";
@@ -16,8 +17,14 @@ import { ForecastDialog } from "@/components/income/ForecastDialog";
 import { ForecastPicker } from "@/components/income/ForecastPicker";
 import { Button } from "@/components/ui/button";
 
-function personColor(index: number): string {
+// Positional fallback for a person with no color set, keyed by their index
+// in the (stable-sorted) persons list rather than the person's identity.
+function fallbackColor(index: number): string {
   return index < 8 ? `var(--chart-${index + 1})` : "var(--muted-foreground)";
+}
+
+function personColor(person: IncomePersonSummary, index: number): string {
+  return person.color ? `var(--${person.color})` : fallbackColor(index);
 }
 
 // Whole dollars in the summary table - cents live on the entry rows.
@@ -44,6 +51,7 @@ export default async function IncomePage({
   const householdId = await getCurrentHousehold();
   const data = await getAnnualIncomeData(householdId);
   const currentYear = new Date().getFullYear();
+  const personById = new Map(data.persons.map((p) => [p.id, p]));
 
   // Default to the newest forecast; "none" = actuals only.
   const selectedForecastId =
@@ -85,13 +93,13 @@ export default async function IncomePage({
     );
   }
 
-  // Forecast values grouped person -> year, plus a computed total series.
+  // Forecast values grouped personId -> year, plus a computed total series.
   const forecastByPersonYear: Record<string, Record<number, number>> = {};
   const forecastTotals: Record<number, number> = {};
   if (forecastData) {
     for (const point of forecastData.points) {
-      forecastByPersonYear[point.person] ??= {};
-      forecastByPersonYear[point.person][point.year] = point.amountCents;
+      forecastByPersonYear[point.personId] ??= {};
+      forecastByPersonYear[point.personId][point.year] = point.amountCents;
       forecastTotals[point.year] = (forecastTotals[point.year] ?? 0) + point.amountCents;
     }
   }
@@ -111,23 +119,23 @@ export default async function IncomePage({
   // the household total, so no separate total series is drawn. Forecasts
   // overlay as dashed lines (by-year view only).
   const stackSeries: IncomeSeries[] = data.persons.map((person, index) => ({
-    key: `actual:${person}`,
-    label: person,
-    color: personColor(index),
+    key: `actual:${person.id}`,
+    label: person.name,
+    color: personColor(person, index),
     dashed: false,
-    values: data.byPersonYear[person] ?? {},
+    values: data.byPersonYear[person.id] ?? {},
   }));
 
   const lineSeries: IncomeSeries[] = forecastData
     ? [
         ...data.persons
-          .filter((person) => forecastByPersonYear[person])
+          .filter((person) => forecastByPersonYear[person.id])
           .map((person, index) => ({
-            key: `forecast:${person}`,
-            label: `${person} (proj.)`,
-            color: personColor(data.persons.indexOf(person) ?? index),
+            key: `forecast:${person.id}`,
+            label: `${person.name} (proj.)`,
+            color: personColor(person, index),
             dashed: true,
-            values: forecastByPersonYear[person],
+            values: forecastByPersonYear[person.id],
           })),
         {
           key: "forecast:total",
@@ -153,8 +161,8 @@ export default async function IncomePage({
       totalCents,
       personCents: data.persons.map((person) =>
         hasActual
-          ? (data.byPersonYear[person]?.[year] ?? null)
-          : (forecastByPersonYear[person]?.[year] ?? null),
+          ? (data.byPersonYear[person.id]?.[year] ?? null)
+          : (forecastByPersonYear[person.id]?.[year] ?? null),
       ),
     };
   });
@@ -200,17 +208,17 @@ export default async function IncomePage({
             years={chartYears}
             stackSeries={stackSeries}
             lineSeries={lineSeries}
-            ariaLabel={`Annual income for ${data.persons.join(" and ")}, ${chartYears[0]} through ${chartYears[chartYears.length - 1]}.`}
+            ariaLabel={`Annual income for ${data.persons.map((p) => p.name).join(" and ")}, ${chartYears[0]} through ${chartYears[chartYears.length - 1]}.`}
           />
           <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
             {data.persons.map((person, index) => (
-              <span key={person} className="flex items-center gap-1.5">
+              <span key={person.id} className="flex items-center gap-1.5">
                 {/* square swatch: legend mirrors the area mark */}
                 <span
                   className="size-2 rounded-[2px]"
-                  style={{ backgroundColor: personColor(index) }}
+                  style={{ backgroundColor: personColor(person, index) }}
                 />
-                {person}
+                {person.name}
               </span>
             ))}
           </div>
@@ -224,8 +232,8 @@ export default async function IncomePage({
                 <tr className="border-b text-left text-xs text-muted-foreground">
                   <th className="py-2 pr-2 font-medium">Year</th>
                   {data.persons.map((person) => (
-                    <th key={person} className="py-2 pr-2 text-right font-medium">
-                      {person}
+                    <th key={person.id} className="py-2 pr-2 text-right font-medium">
+                      {person.name}
                     </th>
                   ))}
                   <th className="py-2 pr-2 text-right font-medium">Total</th>
@@ -304,7 +312,7 @@ export default async function IncomePage({
                         <div className="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0">
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">
-                              {entry.person}{" "}
+                              {personById.get(entry.personId)?.name ?? "Unknown"}{" "}
                               <span className="font-normal text-muted-foreground">
                                 · {entry.source}
                               </span>

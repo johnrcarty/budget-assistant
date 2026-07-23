@@ -9,8 +9,10 @@ import {
   annualIncomeEntries,
   incomeForecasts,
   incomeForecastPoints,
+  persons,
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { getPerson } from "@/server/db/queries/people";
 import { dollarsToCents } from "@/server/lib/money";
 import {
   DEFAULT_PATTERN_RATES_BPS,
@@ -20,7 +22,7 @@ import {
 } from "@/server/lib/income-forecast";
 
 const entrySchema = z.object({
-  person: z.string().trim().min(1).max(60),
+  personId: z.string().uuid(),
   year: z.coerce.number().int().min(1900).max(2200),
   source: z.string().trim().min(1).max(40),
   amount: z.string().trim().min(1),
@@ -39,7 +41,7 @@ function optionalCents(value: string | undefined): number | null {
 export async function saveIncomeEntry(entryId: string | null, formData: FormData) {
   const householdId = await getCurrentHousehold();
   const input = entrySchema.parse({
-    person: formData.get("person"),
+    personId: formData.get("personId"),
     year: formData.get("year"),
     source: formData.get("source"),
     amount: formData.get("amount"),
@@ -51,8 +53,11 @@ export async function saveIncomeEntry(entryId: string | null, formData: FormData
     note: formData.get("note") || undefined,
   });
 
+  const person = await getPerson(householdId, input.personId);
+  if (!person) throw new Error("Unknown person");
+
   const values = {
-    person: input.person,
+    personId: input.personId,
     year: input.year,
     source: input.source.toLowerCase(),
     amountCents: dollarsToCents(input.amount),
@@ -133,22 +138,22 @@ export async function createForecast(formData: FormData) {
   const byPerson = new Map<string, Map<number, number>>();
   for (const entry of entries) {
     if (entry.year > input.baseYear) continue;
-    const years = byPerson.get(entry.person) ?? new Map<number, number>();
+    const years = byPerson.get(entry.personId) ?? new Map<number, number>();
     years.set(entry.year, (years.get(entry.year) ?? 0) + entry.amountCents);
-    byPerson.set(entry.person, years);
+    byPerson.set(entry.personId, years);
   }
   if (byPerson.size === 0) throw new Error("No actuals at or before the base year");
 
   const model = FORECAST_MODELS[input.model];
-  const points: { person: string; year: number; amountCents: number }[] = [];
-  for (const [person, actualsByYear] of byPerson) {
+  const points: { personId: string; year: number; amountCents: number }[] = [];
+  for (const [personId, actualsByYear] of byPerson) {
     for (const point of model.compute({
       actualsByYear,
       baseYear: input.baseYear,
       horizonYear: input.horizonYear,
       params,
     })) {
-      points.push({ person, ...point });
+      points.push({ personId, ...point });
     }
   }
 
@@ -186,6 +191,14 @@ const importRowSchema = z.object({
   socialSecurityCents: z.number().int().nonnegative().nullable(),
 });
 
+// Keyed by the raw label detected in the CSV (BuiltIncomeRow.person) - how
+// the import wizard's resolution step says that label should map to a real
+// Person.
+const personResolutionSchema = z.union([
+  z.object({ mode: z.literal("existing"), personId: z.string().uuid() }),
+  z.object({ mode: z.literal("new"), name: z.string().trim().min(1).max(80) }),
+]);
+
 export interface IncomeImportResult {
   imported: number;
   skippedDuplicates: number;
@@ -198,29 +211,63 @@ export interface IncomeImportResult {
 // of them manually in that rare case.
 export async function importIncomeCsv(
   rows: z.infer<typeof importRowSchema>[],
+  labelResolutions: Record<string, z.infer<typeof personResolutionSchema>>,
 ): Promise<IncomeImportResult> {
   const householdId = await getCurrentHousehold();
   const input = z.array(importRowSchema).min(1).max(5000).parse(rows);
+  const resolutions = z.record(z.string(), personResolutionSchema).parse(labelResolutions);
 
   const existing = await db
     .select()
     .from(annualIncomeEntries)
     .where(eq(annualIncomeEntries.householdId, householdId));
   const seen = new Set(
-    existing.map(
-      (e) => `${e.person.toLowerCase()}|${e.year}|${e.source}|${e.amountCents}`,
-    ),
+    existing.map((e) => `${e.personId}|${e.year}|${e.source}|${e.amountCents}`),
   );
 
   let imported = 0;
   await db.transaction(async (tx) => {
+    // Resolve every distinct label to a real personId once, up front -
+    // creating new Person rows get-or-create style (same pattern as
+    // resolveAccountGroupId in actions/accounts.ts) so re-importing the
+    // same file twice doesn't create duplicate people.
+    const personIdByLabel = new Map<string, string>();
+    for (const label of new Set(input.map((r) => r.person))) {
+      const resolution = resolutions[label];
+      if (!resolution) throw new Error(`No resolution provided for "${label}"`);
+
+      if (resolution.mode === "existing") {
+        const person = await getPerson(householdId, resolution.personId);
+        if (!person) throw new Error(`Unknown person for "${label}"`);
+        personIdByLabel.set(label, person.id);
+      } else {
+        const [created] = await tx
+          .insert(persons)
+          .values({ householdId, name: resolution.name })
+          .onConflictDoNothing()
+          .returning({ id: persons.id });
+        if (created) {
+          personIdByLabel.set(label, created.id);
+        } else {
+          const [existingPerson] = await tx
+            .select({ id: persons.id })
+            .from(persons)
+            .where(and(eq(persons.householdId, householdId), eq(persons.name, resolution.name)))
+            .limit(1);
+          if (!existingPerson) throw new Error(`Couldn't resolve person for "${label}"`);
+          personIdByLabel.set(label, existingPerson.id);
+        }
+      }
+    }
+
     for (const row of input) {
-      const key = `${row.person.toLowerCase()}|${row.year}|${row.source.toLowerCase()}|${row.amountCents}`;
+      const personId = personIdByLabel.get(row.person)!;
+      const key = `${personId}|${row.year}|${row.source.toLowerCase()}|${row.amountCents}`;
       if (seen.has(key)) continue;
       seen.add(key);
       await tx.insert(annualIncomeEntries).values({
         householdId,
-        person: row.person,
+        personId,
         year: row.year,
         source: row.source.toLowerCase(),
         amountCents: row.amountCents,

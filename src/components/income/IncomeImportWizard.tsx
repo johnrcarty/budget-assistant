@@ -24,6 +24,7 @@ import {
   importIncomeCsv,
   type IncomeImportResult,
 } from "@/server/actions/annual-income";
+import { PersonResolutionStep, type PersonResolution } from "./PersonResolutionStep";
 
 const NONE = "none";
 
@@ -72,13 +73,14 @@ function ColumnSelect({
   );
 }
 
-export function IncomeImportWizard() {
+export function IncomeImportWizard({ persons }: { persons: { id: string; name: string }[] }) {
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [mapping, setMapping] = useState<IncomeCsvMapping | null>(null);
   const [defaultSource, setDefaultSource] = useState("w2");
   const [result, setResult] = useState<IncomeImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [resolutions, setResolutions] = useState<Record<string, PersonResolution>>({});
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
@@ -88,6 +90,7 @@ export function IncomeImportWizard() {
     setMapping(guessIncomeMapping(csv.headers, csv.rows));
     setResult(null);
     setError(null);
+    setResolutions({});
   }
 
   const preview =
@@ -97,6 +100,33 @@ export function IncomeImportWizard() {
 
   const update = (patch: Partial<IncomeCsvMapping>) =>
     setMapping((current) => (current ? { ...current, ...patch } : current));
+
+  const distinctLabels = preview ? [...new Set(preview.built.map((r) => r.person))] : [];
+
+  function defaultResolutionFor(label: string): PersonResolution {
+    const match = persons.find((p) => p.name.toLowerCase() === label.toLowerCase());
+    return match ? { mode: "existing", personId: match.id } : { mode: "new", name: label };
+  }
+
+  // Merge in defaults for any label the user hasn't touched yet, so every
+  // distinct label always has a resolution without needing an effect.
+  const effectiveResolutions: Record<string, PersonResolution> = Object.fromEntries(
+    distinctLabels.map((label) => [label, resolutions[label] ?? defaultResolutionFor(label)]),
+  );
+
+  function resolvedNameFor(label: string): string {
+    const resolution = effectiveResolutions[label];
+    if (!resolution) return label;
+    if (resolution.mode === "existing") {
+      return persons.find((p) => p.id === resolution.personId)?.name ?? label;
+    }
+    return resolution.name;
+  }
+
+  const hasBlankNewName = distinctLabels.some((label) => {
+    const resolution = effectiveResolutions[label];
+    return resolution.mode === "new" && resolution.name.trim() === "";
+  });
 
   if (result) {
     return (
@@ -249,6 +279,21 @@ export function IncomeImportWizard() {
         </Card>
       )}
 
+      {preview && preview.built.length > 0 && (
+        <Card>
+          <CardContent>
+            <PersonResolutionStep
+              labels={distinctLabels}
+              persons={persons}
+              resolutions={effectiveResolutions}
+              onChange={(label, resolution) =>
+                setResolutions((current) => ({ ...current, [label]: resolution }))
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {preview && (
         <Card>
           <CardContent>
@@ -275,7 +320,7 @@ export function IncomeImportWizard() {
                   <tbody>
                     {preview.built.slice(0, 8).map((row, index) => (
                       <tr key={index} className="border-b last:border-b-0">
-                        <td className="py-1.5 pr-2">{row.person}</td>
+                        <td className="py-1.5 pr-2">{resolvedNameFor(row.person)}</td>
                         <td className="py-1.5 pr-2">{row.year}</td>
                         <td className="py-1.5 pr-2">{row.source}</td>
                         <td className="py-1.5 text-right whitespace-nowrap">
@@ -295,11 +340,11 @@ export function IncomeImportWizard() {
             {error && <p className="pt-2 text-sm text-destructive">{error}</p>}
             <Button
               className="mt-3"
-              disabled={pending || preview.built.length === 0}
+              disabled={pending || preview.built.length === 0 || hasBlankNewName}
               onClick={() =>
                 startTransition(async () => {
                   try {
-                    setResult(await importIncomeCsv(preview.built));
+                    setResult(await importIncomeCsv(preview.built, effectiveResolutions));
                   } catch {
                     setError("Import failed — check the column mapping.");
                   }
