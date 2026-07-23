@@ -54,10 +54,15 @@ export function TrendChart({
   points,
   series,
   isLiability,
+  lastPointLabel = "Today",
 }: {
   points: string[];
   series: number[];
   isLiability: boolean;
+  // The last x-axis tick's label - override when the last point isn't
+  // actually today (e.g. sparse yearly snapshots whose latest point is a
+  // past year-end).
+  lastPointLabel?: string;
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const n = points.length;
@@ -193,7 +198,7 @@ export function TrendChart({
           textAnchor="end"
           className="fill-muted-foreground text-[10px]"
         >
-          Today
+          {lastPointLabel}
         </text>
       </svg>
 
@@ -228,6 +233,8 @@ export function TrendDialog({
   points,
   series,
   isLiability = false,
+  changeLabel = "over the last 12 months",
+  lastPointLabel = "Today",
   trigger,
   triggerClassName,
 }: {
@@ -237,6 +244,10 @@ export function TrendDialog({
   // Draws the line in the liability color and flips the "is up good?"
   // reading of the change (owing less is the good direction).
   isLiability?: boolean;
+  // Caption after the change figure - override for callers whose points
+  // aren't a trailing-12-month trend (e.g. sparse yearly snapshots).
+  changeLabel?: string;
+  lastPointLabel?: string;
   trigger: React.ReactNode;
   triggerClassName?: string;
 }) {
@@ -262,10 +273,15 @@ export function TrendDialog({
                 {change >= 0 ? "+" : ""}
                 {formatCents(change)}
               </span>{" "}
-              over the last 12 months
+              {changeLabel}
             </div>
           </div>
-          <TrendChart points={points} series={series} isLiability={isLiability} />
+          <TrendChart
+            points={points}
+            series={series}
+            isLiability={isLiability}
+            lastPointLabel={lastPointLabel}
+          />
         </div>
       </DialogContent>
     </Dialog>
