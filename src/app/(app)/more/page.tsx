@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, KeyRound, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronRight, KeyRound, RefreshCw, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ThemeToggleRow } from "@/components/layout/ThemeToggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +7,12 @@ import { Card, CardContent } from "@/components/ui/card";
 // The hub for everything that doesn't warrant its own tab. Add new sections
 // here as they're built.
 const SECTIONS = [
+  {
+    href: "/settings/people",
+    title: "People",
+    description: "Manage household members for accounts, income, and net worth tracking",
+    icon: Users,
+  },
   {
     href: "/debt",
     title: "Debt Payoff",

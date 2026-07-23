@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
 import {
@@ -10,6 +10,8 @@ import {
   accountKindEnum,
   lineItemTemplates,
   accountBalanceSnapshots,
+  accountOwners,
+  persons,
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
@@ -37,7 +39,69 @@ const createSchema = z.object({
   // "none", "__new__" (with newGroupName), or a group uuid.
   accountGroupId: z.string().optional(),
   newGroupName: z.string().trim().max(80).optional(),
+  // 0 = unassigned/shared, 1 = individual, 2+ = joint.
+  ownerPersonIds: z.array(z.string()).default([]),
 });
+
+// Checks candidate person ids against the household so a stray/foreign id
+// can't slip an ownership row onto someone else's person. Silently drops ids
+// that don't resolve, rather than failing the whole save over a stale
+// picker value.
+async function resolveValidPersonIds(
+  householdId: string,
+  ownerPersonIds: string[],
+): Promise<string[]> {
+  if (ownerPersonIds.length === 0) return [];
+  const rows = await db
+    .select({ id: persons.id })
+    .from(persons)
+    .where(and(eq(persons.householdId, householdId), inArray(persons.id, ownerPersonIds)));
+  return rows.map((p) => p.id);
+}
+
+// Replaces one account's owner rows wholesale with personIds (already
+// household-validated).
+async function writeAccountOwners(accountId: string, personIds: string[]) {
+  await db.delete(accountOwners).where(eq(accountOwners.accountId, accountId));
+  if (personIds.length > 0) {
+    await db
+      .insert(accountOwners)
+      .values(personIds.map((personId) => ({ accountId, personId })))
+      .onConflictDoNothing();
+  }
+}
+
+async function syncAccountOwners(
+  householdId: string,
+  accountId: string,
+  ownerPersonIds: string[],
+) {
+  const validIds = await resolveValidPersonIds(householdId, ownerPersonIds);
+  await writeAccountOwners(accountId, validIds);
+}
+
+// Cascades an owner selection from a group down to every member account -
+// e.g. setting "Person A" once on the "Student Loans" group instead of
+// editing each loan individually. Overwrites each member's existing owners
+// wholesale, same as editing them one at a time.
+export async function setAccountGroupOwners(groupId: string, formData: FormData) {
+  const householdId = await getCurrentHousehold();
+  const validIds = await resolveValidPersonIds(
+    householdId,
+    formData.getAll("ownerPersonIds").map(String),
+  );
+
+  const members = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(and(eq(accounts.accountGroupId, groupId), eq(accounts.householdId, householdId)));
+
+  for (const member of members) {
+    await writeAccountOwners(member.id, validIds);
+  }
+
+  revalidatePath("/accounts");
+}
 
 // Resolves the Group select's value to a group id or null. "__new__" is
 // get-or-create by (household, name) - the unique constraint makes the
@@ -88,6 +152,7 @@ export async function createAccount(formData: FormData) {
     purchaseDate: formData.get("purchaseDate") || undefined,
     accountGroupId: formData.get("accountGroupId") || undefined,
     newGroupName: formData.get("newGroupName") || undefined,
+    ownerPersonIds: formData.getAll("ownerPersonIds"),
   });
 
   const isPhysicalAsset = PHYSICAL_ASSET_KINDS.has(input.kind);
@@ -117,6 +182,8 @@ export async function createAccount(formData: FormData) {
       originalBalanceCents: isPhysicalAsset ? purchasePriceCents : null,
     })
     .returning();
+
+  await syncAccountOwners(householdId, created.id, input.ownerPersonIds);
 
   // Physical assets have no transactions and no sync, so manual snapshots
   // are their only trend history - seed it at creation: current value
@@ -155,6 +222,7 @@ const updateSchema = z.object({
   kind: z.enum(accountKindEnum.enumValues),
   accountGroupId: z.string().optional(),
   newGroupName: z.string().trim().max(80).optional(),
+  ownerPersonIds: z.array(z.string()).default([]),
 });
 
 // Edits name/kind. isLiability follows the kind - fixing a 401k that was
@@ -166,6 +234,7 @@ export async function updateAccount(accountId: string, formData: FormData) {
     kind: formData.get("kind"),
     accountGroupId: formData.get("accountGroupId") || undefined,
     newGroupName: formData.get("newGroupName") || undefined,
+    ownerPersonIds: formData.getAll("ownerPersonIds"),
   });
   const isLiability = LIABILITY_KINDS.has(input.kind);
   const accountGroupId = await resolveAccountGroupId(
@@ -186,6 +255,8 @@ export async function updateAccount(accountId: string, formData: FormData) {
       ...(isLiability ? {} : { securedAssetAccountId: null }),
     })
     .where(and(eq(accounts.id, accountId), eq(accounts.householdId, householdId)));
+
+  await syncAccountOwners(householdId, accountId, input.ownerPersonIds);
 
   // If a debt became a non-liability, its linked budget item should stop
   // stamping into future months (same rule as archiving).

@@ -4,6 +4,7 @@ import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts, getArchivedAccounts, getAccountGroups } from "@/server/db/queries/accounts";
 import { getBalanceTrends, type BalanceTrends } from "@/server/db/queries/balance-trends";
 import { getCurrentAprByAccount } from "@/server/db/queries/debt";
+import { getActivePersons, getOwnersByAccountIds } from "@/server/db/queries/people";
 import { formatCents, formatCentsCompact } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AddAccountDialog } from "@/components/accounts/AddAccountDialog";
@@ -18,17 +19,20 @@ type Account = Awaited<ReturnType<typeof getAccounts>>[number];
 
 export default async function AccountsPage() {
   const householdId = await getCurrentHousehold();
-  const [accounts, archived, trends, accountGroupList] = await Promise.all([
+  const [accounts, archived, trends, accountGroupList, persons] = await Promise.all([
     getAccounts(householdId),
     getArchivedAccounts(householdId),
     getBalanceTrends(householdId),
     getAccountGroups(householdId),
+    getActivePersons(householdId),
   ]);
+  const ownersByAccount = await getOwnersByAccountIds(accounts.map((a) => a.id));
 
   const assets = accounts.filter((a) => !a.isLiability);
   const liabilities = accounts.filter((a) => a.isLiability);
   const netWorthCents = trends.netWorthSeries[trends.netWorthSeries.length - 1];
   const groupOptions = accountGroupList.map((g) => ({ id: g.id, name: g.name }));
+  const personOptions = persons.map((p) => ({ id: p.id, name: p.name }));
 
   // Weighted-avg APR on group rollups needs each grouped liability's
   // current terms - one batch query for all of them.
@@ -69,7 +73,7 @@ export default async function AccountsPage() {
             <Link href="/settings/simplefin" aria-label="Bank sync settings">
               <RefreshCw className="size-5" />
             </Link>
-            <AddAccountDialog groups={groupOptions} />
+            <AddAccountDialog groups={groupOptions} persons={personOptions} />
           </div>
         }
       />
@@ -107,6 +111,8 @@ export default async function AccountsPage() {
             equityByAsset={equityByAsset}
             groups={groupOptions}
             aprByAccount={aprByAccount}
+            persons={personOptions}
+            ownersByAccount={ownersByAccount}
           />
         )}
 
@@ -119,6 +125,8 @@ export default async function AccountsPage() {
             trends={trends}
             groups={groupOptions}
             aprByAccount={aprByAccount}
+            persons={personOptions}
+            ownersByAccount={ownersByAccount}
             isLiability
           />
         )}
@@ -173,6 +181,8 @@ function AccountSection({
   equityByAsset,
   groups = [],
   aprByAccount = {},
+  persons = [],
+  ownersByAccount = {},
   isLiability = false,
 }: {
   title: string;
@@ -183,6 +193,8 @@ function AccountSection({
   equityByAsset?: Map<string, { equityCents: number; liabilityNames: string[] }>;
   groups?: { id: string; name: string }[];
   aprByAccount?: Record<string, number | null>;
+  persons?: { id: string; name: string }[];
+  ownersByAccount?: Record<string, string[]>;
   isLiability?: boolean;
 }) {
   const seriesByAccount = new Map(trends.accounts.map((t) => [t.accountId, t.series]));
@@ -245,6 +257,8 @@ function AccountSection({
             aprByAccount={aprByAccount}
             isLiability={isLiability}
             groups={groups}
+            persons={persons}
+            ownersByAccount={ownersByAccount}
           />
         ))}
         {ungrouped.map((account) => {
@@ -264,6 +278,8 @@ function AccountSection({
                   accountGroupId: account.accountGroupId,
                 }}
                 groups={groups}
+                persons={persons}
+                ownerIds={ownersByAccount[account.id] ?? []}
                 triggerClassName="min-w-0 flex-1 text-left"
                 trigger={
                   <div>

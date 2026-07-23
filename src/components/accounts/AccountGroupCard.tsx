@@ -15,8 +15,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { renameAccountGroup, deleteAccountGroup } from "@/server/actions/account-groups";
+import { setAccountGroupOwners } from "@/server/actions/accounts";
 import { formatCents } from "@/server/lib/money";
 import { EditAccountDialog } from "./EditAccountDialog";
+import { OwnerSelectField } from "./OwnerSelectField";
 import { TrendDialog } from "./TrendDialog";
 import { KIND_LABELS } from "./account-kinds";
 
@@ -44,6 +46,8 @@ export function AccountGroupCard({
   aprByAccount,
   isLiability,
   groups,
+  persons = [],
+  ownersByAccount = {},
 }: {
   group: { id: string; name: string };
   members: GroupMember[];
@@ -53,6 +57,8 @@ export function AccountGroupCard({
   aprByAccount: Record<string, number | null>;
   isLiability: boolean;
   groups: { id: string; name: string }[];
+  persons?: { id: string; name: string }[];
+  ownersByAccount?: Record<string, string[]>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -72,6 +78,15 @@ export function AccountGroupCard({
         ) / weightedBalance
       : null;
   const missingApr = members.length - weighted.length;
+
+  // Prefills the group owner picker with whichever people currently own
+  // EVERY member - if members disagree, nothing is prefilled (there's no
+  // single answer to show), but saving still overwrites all of them.
+  const groupOwnerIds = members.reduce<string[] | null>((common, member) => {
+    const owners = ownersByAccount[member.id] ?? [];
+    if (common === null) return owners;
+    return common.filter((id) => owners.includes(id));
+  }, null) ?? [];
 
   const countNoun = isLiability ? (members.length === 1 ? "loan" : "loans") : "accounts";
   const subtitleParts = [`${members.length} ${countNoun}`];
@@ -117,7 +132,11 @@ export function AccountGroupCard({
                 </span>
               }
             />
-            <GroupSettingsDialog group={group} />
+            <GroupSettingsDialog
+              group={group}
+              persons={persons}
+              defaultOwnerIds={groupOwnerIds}
+            />
           </div>
         </div>
 
@@ -133,6 +152,8 @@ export function AccountGroupCard({
                   <EditAccountDialog
                     account={member}
                     groups={groups}
+                    persons={persons}
+                    ownerIds={ownersByAccount[member.id] ?? []}
                     triggerClassName="min-w-0 flex-1 text-left"
                     trigger={
                       <div>
@@ -170,16 +191,25 @@ export function AccountGroupCard({
   );
 }
 
-function GroupSettingsDialog({ group }: { group: { id: string; name: string } }) {
+function GroupSettingsDialog({
+  group,
+  persons = [],
+  defaultOwnerIds = [],
+}: {
+  group: { id: string; name: string };
+  persons?: { id: string; name: string }[];
+  defaultOwnerIds?: string[];
+}) {
   const [open, setOpen] = useState(false);
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
       try {
         await renameAccountGroup(group.id, formData);
+        await setAccountGroupOwners(group.id, formData);
         setOpen(false);
         return undefined;
       } catch {
-        return "Couldn't rename the group.";
+        return "Couldn't save those changes.";
       }
     },
     undefined,
@@ -199,6 +229,15 @@ function GroupSettingsDialog({ group }: { group: { id: string; name: string } })
             <Label htmlFor="group-name">Name</Label>
             <Input id="group-name" name="name" defaultValue={group.name} required />
           </div>
+          <OwnerSelectField
+            persons={persons}
+            defaultOwnerIds={defaultOwnerIds}
+            idPrefix="edit-group"
+          />
+          <p className="text-xs text-muted-foreground">
+            Sets the owner on every account in this group, replacing what each one has
+            individually set.
+          </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={pending}>

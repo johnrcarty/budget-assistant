@@ -23,13 +23,16 @@ import {
 import { createAccount } from "@/server/actions/accounts";
 import { ACCOUNT_KINDS } from "./account-kinds";
 import { GroupSelectField } from "./GroupSelectField";
+import { OwnerSelectField } from "./OwnerSelectField";
 
 const PHYSICAL_ASSET_KINDS = new Set(["property", "vehicle"]);
 
 export function AddAccountDialog({
   groups = [],
+  persons = [],
 }: {
   groups?: { id: string; name: string }[];
+  persons?: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("checking");
@@ -89,6 +92,7 @@ export function AddAccountDialog({
             />
           </div>
           <GroupSelectField groups={groups} idPrefix="add-account" />
+          <OwnerSelectField persons={persons} idPrefix="add-account" />
           {isPhysicalAsset && (
             <div className="flex gap-3">
               <div className="flex flex-1 flex-col gap-2">
