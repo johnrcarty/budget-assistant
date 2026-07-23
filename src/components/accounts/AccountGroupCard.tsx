@@ -44,6 +44,8 @@ export function AccountGroupCard({
   aprByAccount,
   isLiability,
   groups,
+  persons = [],
+  ownersByAccount = {},
 }: {
   group: { id: string; name: string };
   members: GroupMember[];
@@ -53,6 +55,8 @@ export function AccountGroupCard({
   aprByAccount: Record<string, number | null>;
   isLiability: boolean;
   groups: { id: string; name: string }[];
+  persons?: { id: string; name: string }[];
+  ownersByAccount?: Record<string, string[]>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -133,6 +137,8 @@ export function AccountGroupCard({
                   <EditAccountDialog
                     account={member}
                     groups={groups}
+                    persons={persons}
+                    ownerIds={ownersByAccount[member.id] ?? []}
                     triggerClassName="min-w-0 flex-1 text-left"
                     trigger={
                       <div>
