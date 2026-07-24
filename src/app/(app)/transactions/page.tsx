@@ -181,6 +181,7 @@ export default async function TransactionsPage({
                   lineItemTemplateId,
                   incomeItemName,
                   incomeTemplateId,
+                  incomePersonName,
                 }, index) => {
                   const isNewDay =
                     index === 0 ||
@@ -210,7 +211,7 @@ export default async function TransactionsPage({
                         transaction={transaction}
                         currentExpenseTemplateId={lineItemTemplateId}
                         currentIncomeTemplateId={incomeTemplateId}
-                        currentCategoryName={lineItemName ?? incomeItemName}
+                        currentCategoryName={lineItemName ?? incomePersonName ?? incomeItemName}
                         triggerClassName="block w-full text-left"
                         trigger={
                           <div className="flex w-full items-center justify-between gap-3 border-b py-3 text-left last:border-b-0">
@@ -228,6 +229,7 @@ export default async function TransactionsPage({
                               <div className="text-sm text-muted-foreground">
                                 {accountName} ·{" "}
                                 {lineItemName ??
+                                  incomePersonName ??
                                   incomeItemName ??
                                   (transaction.isTransfer ? "Transfer" : "Uncategorized")}
                               </div>

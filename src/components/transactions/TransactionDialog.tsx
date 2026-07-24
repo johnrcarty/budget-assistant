@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { unstable_rethrow } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ export interface IncomeTarget {
   id: string;
   name: string;
   slotCount: number;
+  memberIds: string[];
 }
 
 export function TransactionDialog({
@@ -75,7 +77,11 @@ export function TransactionDialog({
         }
         setOpen(false);
         return undefined;
-      } catch {
+      } catch (error) {
+        // A redirect() from inside the action (e.g. dal.ts's stale-session
+        // self-heal) also lands here as a throw - hand it back to Next
+        // instead of misreporting it as a save failure.
+        unstable_rethrow(error);
         return "Couldn't save that transaction. Check the amount.";
       }
     },
@@ -89,13 +95,22 @@ export function TransactionDialog({
     ? (Math.abs(transaction.amountCents) / 100).toFixed(2)
     : "";
 
+  // Income options are one-per-slot-GROUP (keyed by the head template), but
+  // a transaction can be linked to any member slot's template - resolve the
+  // linked template to its group head so the picker selects the group
+  // instead of synthesizing a bogus "(archived)" entry for a live slot.
+  const incomeGroupId = currentIncomeTemplateId
+    ? (incomeTargets.find((t) => t.memberIds.includes(currentIncomeTemplateId))?.id ??
+      currentIncomeTemplateId)
+    : null;
+
   // Current category value on an edit, in the combined encoding - always a
   // TEMPLATE id, resolved from whichever instance the transaction is
   // currently linked to.
   const defaultCategory = transaction?.isTransfer
     ? "transfer"
-    : currentIncomeTemplateId
-      ? `income:${currentIncomeTemplateId}`
+    : incomeGroupId
+      ? `income:${incomeGroupId}`
       : currentExpenseTemplateId
         ? `expense:${currentExpenseTemplateId}`
         : "none";

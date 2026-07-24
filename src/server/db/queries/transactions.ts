@@ -22,6 +22,7 @@ import {
   budgetLineItems,
   incomeLineItems,
   incomeTemplates,
+  persons,
 } from "@/server/db/schema";
 import { parseIncomeSlotIdentifier } from "@/lib/income-slots";
 import { shiftMonthString } from "@/lib/month";
@@ -371,11 +372,17 @@ export async function getFilteredTransactions(householdId: string, filters: Tran
         lineItemTemplateId: budgetLineItems.templateItemId,
         incomeItemName: incomeLineItems.name,
         incomeTemplateId: incomeLineItems.templateItemId,
+        // The instance's own name is a snapshot frozen at creation (it can
+        // predate the person migration's template renames) - the person is
+        // the live source of truth for what an income belongs to.
+        incomePersonName: persons.name,
       })
       .from(transactions)
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))
       .leftJoin(budgetLineItems, eq(transactions.budgetLineItemId, budgetLineItems.id))
       .leftJoin(incomeLineItems, eq(transactions.incomeLineItemId, incomeLineItems.id))
+      .leftJoin(incomeTemplates, eq(incomeLineItems.templateItemId, incomeTemplates.id))
+      .leftJoin(persons, eq(incomeTemplates.personId, persons.id))
       .where(where)
       .orderBy(desc(transactions.postedDate), desc(transactions.createdAt))
       .limit(filters.pageSize)
