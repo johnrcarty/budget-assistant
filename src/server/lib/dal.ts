@@ -27,7 +27,12 @@ export const getCurrentHousehold = cache(async () => {
     .limit(1);
 
   if (!membership) {
-    throw new Error(`User ${userId} has no household membership`);
+    // A valid JWT whose user has no membership means the session outlived
+    // its user row — the after-effect of restoring a backup from a
+    // different install. Self-heal by clearing the cookie and landing on
+    // /login (a plain throw would 500 every page, and proxy.ts's optimistic
+    // cookie check keeps /login unreachable while the stale cookie exists).
+    redirect("/api/auth/reset-session");
   }
 
   return membership.householdId;
