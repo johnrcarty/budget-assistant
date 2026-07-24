@@ -10,11 +10,13 @@ USER root
 # custom-format dumps) stay version-matched - see docs/backup-restore.md.
 # su-exec: drop from root to the postgres/nextjs users per s6 service.
 # jq: parse HA's /data/options.json in cont-init.d without pulling in bashio.
+# nginx: rewrites ingress-path-prefixed asset URLs - see rootfs/etc/nginx.
 RUN apk add --no-cache \
       curl \
       xz \
       jq \
       su-exec \
+      nginx \
       postgresql16 \
       postgresql16-contrib \
   && curl -fsSL -o /tmp/s6-overlay-noarch.tar.xz \
