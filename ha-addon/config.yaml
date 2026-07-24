@@ -1,25 +1,28 @@
 name: Budget Assistant
 slug: budget_assistant
-version: "0.2.0"
+version: "0.2.1"
 description: Self-hosted zero-based budgeting and finance tracker
 arch:
   - amd64
 startup: application
 boot: auto
 init: false
-# True ingress (epic #70): the app no longer uses Next.js client-side
+# True ingress (epic #70, verified on a real HA instance 2026-07-24 over
+# LAN and Nabu Casa remote): the app no longer uses Next.js client-side
 # routing - every navigation is a plain <a> href built server-side from the
 # X-Ingress-Path header (src/components/layout/ingress.tsx), which is what
 # made the earlier ingress attempt 404 on the first in-app navigation.
-# The exposed port + webui button stay as a fallback during the spike so
-# LAN/http access keeps working; they go away once #74 verifies ingress.
 ingress: true
 ingress_port: 8099
-webui: "http://[HOST]:[PORT:8099]/"
+# The exposed port is NOT a UI fallback anymore (the webui button was
+# retired with #74) - it stays because HA's Model Context Protocol
+# integration reaches the Assist MCP endpoint at
+# http://127.0.0.1:8099/api/mcp?token=... on the host. Removing it means
+# repointing that integration at the add-on's internal hostname first.
 ports:
   "8099/tcp": 8099
 ports_description:
-  "8099/tcp": "Budget Assistant web UI (fallback; ingress is the primary access)"
+  "8099/tcp": "MCP endpoint for HA Assist (/api/mcp); UI access is via ingress"
 panel_icon: mdi:cash-multiple
 panel_title: Budget Assistant
 options:

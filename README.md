@@ -94,9 +94,9 @@ Budget Assistant also runs as a Home Assistant Supervisor add-on — Postgres,
 the app, the worker, and backups all packaged into one container, installed
 and configured from HA's own UI instead of hand-rolled Docker Compose.
 Working end to end (login, navigation, SimpleFin sync, backups, all
-verified against a real HA instance) via a one-click "Open Web UI" button;
-true sidebar-embedded ingress hit a real Next.js limitation and is tracked
-separately as [epic #70](https://github.com/johnrcarty/budget-assistant/issues/70).
+verified against a real HA instance), including true sidebar-native
+ingress (epic #70): the app builds every navigation URL at request time
+from Supervisor's `X-Ingress-Path`, with no Next.js client-side routing.
 See [ha-addon/README.md](ha-addon/README.md) for install steps and details.
 
 ## Status
@@ -113,6 +113,7 @@ See [ha-addon/README.md](ha-addon/README.md) for install steps and details.
 - [x] MCP server for Home Assistant Assist (epic #14 — verified end to end with Assist)
 - [x] Automated test suite (epic #16 — `pnpm test`, Vitest + PGlite)
 - [x] Login & Security screen (change the household login under More)
-- [x] Home Assistant add-on (epic #15) — installable from HA's UI, working
-      via a web UI button; see [ha-addon/README.md](ha-addon/README.md)
-- [ ] True sidebar-embedded HA ingress (epic #70)
+- [x] Home Assistant add-on (epic #15) — installable from HA's UI; see
+      [ha-addon/README.md](ha-addon/README.md)
+- [x] True sidebar-embedded HA ingress (epic #70) — verified on LAN and
+      via Nabu Casa remote
