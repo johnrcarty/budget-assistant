@@ -4,6 +4,7 @@ import { formatCents } from "@/server/lib/money";
 import { AddLineItemDialog } from "./AddLineItemDialog";
 import { LineItemRow } from "./LineItemRow";
 import { CategoryIcon } from "./category-icons";
+import { GroupStanding } from "./GroupStanding";
 import {
   amountForMode,
   DISPLAY_MODES,
@@ -50,8 +51,9 @@ export function CategoryGroupCard({
   return (
     <Card>
       <CardContent>
-        <div className={`flex items-center justify-between gap-3 pb-2 ${MODE_COLUMNS_GRID}`}>
-          <div className="flex min-w-0 items-center gap-3">
+        <GroupStanding
+          title={group.name}
+          icon={
             <div
               className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
                 isDebtGroup ? "bg-destructive/10" : "bg-muted"
@@ -63,23 +65,30 @@ export function CategoryGroupCard({
                 className={`size-4 ${isDebtGroup ? "text-destructive" : "text-primary"}`}
               />
             </div>
-            <h2 className="truncate text-lg font-bold">{group.name}</h2>
-            {/* Desktop home for Archive - the header's right side is the
-                totals columns there. */}
-            <div className="hidden md:block">{archiveButton}</div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3 md:hidden">
-            {group.items.length > 0 && (
-              <span className="font-semibold">{formatCents(totalCentsFor(mode))}</span>
-            )}
-            {archiveButton}
-          </div>
-          {DISPLAY_MODES.map((m) => (
+          }
+          // Desktop home for Archive - the header's right side is the
+          // totals columns there.
+          archive={archiveButton}
+          mobileSummary={
+            <>
+              {group.items.length > 0 && (
+                <span className="font-semibold">{formatCents(totalCentsFor(mode))}</span>
+              )}
+              {archiveButton}
+            </>
+          }
+          desktopTotals={DISPLAY_MODES.map((m) => (
             <span key={m} className="hidden text-right font-semibold md:block">
               {group.items.length > 0 ? formatCents(totalCentsFor(m)) : null}
             </span>
           ))}
-        </div>
+          items={group.items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            plannedCents: item.plannedAmountCents,
+            spentCents: item.spentCents,
+          }))}
+        />
 
         {group.items.length > 0 && (
           <div
