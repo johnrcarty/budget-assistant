@@ -101,7 +101,7 @@ export async function getExpenseTargets(householdId: string) {
 // and the engine fills the next open slot among the group's members.
 export async function getIncomeTargets(
   householdId: string,
-): Promise<{ id: string; name: string; slotCount: number }[]> {
+): Promise<{ id: string; name: string; slotCount: number; memberIds: string[] }[]> {
   const templates = await db
     .select({
       id: incomeTemplates.id,
@@ -126,5 +126,9 @@ export async function getIncomeTargets(
     id: members[0].id,
     name: members[0].personName ?? members[0].name,
     slotCount: members.length,
+    // All template ids in the group, so pickers can recognize a transaction
+    // linked to any member slot as belonging to this target - not just one
+    // linked to the head template.
+    memberIds: members.map((m) => m.id),
   }));
 }
