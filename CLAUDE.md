@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Monthly Budget — Project Guide for Agents
+# Budget Assistant — Project Guide for Agents
 
 Self-hosted, zero-based budgeting and finance tracker built to replace
 EveryDollar without paywalling transaction sync. Single household, shared

@@ -1,4 +1,4 @@
-# Monthly Budget
+# Budget Assistant
 
 A self-hosted, zero-based budgeting and finance tracker for one household —
 built to replace EveryDollar without paywalling transaction sync.
