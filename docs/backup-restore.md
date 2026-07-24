@@ -37,6 +37,14 @@ quietly creates a second empty household on the next add-on restart.)
 Then run through steps 7–10 of the host-migration checklist below —
 login, SimpleFin check, MCP URL — which apply the same way.
 
+After a cross-install restore, any browser still signed in to the target
+install holds a session for a user id the restore just replaced — the app
+detects this and signs it out automatically (clearing the stale cookie and
+landing on /login). Sign back in with the **source** install's credentials:
+the restore brought that login (email and password) over, and the add-on
+config's `household_login_password` never overwrites an existing user's
+password.
+
 ## How scheduled backups work
 
 `backup` is a plain `postgres:16-alpine` container (same image as `db`, so
