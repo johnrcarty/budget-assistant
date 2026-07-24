@@ -1,0 +1,44 @@
+name: Publish app image
+
+# Builds the root Dockerfile (the plain app image, not the HA add-on image)
+# and pushes it to GHCR as ghcr.io/<owner>/budget-assistant. ha-addon/build.yaml
+# FROMs this image by tag - HA Supervisor builds the add-on itself locally,
+# it just needs this base image to already exist and be pullable.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "src/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "drizzle/**"
+      - "scripts/**"
+      - ".github/workflows/publish-image.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/budget-assistant:latest
+            ghcr.io/${{ github.repository_owner }}/budget-assistant:${{ github.sha }}
