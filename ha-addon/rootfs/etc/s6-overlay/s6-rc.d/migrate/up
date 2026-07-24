@@ -1,0 +1,2 @@
+#!/command/with-contenv sh
+exec /etc/s6-overlay/scripts/run-migrate.sh

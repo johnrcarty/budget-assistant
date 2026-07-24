@@ -1,0 +1,10 @@
+#!/command/with-contenv sh
+# Reuses scripts/backup/backup.sh unmodified (plain libpq PG* env vars, set
+# by cont-init.d/20-postgres.sh) - only the crontab install differs from the
+# LAN compose deployment, since the app files live under /app here instead
+# of the separate `backup` compose service's own /scripts mount.
+mkdir -p /etc/crontabs
+cat >/etc/crontabs/root <<'EOF'
+0 3 * * * /app/scripts/backup/backup.sh >> /proc/1/fd/1 2>> /proc/1/fd/2
+EOF
+exec crond -f -l 8

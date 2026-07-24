@@ -5,3 +5,10 @@ node_modules
 !.env.example
 *.log
 npm-debug.log*
+
+# contains real household financial data - gitignored, never bake into an
+# image either (see .gitignore's matching entry)
+scripts/seed.ts
+
+# real household DB dumps - never bake into an image
+/backups/

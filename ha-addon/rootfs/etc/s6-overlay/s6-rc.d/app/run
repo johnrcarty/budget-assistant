@@ -1,0 +1,5 @@
+#!/command/with-contenv sh
+cd /app || exit 1
+export PORT=3000
+export HOSTNAME=0.0.0.0
+exec su-exec nextjs node server.js
