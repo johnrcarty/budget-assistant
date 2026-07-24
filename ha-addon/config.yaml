@@ -1,6 +1,6 @@
 name: Budget Assistant
 slug: budget_assistant
-version: "0.1.0"
+version: "0.1.1"
 description: Self-hosted zero-based budgeting and finance tracker
 arch:
   - amd64

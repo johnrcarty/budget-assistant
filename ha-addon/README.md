@@ -4,6 +4,14 @@ Packaging for running Budget Assistant as a Home Assistant Supervisor
 add-on. See the epic tracking issue and `docs/home-assistant-addon.md`
 (added once issue #8 lands) for the full install runbook.
 
+**Bump `config.yaml`'s `version` in every PR that changes anything under
+`ha-addon/` or that changes app source the published image needs (anything
+`.github/workflows/publish-image.yml` triggers on).** HA Supervisor treats
+an unchanged version as "nothing to update" for a local add-on and won't
+re-pull the base image even after a fresh one is published to GHCR - the
+symptom is the add-on silently keeps running old code after a merge, with
+no error to indicate why.
+
 ## Current scope (issues #5 + #6)
 
 Packaging and process supervision (#5): Postgres 16 + the Next.js app + the
