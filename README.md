@@ -74,9 +74,10 @@ docker compose --env-file .env.local up -d --build
 docker compose --env-file .env.local exec app node_modules/.bin/tsx scripts/seed.ts
 ```
 
-`docker-compose.yml` runs three services: `db` (Postgres), `app` (runs
-migrations then serves Next.js), and `worker` (scheduled SimpleFin polling +
-rule-based auto-categorization).
+`docker-compose.yml` runs four services: `db` (Postgres), `app` (runs
+migrations then serves Next.js), `worker` (scheduled SimpleFin polling +
+rule-based auto-categorization), and `backup` (scheduled + on-demand
+`pg_dump`/`pg_restore` — see [docs/backup-restore.md](docs/backup-restore.md)).
 
 Optional: set `ANTHROPIC_API_KEY` in `.env.local` to enable AI
 categorization suggestions (Claude Haiku, review-first — nothing applies
@@ -86,6 +87,17 @@ Optional: set `MCP_AUTH_TOKEN` to enable the read-only MCP endpoint at
 `/api/mcp`, which lets Home Assistant Assist answer questions like "do I
 have any bills coming up?" — see
 [docs/mcp-home-assistant.md](docs/mcp-home-assistant.md).
+
+## Home Assistant add-on
+
+Budget Assistant also runs as a Home Assistant Supervisor add-on — Postgres,
+the app, the worker, and backups all packaged into one container, installed
+and configured from HA's own UI instead of hand-rolled Docker Compose.
+Working end to end (login, navigation, SimpleFin sync, backups, all
+verified against a real HA instance) via a one-click "Open Web UI" button;
+true sidebar-embedded ingress hit a real Next.js limitation and is tracked
+separately as [epic #70](https://github.com/johnrcarty/budget-assistant/issues/70).
+See [ha-addon/README.md](ha-addon/README.md) for install steps and details.
 
 ## Status
 
@@ -101,4 +113,6 @@ have any bills coming up?" — see
 - [x] MCP server for Home Assistant Assist (epic #14 — verified end to end with Assist)
 - [x] Automated test suite (epic #16 — `pnpm test`, Vitest + PGlite)
 - [x] Login & Security screen (change the household login under More)
-- [ ] Home Assistant ingress add-on (epic #15) — the last item on the original roadmap
+- [x] Home Assistant add-on (epic #15) — installable from HA's UI, working
+      via a web UI button; see [ha-addon/README.md](ha-addon/README.md)
+- [ ] True sidebar-embedded HA ingress (epic #70)

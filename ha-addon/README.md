@@ -1,83 +1,93 @@
-# Budget Assistant - Home Assistant add-on
+# Budget Assistant — Home Assistant add-on
 
-Packaging for running Budget Assistant as a Home Assistant Supervisor
-add-on. See the epic tracking issue and `docs/home-assistant-addon.md`
-(added once issue #8 lands) for the full install runbook.
+**Status: working.** Installed as a local HA add-on — Postgres, the app,
+the SimpleFin worker, and scheduled backups all run in one container,
+managed by HA like any other add-on. Verified end to end against a real
+Home Assistant instance: install, configure, start, log in, navigate
+between every tab, SimpleFin sync, and a manual backup all work.
+
+Not yet true sidebar-native ingress (see below) — access today is via a
+one-click "Open Web UI" button or an optional manual sidebar panel, both
+described below. Tracked as [epic #70](https://github.com/johnrcarty/budget-assistant/issues/70).
+
+## Install
+
+1. In HA: **Settings → Add-ons → Add-on Store → ⋮ (top right) →
+   Repositories**, add `https://github.com/johnrcarty/budget-assistant`.
+2. Find **Budget Assistant** in the store and install it.
+3. On the **Configuration** tab, set:
+   - `household_login_email` / `household_login_password` — your login
+     for the app itself (created automatically on first boot).
+   - `auth_secret` / `simplefin_encryption_key` — random secrets, e.g.
+     `openssl rand -hex 32` for each.
+   - `backup_retention_days` — how many days of automatic backups to keep.
+   - `anthropic_api_key` / `mcp_auth_token` — optional (AI categorization
+     suggestions / the Home Assistant Assist MCP integration).
+4. Start the add-on, then use the **Open Web UI** button on its Info page.
+
+For a sidebar-embedded panel instead of a new-tab link, add this to HA's
+`configuration.yaml` and restart HA (this is a manual step — an add-on
+can't register a sidebar panel on its own):
+
+```yaml
+panel_iframe:
+  budget_assistant:
+    title: "Budget Assistant"
+    icon: mdi:cash-multiple
+    url: "http://<ha-host>:8099/"
+    require_admin: false
+```
+
+## Why not true HA ingress (yet)
+
+HA's `ingress: true` mode embeds an add-on directly in the sidebar with no
+exposed port, proxied through Supervisor under a dynamic per-install path.
+It was tried and reverted after confirming a hard blocker on a real HA
+instance: Next.js's client-side router (`<Link>`, RSC prefetch, Server
+Action redirects) builds every navigation URL at runtime *in the browser*
+from a build-time `basePath`, which can't be made aware of HA's
+per-install, runtime-assigned ingress path — so the very next click after
+a successful login 404's. No proxy-layer fix reaches this, since the
+browser itself is constructing the broken URL, with no idea it's inside an
+ingress-rewritten frame at all.
+
+Fixing this properly (a Next.js retrofit to avoid client-side routing
+entirely, or a different framework if that's not viable) is real,
+multi-step work — tracked as its own initiative in
+[epic #70](https://github.com/johnrcarty/budget-assistant/issues/70) rather
+than blocking this from shipping. Today's fallback (exposed port + `webui`
+button) fully sidesteps the problem instead of working around it: the
+browser is on the app's real URL, not a rewritten one, so every route
+works normally.
+
+## Architecture
+
+Postgres 16 + the Next.js app + the SimpleFin worker + a backup cron, all
+consolidated into one container via s6-overlay — HA add-ons are
+conventionally single-container, where this app is normally four separate
+Docker Compose services. `ha-addon/Dockerfile` layers this onto the
+existing app image (`ghcr.io/johnrcarty/budget-assistant`, published by
+`.github/workflows/publish-image.yml`); the root `Dockerfile` and
+`docker-compose.yml` (the plain LAN deployment) are untouched.
+
+On first boot, creates the household/user/membership from the configured
+login if none exists yet (`scripts/ensure-household-login.ts`, idempotent)
+— the plain Docker Compose deployment instead seeds this manually via the
+gitignored `scripts/seed.ts`, which has no equivalent inside this add-on's
+image.
 
 **Bump `config.yaml`'s `version` in every PR that changes anything under
-`ha-addon/` or that changes app source the published image needs (anything
-`.github/workflows/publish-image.yml` triggers on).** HA Supervisor treats
-an unchanged version as "nothing to update" for a local add-on and won't
-re-pull the base image even after a fresh one is published to GHCR - the
-symptom is the add-on silently keeps running old code after a merge, with
-no error to indicate why.
-
-## Current scope (issues #5 + #6)
-
-Packaging and process supervision (#5): Postgres 16 + the Next.js app + the
-SimpleFin worker + the backup cron, all consolidated into one add-on
-container via s6-overlay, since HA add-ons are conventionally
-single-container. Also creates the initial household/user/membership from
-the `household_login_email`/`household_login_password` options if no user
-with that email exists yet (`scripts/ensure-household-login.ts`, run once
-after migrations, idempotent) - the plain Docker Compose deployment instead
-seeds this manually via the gitignored `scripts/seed.ts`, which has no
-equivalent inside this add-on's image.
-
-### Why not true ingress (#6 tried, reverted after real HA testing)
-
-An nginx service in front of the app (`rootfs/etc/nginx/http.d/ingress.conf`)
-used `sub_filter` to rewrite the small set of root-absolute asset references
-the app emits server-side (`/_next/...`, `/manifest.json`, `/favicon.ico`)
-using the `X-Ingress-Path` header HA's Supervisor sends with every proxied
-request - and this part worked, verified both locally (simulated header)
-and on a real HA instance (assets loaded, login page rendered and worked).
-
-**But this can't fix client-side router navigation**, and Gate A confirmed
-it on a real HA instance: after a successful login, the very next
-navigation 404'd. `<Link>`, RSC prefetch, and Server Action redirects all
-build root-absolute URLs (`/summary`, not `/api/hassio_ingress/<token>/summary`)
-at runtime in the browser, from Next's build-time `basePath` - which has to
-stay empty, since HA's ingress path is a per-install runtime token, not
-something bakeable into a build. There's no proxy-layer fix for this: the
-browser is the one constructing these URLs, and it does so with no
-knowledge that it's inside an ingress-rewritten frame at all.
-
-**Fallback adopted**: dropped `ingress`/`ingress_port` from `config.yaml` in
-favor of a real exposed port (nginx still listens on 8099, now host-mapped)
-plus a `webui` field. This isn't a partial workaround - it fully sidesteps
-the problem, since the browser is on the app's real URL rather than a
-rewritten one, so every route (including client-side navigation) just
-works normally, same as the existing plain Docker Compose deployment.
-
-- `webui: "http://[HOST]:[PORT:8099]/"` gives an "Open Web UI" button on
-  the add-on's own Info page (opens in a new tab) with zero extra HA
-  configuration.
-- For a true sidebar-embedded panel (closer to the original ingress goal),
-  add this to HA's `configuration.yaml` manually (not something an add-on
-  can register on its own) and restart HA:
-  ```yaml
-  panel_iframe:
-    budget_assistant:
-      title: "Budget Assistant"
-      icon: mdi:cash-multiple
-      url: "http://<ha-host>:8099/"
-      require_admin: false
-  ```
-  The nginx layer and its `X-Ingress-Path` rewriting logic are left in
-  place (harmless no-ops when that header is absent, which it always is
-  now) rather than ripped out, in case ingress is revisited later.
+`ha-addon/` or that changes app source the published image needs.** HA
+Supervisor treats an unchanged version as "nothing to update" for a local
+add-on and won't re-pull the base image even after a fresh one lands on
+GHCR — the symptom is the add-on silently keeps running old code after a
+merge, with no error to indicate why.
 
 ## Local build + smoke test (no HA Supervisor required)
 
 Use a real `/data/options.json` rather than plain `-e` flags for the option
-values - **s6-overlay clears the incoming container environment by
-default**, so plain `docker run -e ...` vars are invisible to `cont-init.d`
-unless you also set `S6_KEEP_ENV=1` (which was tried and reverted here: it
-introduced a startup race that made Postgres's own `DATABASE_URL`, itself
-synthesized in `cont-init.d/20-postgres.sh`, intermittently vanish before
-`migrate` read it). Testing via `options.json` sidesteps this entirely
-*and* exercises the exact same code path the real HA deployment uses.
+values (see the s6-overlay note below for why) — this also exercises the
+exact same code path the real HA deployment uses.
 
 ```sh
 # 1. Build the app image this add-on extends (from the repo root)
@@ -109,49 +119,55 @@ docker run -d --name budget-addon-test \
   -p 18100:8099 \
   budget-assistant-addon:dev
 
-# 5. Verify plain (no-ingress-header) behavior still works
+# 5. Verify
 docker logs budget-addon-test          # postgres init, migrations, worker, app, nginx all start
 curl http://localhost:18100/api/health # {"status":"ok"}
 curl -i http://localhost:18100/        # redirects to /login
-
-# 6. Simulate an HA ingress request (fake token path + header) and confirm
-#    the HTML now references the prefixed asset paths
-curl -s -H "X-Ingress-Path: /api/hassio_ingress/TESTTOKEN" http://localhost:18100/login \
-  | grep -o '/api/hassio_ingress/TESTTOKEN/_next/[^"]*' | head -3
-
-# 7. Confirm the actual login flow (not just that the page renders)
-COOKIES=/tmp/cookies.txt
-CSRF_TOKEN=$(curl -s -c $COOKIES http://localhost:18100/api/auth/csrf | grep -o '"csrfToken":"[^"]*"' | cut -d'"' -f4)
-curl -s -b $COOKIES -c $COOKIES -i -X POST http://localhost:18100/api/auth/callback/credentials \
-  -d "email=test@example.com" -d "password=testpassword123" -d "csrfToken=$CSRF_TOKEN" -d "json=true" \
-  | grep -i "set-cookie: authjs.session-token"
 
 # Cleanup
 docker rm -f budget-addon-test
 docker volume rm budget-addon-data
 ```
 
-Verified working end to end on 2026-07-24: first-boot Postgres init +
-`budget` role/database creation, migrations applying cleanly, the worker
-scheduling its SimpleFin sync cron, the app serving and health-checking,
-a manual backup landing in `/data/backups` via `scripts/backup/backup.sh`
-(symlinked from `/backups`, which the script hardcodes), a full container
-restart correctly skipping re-init and reusing the persisted Postgres
-password and correctly no-op'ing the household-login bootstrap the second
-time, a simulated `X-Ingress-Path` header correctly rewriting `/_next/`,
-`/manifest.json`, and `/favicon.ico` references in the served HTML, and a
-real credentials sign-in producing a valid `authjs.session-token` cookie.
+Verified end to end (most recently 2026-07-24, real HA instance): first-boot
+Postgres init + household/user creation, migrations applying, the worker
+scheduling its SimpleFin sync cron, login + full navigation between every
+tab, a manual backup landing in `/data/backups`, and a full container
+restart correctly reusing existing data with no re-init.
 
-## A note on s6-rc oneshots
+## Implementation notes / gotchas
 
-`migrate`'s `up` file is intentionally a bare one-line `exec` into
-`rootfs/etc/s6-overlay/scripts/run-migrate.sh`, rather than containing the
-wait-for-postgres/migrate logic directly. s6-rc parses **oneshot**
-`up`/`down` files differently from a **longrun** service's `run` file - a
-`run` file (like `postgres/run`, `app/run`) is kernel-exec'd directly and
-can contain arbitrary shell syntax, but a oneshot's `up` file broke on a
-`||` inside it (`execline-cd: fatal: unable to exec ||`) even though the
-identical file worked fine when exec'd directly outside of s6-rc's oneshot
-machinery. Keeping real logic in a separate, normally-exec'd script and
-having `up` do nothing but `exec` into it sidesteps this entirely - apply
-the same pattern to any future oneshot service added here.
+Kept for whoever touches this next — each of these cost real debugging
+time against a real HA instance.
+
+**s6-rc oneshots vs. longrun `run` scripts.** `migrate`'s `up` file is a
+bare one-line `exec` into `rootfs/etc/s6-overlay/scripts/run-migrate.sh`,
+rather than containing the wait-for-postgres/migrate logic directly. s6-rc
+parses **oneshot** `up`/`down` files differently from a **longrun**
+service's `run` file — a `run` file (like `postgres/run`, `app/run`) is
+kernel-exec'd directly and can contain arbitrary shell syntax, but a
+oneshot's `up` file broke on a `||` inside it
+(`execline-cd: fatal: unable to exec ||`) even though the identical file
+worked fine exec'd directly outside of s6-rc's oneshot machinery. Keep real
+logic in a separate, normally-exec'd script; have `up` do nothing but
+`exec` into it.
+
+**s6-overlay clears the incoming container environment by default.** Plain
+`docker run -e ...` vars are invisible to `cont-init.d` unless you also set
+`S6_KEEP_ENV=1` — tried and reverted here, since it introduced a startup
+race that made `cont-init.d/20-postgres.sh`'s own synthesized `DATABASE_URL`
+intermittently vanish before `migrate` read it. Doesn't affect the real HA
+deployment (which reads `/data/options.json`, a file, not inherited env
+vars) — for local testing, use a real `options.json` instead (see above).
+
+**nginx's `$host` strips the port — use `$http_host`.** This one only
+surfaced on a real HA instance: `proxy_set_header Host $host;` forwards a
+port-stripped host (nginx's own well-documented behavior), while the
+browser's `Origin` header naturally includes the port. Next.js's built-in
+Server Actions CSRF check compares these and aborts on any mismatch —
+which silently broke every Server Action, including the login form itself.
+Fixed by forwarding `$http_host` (which preserves the port) for both `Host`
+and `X-Forwarded-Host`. Caught only by testing a real Server Action
+submission through nginx (a real browser, or headless Chromium) — hitting
+`/api/auth/callback/credentials` directly with curl bypasses Next's Server
+Actions machinery entirely and never exercises this check.
