@@ -4,15 +4,28 @@ Packaging for running Budget Assistant as a Home Assistant Supervisor
 add-on. See the epic tracking issue and `docs/home-assistant-addon.md`
 (added once issue #8 lands) for the full install runbook.
 
-## Current scope (issue #5)
+## Current scope (issues #5 + #6)
 
-This directory currently covers packaging and process supervision only:
-Postgres 16 + the Next.js app + the SimpleFin worker + the backup cron, all
-consolidated into one add-on container via s6-overlay, since HA add-ons are
-conventionally single-container. `ingress_port` in `config.yaml` points
-directly at the app for now - issue #6 adds an nginx layer in front to
-rewrite asset paths for HA's ingress path prefix, at which point
-`ingress_port` moves to nginx.
+Packaging and process supervision (#5): Postgres 16 + the Next.js app + the
+SimpleFin worker + the backup cron, all consolidated into one add-on
+container via s6-overlay, since HA add-ons are conventionally
+single-container.
+
+Ingress-compatible routing (#6): an nginx service in front of the app
+(`rootfs/etc/nginx/http.d/ingress.conf`) is now the container's only
+listener on `ingress_port` (8099) - the app itself moved to a loopback-only
+internal port. nginx uses `sub_filter` to rewrite the small set of
+root-absolute asset references the app emits server-side (`/_next/...`,
+`/manifest.json`, `/favicon.ico`) using the `X-Ingress-Path` header HA's
+Supervisor sends with every proxied request.
+
+**This does not (and cannot) fix client-side router navigation** -
+`<Link>`, RSC prefetch, and Server Action POSTs build root-absolute URLs at
+runtime from Next's build-time `basePath` (which has to stay empty, since
+HA's ingress path is a per-install runtime token, not something bakeable
+at build time). Whether tab-to-tab navigation survives ingress can only be
+confirmed against a real HA Supervisor - that's Gate A in issue #7, before
+any real data migrates.
 
 ## Local build + smoke test (no HA Supervisor required)
 
@@ -34,13 +47,18 @@ docker run -d --name budget-addon-test \
   -e AUTH_SECRET="$(openssl rand -hex 32)" \
   -e SIMPLEFIN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -e BACKUP_RETENTION_DAYS=14 \
-  -p 18100:3000 \
+  -p 18100:8099 \
   budget-assistant-addon:dev
 
-# 4. Verify
-docker logs budget-addon-test          # postgres init, migrations, worker, app all start
+# 4. Verify plain (no-ingress-header) behavior still works
+docker logs budget-addon-test          # postgres init, migrations, worker, app, nginx all start
 curl http://localhost:18100/api/health # {"status":"ok"}
 curl -i http://localhost:18100/        # redirects to /login
+
+# 5. Simulate an HA ingress request (fake token path + header) and confirm
+#    the HTML now references the prefixed asset paths
+curl -s -H "X-Ingress-Path: /api/hassio_ingress/TESTTOKEN" http://localhost:18100/login \
+  | grep -o '/api/hassio_ingress/TESTTOKEN/_next/[^"]*' | head -3
 
 # Cleanup
 docker rm -f budget-addon-test
@@ -51,9 +69,11 @@ Verified working end to end on 2026-07-24: first-boot Postgres init +
 `budget` role/database creation, migrations applying cleanly, the worker
 scheduling its SimpleFin sync cron, the app serving and health-checking,
 a manual backup landing in `/data/backups` via `scripts/backup/backup.sh`
-(symlinked from `/backups`, which the script hardcodes), and a full
-container restart correctly skipping re-init and reusing the persisted
-Postgres password.
+(symlinked from `/backups`, which the script hardcodes), a full container
+restart correctly skipping re-init and reusing the persisted Postgres
+password, and - once nginx landed - a simulated `X-Ingress-Path` header
+correctly rewriting `/_next/`, `/manifest.json`, and `/favicon.ico`
+references in the served HTML.
 
 ## A note on s6-rc oneshots
 
