@@ -8,6 +8,12 @@ Auth.js (Credentials now, Authentik OIDC-ready later), SimpleFin for bank
 sync, Claude Haiku for optional AI categorization, self-hosted via Docker
 Compose. Architecture and working conventions live in `CLAUDE.md`.
 
+> **On how this was built**: every line of code, commit, and PR in this
+> repository was written by Claude (Anthropic's AI). A single human directed
+> the work throughout — scoping features, making architecture calls, testing
+> on real devices and real data, and reviewing/merging every change — but
+> wrote no code directly.
+
 ## What it does
 
 - **Summary** — Sankey cashflow diagram (income → categories → line items,
