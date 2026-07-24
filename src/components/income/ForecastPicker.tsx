@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useIngressNavigate } from "@/components/layout/ingress";
 import {
   Select,
   SelectContent,
@@ -18,13 +18,13 @@ export function ForecastPicker({
   forecasts: { id: string; name: string; baseYear: number }[];
   selectedId: string | null;
 }) {
-  const router = useRouter();
+  const navigate = useIngressNavigate();
 
   return (
     <Select
       value={selectedId ?? NONE}
       onValueChange={(value) => {
-        if (value) router.push(`/income?forecast=${value}`);
+        if (value) navigate(`/income?forecast=${value}`);
       }}
       // base-ui Select shows the raw value (a UUID here) unless given an
       // items map - same fix as PR #18.

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { IngressPathProvider } from "@/components/layout/ingress";
+import { getIngressPath } from "@/server/lib/ingress";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,11 +25,14 @@ export const viewport = {
   themeColor: "#3a9451",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Reading the ingress header makes every route dynamically rendered,
+  // which this app effectively is already (auth cookie on every page).
+  const ingressPath = await getIngressPath();
   return (
     <html
       lang="en"
@@ -40,7 +45,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+          <IngressPathProvider value={ingressPath}>{children}</IngressPathProvider>
         </ThemeProvider>
       </body>
     </html>

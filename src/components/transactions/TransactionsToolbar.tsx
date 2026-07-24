@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,8 +29,6 @@ export function TransactionsToolbar({
 }: {
   accountList: (typeof accounts.$inferSelect)[];
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const [searchValue, setSearchValue] = useState(searchParams.get("search") ?? "");
@@ -65,7 +63,9 @@ export function TransactionsToolbar({
       else params.set(key, value);
     }
     params.delete("page"); // any filter change resets to page 1
-    router.push(`${pathname}?${params.toString()}`);
+    // Relative query-only navigation: resolves against the browser's current
+    // URL, so the HA ingress prefix (when present) is preserved for free.
+    window.location.assign(`?${params.toString()}`);
   }
 
   useEffect(() => {

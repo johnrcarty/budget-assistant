@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +24,6 @@ const CONFIDENCE_STYLE: Record<string, string> = {
 };
 
 export function AiSuggestPanel({ hasApiKey }: { hasApiKey: boolean }) {
-  const router = useRouter();
   const [suggestions, setSuggestions] = useState<AiSuggestion[] | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
@@ -82,7 +80,9 @@ export function AiSuggestPanel({ hasApiKey }: { hasApiKey: boolean }) {
         setStatus(
           `Created ${result.rulesCreated} rules and categorized ${result.matched} transactions.`,
         );
-        router.refresh();
+        // Full reload instead of router.refresh(): no client router under
+        // HA ingress (see components/layout/ingress.tsx).
+        window.location.reload();
       } catch (e) {
         setStatus(e instanceof Error ? e.message : "Applying suggestions failed.");
       }

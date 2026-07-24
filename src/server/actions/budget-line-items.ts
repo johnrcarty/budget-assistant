@@ -12,6 +12,7 @@ import {
   lineItemTemplates,
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { getIngressPath } from "@/server/lib/ingress";
 import { dollarsToCents } from "@/server/lib/money";
 import { firstOfMonth, getOrCreateBudgetMonth } from "@/server/db/queries/budget";
 
@@ -203,7 +204,7 @@ export async function deleteLineItem(lineItemId: string) {
   }
 
   revalidatePath("/budget");
-  redirect(`/budget?month=${item.month}`);
+  redirect(`${await getIngressPath()}/budget?month=${item.month}`);
 }
 
 export { firstOfMonth };

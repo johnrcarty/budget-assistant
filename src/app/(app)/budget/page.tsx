@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { ChartNoAxesColumn, ChevronRight } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getBudgetOverview } from "@/server/db/queries/budget";
@@ -45,7 +45,7 @@ export default async function BudgetPage({
             {formatCents(overview.leftToBudgetCents)}
           </p>
 
-          <Link
+          <IngressLink
             href={`/budget/income?month=${month}`}
             className="mb-6 flex items-center justify-between rounded-xl bg-card p-4 shadow-xs"
           >
@@ -63,7 +63,7 @@ export default async function BudgetPage({
               </div>
             </div>
             <ChevronRight className="size-5 text-muted-foreground" />
-          </Link>
+          </IngressLink>
 
           {overview.groups.length > 0 && (
             <p className="pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">

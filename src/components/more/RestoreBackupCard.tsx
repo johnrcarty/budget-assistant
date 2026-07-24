@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useIngressPath } from "@/components/layout/ingress";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 
 export function RestoreBackupCard() {
+  const ingressPath = useIngressPath();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -35,7 +37,7 @@ export function RestoreBackupCard() {
       const body = new FormData();
       body.set("file", file);
       body.set("confirm", confirmText.trim().toLowerCase());
-      const res = await fetch("/api/backup/restore", { method: "POST", body });
+      const res = await fetch(`${ingressPath}/api/backup/restore`, { method: "POST", body });
       if (!res.ok) {
         let message = `Restore failed (HTTP ${res.status}).`;
         try {

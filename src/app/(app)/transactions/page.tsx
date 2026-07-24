@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { Plus, Upload, Wand2, X } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts } from "@/server/db/queries/accounts";
@@ -117,12 +117,12 @@ export default async function TransactionsPage({
         rightAction={
           accountList.length > 0 ? (
             <div className="flex items-center gap-4">
-              <Link href="/transactions/categorize" aria-label="Categorize transactions">
+              <IngressLink href="/transactions/categorize" aria-label="Categorize transactions">
                 <Wand2 className="size-5" />
-              </Link>
-              <Link href="/transactions/import" aria-label="Import CSV">
+              </IngressLink>
+              <IngressLink href="/transactions/import" aria-label="Import CSV">
                 <Upload className="size-5" />
-              </Link>
+              </IngressLink>
               <TransactionDialog
                 accounts={accountList}
                 expenseTargets={expenseTargets}
@@ -142,13 +142,13 @@ export default async function TransactionsPage({
             <span className="min-w-0 truncate">
               Cash flow: <span className="font-medium">{flowLabel}</span>
             </span>
-            <Link
+            <IngressLink
               href={`/transactions${clearFlowParams ? `?${clearFlowParams}` : ""}`}
               className="shrink-0 font-medium text-muted-foreground"
               aria-label="Clear cash flow filter"
             >
               <X className="size-4" />
-            </Link>
+            </IngressLink>
           </div>
         )}
         {accountList.length === 0 ? (

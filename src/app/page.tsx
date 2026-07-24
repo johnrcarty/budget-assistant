@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { getIngressPath } from "@/server/lib/ingress";
 
-export default function Home() {
-  redirect("/summary");
+export default async function Home() {
+  redirect(`${await getIngressPath()}/summary`);
 }

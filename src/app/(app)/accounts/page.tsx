@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { RefreshCw } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts, getArchivedAccounts, getAccountGroups } from "@/server/db/queries/accounts";
@@ -70,9 +70,9 @@ export default async function AccountsPage() {
         title="Accounts"
         rightAction={
           <div className="flex items-center gap-4">
-            <Link href="/settings/simplefin" aria-label="Bank sync settings">
+            <IngressLink href="/settings/simplefin" aria-label="Bank sync settings">
               <RefreshCw className="size-5" />
-            </Link>
+            </IngressLink>
             <AddAccountDialog groups={groupOptions} persons={personOptions} />
           </div>
         }

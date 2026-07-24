@@ -5,11 +5,12 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/server/lib/auth";
 import { db } from "@/server/db/client";
 import { householdMembers } from "@/server/db/schema";
+import { getIngressPath } from "@/server/lib/ingress";
 
 export const verifySession = cache(async () => {
   const session = await auth();
   if (!session?.user?.id) {
-    redirect("/login");
+    redirect(`${await getIngressPath()}/login`);
   }
   return { userId: session.user.id };
 });
@@ -32,7 +33,7 @@ export const getCurrentHousehold = cache(async () => {
     // different install. Self-heal by clearing the cookie and landing on
     // /login (a plain throw would 500 every page, and proxy.ts's optimistic
     // cookie check keeps /login unreachable while the stale cookie exists).
-    redirect("/api/auth/reset-session");
+    redirect(`${await getIngressPath()}/api/auth/reset-session`);
   }
 
   return membership.householdId;

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { Plus, TrendingUp, Upload } from "lucide-react";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import {
@@ -66,9 +66,9 @@ export default async function IncomePage({
 
   const addButton = (
     <div className="flex items-center gap-4">
-      <Link href="/income/import" aria-label="Import CSV">
+      <IngressLink href="/income/import" aria-label="Import CSV">
         <Upload className="size-5" />
-      </Link>
+      </IngressLink>
       <IncomeEntryDialog
         persons={data.persons}
         defaultYear={currentYear}

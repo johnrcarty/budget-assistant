@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/layout/AppHeader";
+import { IngressLink } from "@/components/layout/ingress";
 import { RestoreBackupCard } from "@/components/more/RestoreBackupCard";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,15 +21,13 @@ export default async function BackupPage() {
               Server secrets (encryption keys, passwords) are not included. The
               server&apos;s scheduled daily backups keep running regardless.
             </p>
-            {/* Plain anchor, not <Link>: this is a file download served by a
-                Route Handler, not a client-side navigation. */}
-            <a
+            <IngressLink
               href="/api/backup/download"
               download
               className={buttonVariants({ className: "w-fit" })}
             >
               Download backup
-            </a>
+            </IngressLink>
           </CardContent>
         </Card>
         <RestoreBackupCard />

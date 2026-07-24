@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import {
   ChevronRight,
   DatabaseBackup,
@@ -59,7 +59,7 @@ export default function MorePage() {
       <AppHeader title="More" />
       <div className="flex flex-col gap-3 px-4 pb-4">
         {SECTIONS.map(({ href, title, description, icon: Icon }) => (
-          <Link key={href} href={href}>
+          <IngressLink key={href} href={href}>
             <Card>
               <CardContent className="flex items-center gap-4">
                 <Icon className="size-6 shrink-0 text-primary" />
@@ -70,7 +70,7 @@ export default function MorePage() {
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </CardContent>
             </Card>
-          </Link>
+          </IngressLink>
         ))}
         <ThemeToggleRow />
       </div>

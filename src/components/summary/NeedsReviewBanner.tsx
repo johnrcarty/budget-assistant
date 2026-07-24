@@ -1,11 +1,11 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { ChevronRight, CircleAlert } from "lucide-react";
 
 export function NeedsReviewBanner({ count }: { count: number }) {
   if (count === 0) return null;
 
   return (
-    <Link
+    <IngressLink
       href="/transactions/categorize"
       className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
     >
@@ -14,6 +14,6 @@ export function NeedsReviewBanner({ count }: { count: number }) {
         {count} {count === 1 ? "transaction" : "transactions"} to categorize
       </span>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-    </Link>
+    </IngressLink>
   );
 }
