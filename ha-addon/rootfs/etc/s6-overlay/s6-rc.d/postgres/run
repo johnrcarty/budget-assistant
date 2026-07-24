@@ -1,0 +1,4 @@
+#!/command/with-contenv sh
+exec su-exec postgres postgres -D /data/postgres \
+  -c listen_addresses=127.0.0.1 \
+  -c unix_socket_directories=/tmp

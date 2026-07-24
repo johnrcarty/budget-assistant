@@ -1,0 +1,33 @@
+name: Budget Assistant
+slug: budget_assistant
+version: "0.1.0"
+description: Self-hosted zero-based budgeting and finance tracker
+arch:
+  - amd64
+startup: application
+boot: auto
+init: false
+ingress: true
+# Points directly at the Next.js app for now (issue #5's scope: packaging
+# and process supervision only). Issue #6 adds an nginx layer in front to
+# rewrite asset paths using the X-Ingress-Path header - at that point this
+# moves to nginx's port (8099) with the app moving to an internal-only port.
+ingress_port: 3000
+panel_icon: mdi:cash-multiple
+panel_title: Budget Assistant
+options:
+  household_login_email: ""
+  household_login_password: ""
+  auth_secret: ""
+  simplefin_encryption_key: ""
+  anthropic_api_key: ""
+  mcp_auth_token: ""
+  backup_retention_days: 14
+schema:
+  household_login_email: email
+  household_login_password: password
+  auth_secret: password
+  simplefin_encryption_key: password
+  anthropic_api_key: "str?"
+  mcp_auth_token: "str?"
+  backup_retention_days: int

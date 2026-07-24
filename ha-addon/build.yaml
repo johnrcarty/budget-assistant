@@ -1,0 +1,4 @@
+build_from:
+  amd64: ghcr.io/johnrcarty/budget-assistant:latest
+args:
+  S6_OVERLAY_VERSION: "3.2.0.2"

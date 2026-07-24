@@ -1,0 +1,3 @@
+#!/command/with-contenv sh
+cd /app || exit 1
+exec su-exec nextjs node_modules/.bin/tsx src/server/jobs/scheduler.ts
