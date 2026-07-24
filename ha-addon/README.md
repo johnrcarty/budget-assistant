@@ -9,7 +9,12 @@ add-on. See the epic tracking issue and `docs/home-assistant-addon.md`
 Packaging and process supervision (#5): Postgres 16 + the Next.js app + the
 SimpleFin worker + the backup cron, all consolidated into one add-on
 container via s6-overlay, since HA add-ons are conventionally
-single-container.
+single-container. Also creates the initial household/user/membership from
+the `household_login_email`/`household_login_password` options if no user
+with that email exists yet (`scripts/ensure-household-login.ts`, run once
+after migrations, idempotent) - the plain Docker Compose deployment instead
+seeds this manually via the gitignored `scripts/seed.ts`, which has no
+equivalent inside this add-on's image.
 
 Ingress-compatible routing (#6): an nginx service in front of the app
 (`rootfs/etc/nginx/http.d/ingress.conf`) is now the container's only
@@ -29,6 +34,15 @@ any real data migrates.
 
 ## Local build + smoke test (no HA Supervisor required)
 
+Use a real `/data/options.json` rather than plain `-e` flags for the option
+values - **s6-overlay clears the incoming container environment by
+default**, so plain `docker run -e ...` vars are invisible to `cont-init.d`
+unless you also set `S6_KEEP_ENV=1` (which was tried and reverted here: it
+introduced a startup race that made Postgres's own `DATABASE_URL`, itself
+synthesized in `cont-init.d/20-postgres.sh`, intermittently vanish before
+`migrate` read it). Testing via `options.json` sidesteps this entirely
+*and* exercises the exact same code path the real HA deployment uses.
+
 ```sh
 # 1. Build the app image this add-on extends (from the repo root)
 docker build -t budget-assistant:dev .
@@ -37,28 +51,44 @@ docker build -t budget-assistant:dev .
 cd ha-addon
 docker build --build-arg BUILD_FROM=budget-assistant:dev -t budget-assistant-addon:dev .
 
-# 3. Run it with a persistent /data volume and the option env vars
-#    (mirrors what HA would inject via /data/options.json - see
-#    cont-init.d/10-options.sh for the options.json vs. plain-env fallback)
+# 3. Seed a real options.json into the /data volume
+docker volume create budget-addon-data
+cat > /tmp/options.json <<EOF
+{
+  "household_login_email": "test@example.com",
+  "household_login_password": "testpassword123",
+  "auth_secret": "$(openssl rand -hex 32)",
+  "simplefin_encryption_key": "$(openssl rand -hex 32)",
+  "anthropic_api_key": "",
+  "mcp_auth_token": "",
+  "backup_retention_days": 14
+}
+EOF
+docker run --rm -v budget-addon-data:/data -v /tmp/options.json:/tmp/options.json:ro \
+  alpine cp /tmp/options.json /data/options.json
+
+# 4. Run it
 docker run -d --name budget-addon-test \
   -v budget-addon-data:/data \
-  -e HOUSEHOLD_LOGIN_EMAIL=test@example.com \
-  -e HOUSEHOLD_LOGIN_PASSWORD=testpassword123 \
-  -e AUTH_SECRET="$(openssl rand -hex 32)" \
-  -e SIMPLEFIN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  -e BACKUP_RETENTION_DAYS=14 \
   -p 18100:8099 \
   budget-assistant-addon:dev
 
-# 4. Verify plain (no-ingress-header) behavior still works
+# 5. Verify plain (no-ingress-header) behavior still works
 docker logs budget-addon-test          # postgres init, migrations, worker, app, nginx all start
 curl http://localhost:18100/api/health # {"status":"ok"}
 curl -i http://localhost:18100/        # redirects to /login
 
-# 5. Simulate an HA ingress request (fake token path + header) and confirm
+# 6. Simulate an HA ingress request (fake token path + header) and confirm
 #    the HTML now references the prefixed asset paths
 curl -s -H "X-Ingress-Path: /api/hassio_ingress/TESTTOKEN" http://localhost:18100/login \
   | grep -o '/api/hassio_ingress/TESTTOKEN/_next/[^"]*' | head -3
+
+# 7. Confirm the actual login flow (not just that the page renders)
+COOKIES=/tmp/cookies.txt
+CSRF_TOKEN=$(curl -s -c $COOKIES http://localhost:18100/api/auth/csrf | grep -o '"csrfToken":"[^"]*"' | cut -d'"' -f4)
+curl -s -b $COOKIES -c $COOKIES -i -X POST http://localhost:18100/api/auth/callback/credentials \
+  -d "email=test@example.com" -d "password=testpassword123" -d "csrfToken=$CSRF_TOKEN" -d "json=true" \
+  | grep -i "set-cookie: authjs.session-token"
 
 # Cleanup
 docker rm -f budget-addon-test
@@ -71,9 +101,10 @@ scheduling its SimpleFin sync cron, the app serving and health-checking,
 a manual backup landing in `/data/backups` via `scripts/backup/backup.sh`
 (symlinked from `/backups`, which the script hardcodes), a full container
 restart correctly skipping re-init and reusing the persisted Postgres
-password, and - once nginx landed - a simulated `X-Ingress-Path` header
-correctly rewriting `/_next/`, `/manifest.json`, and `/favicon.ico`
-references in the served HTML.
+password and correctly no-op'ing the household-login bootstrap the second
+time, a simulated `X-Ingress-Path` header correctly rewriting `/_next/`,
+`/manifest.json`, and `/favicon.ico` references in the served HTML, and a
+real credentials sign-in producing a valid `authjs.session-token` cookie.
 
 ## A note on s6-rc oneshots
 
