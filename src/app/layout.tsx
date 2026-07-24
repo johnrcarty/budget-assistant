@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Monthly Budget",
+  title: "Budget Assistant",
   description: "A self-hosted zero-based budget and finance tracker.",
   manifest: "/manifest.json",
 };

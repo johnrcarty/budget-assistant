@@ -30,13 +30,13 @@ const handler = createMcpHandler(
       {
         title: "Ping",
         description:
-          "Health check for the Monthly Budget MCP server. Returns 'ok' if the connection and auth are working.",
+          "Health check for the Budget Assistant MCP server. Returns 'ok' if the connection and auth are working.",
       },
       async () => ({ content: [{ type: "text", text: "ok" }] }),
     );
     registerBudgetTools(server);
   },
-  { serverInfo: { name: "monthly-budget", version: "1.0.0" } },
+  { serverInfo: { name: "budget-assistant", version: "1.0.0" } },
   { basePath: "/api" },
 );
 

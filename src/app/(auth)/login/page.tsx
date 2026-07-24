@@ -14,7 +14,7 @@ export default function LoginPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl">Monthly Budget</CardTitle>
+          <CardTitle className="text-2xl">Budget Assistant</CardTitle>
         </CardHeader>
         <CardContent>
           <form action={action} className="flex flex-col gap-4">
