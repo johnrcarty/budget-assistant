@@ -1,19 +1,12 @@
 # Budget Assistant — Home Assistant add-on
 
-**Status: working.** Installed as a local HA add-on — Postgres, the app,
-the SimpleFin worker, and scheduled backups all run in one container,
-managed by HA like any other add-on. Verified end to end against a real
-Home Assistant instance: install, configure, start, log in, navigate
-between every tab, SimpleFin sync, and a manual backup all work.
-
-True sidebar-native ingress (`ingress: true`) is enabled as of 0.2.0: the
-app no longer uses Next.js client-side routing, and builds every
-navigation URL from Supervisor's `X-Ingress-Path` at request time (see
-`src/components/layout/ingress.tsx`). The "Open Web UI" exposed-port
-fallback below still works and stays until real-HA verification completes
-([epic #70](https://github.com/johnrcarty/budget-assistant/issues/70),
-issue #74) — the "Why not true ingress" section below describes the
-pre-0.2.0 blocker this replaced.
+**Status: working, with true sidebar-native ingress.** Installed as a
+local HA add-on — Postgres, the app, the SimpleFin worker, and scheduled
+backups all run in one container, managed by HA like any other add-on.
+Verified end to end against a real Home Assistant instance: install,
+configure, start, log in, navigate between every tab, SimpleFin sync, and
+a manual backup all work — through the ingress sidebar panel, on the LAN
+and via Nabu Casa remote (`ingress: true` since 0.2.0, epic #70).
 
 ## Install
 
@@ -28,42 +21,38 @@ pre-0.2.0 blocker this replaced.
    - `backup_retention_days` — how many days of automatic backups to keep.
    - `anthropic_api_key` / `mcp_auth_token` — optional (AI categorization
      suggestions / the Home Assistant Assist MCP integration).
-4. Start the add-on, then use the **Open Web UI** button on its Info page.
+4. Start the add-on — **Budget Assistant** appears in HA's sidebar
+   (ingress panel, toggleable via "Show in sidebar" on the add-on's Info
+   page). It works anywhere HA itself is reachable, including Nabu Casa
+   remote and the companion apps — no exposed port or extra URL needed.
 
-For a sidebar-embedded panel instead of a new-tab link, add this to HA's
-`configuration.yaml` and restart HA (this is a manual step — an add-on
-can't register a sidebar panel on its own):
+Port 8099 is still published, but only for HA's Model Context Protocol
+(Assist) integration, which reaches the MCP endpoint at
+`http://127.0.0.1:8099/api/mcp?token=...` — UI access is via ingress.
 
-```yaml
-panel_iframe:
-  budget_assistant:
-    title: "Budget Assistant"
-    icon: mdi:cash-multiple
-    url: "http://<ha-host>:8099/"
-    require_admin: false
-```
+## How ingress works here
 
-## Why not true HA ingress (yet)
+HA's `ingress: true` mode embeds an add-on in the sidebar with no exposed
+port, proxied through Supervisor under a dynamic per-install
+`/api/hassio_ingress/<token>` path. That's normally fatal for Next.js:
+its client-side router builds every navigation URL in the browser from a
+build-time `basePath` that can never learn the runtime prefix — the first
+ingress attempt 404'd on the very first in-app navigation after login.
 
-HA's `ingress: true` mode embeds an add-on directly in the sidebar with no
-exposed port, proxied through Supervisor under a dynamic per-install path.
-It was tried and reverted after confirming a hard blocker on a real HA
-instance: Next.js's client-side router (`<Link>`, RSC prefetch, Server
-Action redirects) builds every navigation URL at runtime *in the browser*
-from a build-time `basePath`, which can't be made aware of HA's
-per-install, runtime-assigned ingress path — so the very next click after
-a successful login 404's. No proxy-layer fix reaches this, since the
-browser itself is constructing the broken URL, with no idea it's inside an
-ingress-rewritten frame at all.
+The fix (epic #70) removed client-side routing entirely: every navigation
+is a plain `<a>` full-page load whose href the *server* builds from the
+`X-Ingress-Path` header Supervisor forwards (`src/server/lib/ingress.ts`,
+`src/components/layout/ingress.tsx`), and every server-side `redirect()`
+is prefixed the same way. nginx's `sub_filter` (below) only rewrites
+static-asset references the app can't build per-request (`/_next/`
+chunks, manifest, favicon). On the plain LAN/Docker Compose deployment
+the header is absent, the prefix is empty, and URLs are unchanged.
 
-Fixing this properly (a Next.js retrofit to avoid client-side routing
-entirely, or a different framework if that's not viable) is real,
-multi-step work — tracked as its own initiative in
-[epic #70](https://github.com/johnrcarty/budget-assistant/issues/70) rather
-than blocking this from shipping. Today's fallback (exposed port + `webui`
-button) fully sidesteps the problem instead of working around it: the
-browser is on the app's real URL, not a rewritten one, so every route
-works normally.
+Not yet exercised through ingress: CSV import and Backup & Restore
+uploads (Supervisor may impose its own request-body limits independent of
+this add-on's nginx `client_max_body_size 512m`). If a large upload fails
+through the sidebar panel, retry via the direct port as a workaround and
+file an issue.
 
 ## Architecture
 
@@ -138,7 +127,9 @@ Verified end to end (most recently 2026-07-24, real HA instance): first-boot
 Postgres init + household/user creation, migrations applying, the worker
 scheduling its SimpleFin sync cron, login + full navigation between every
 tab, a manual backup landing in `/data/backups`, and a full container
-restart correctly reusing existing data with no re-init.
+restart correctly reusing existing data with no re-init. Ingress (0.2.0)
+verified the same day: login + full navigation through the real sidebar
+panel, on the LAN and via Nabu Casa remote.
 
 ## Implementation notes / gotchas
 
