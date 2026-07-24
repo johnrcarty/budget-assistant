@@ -24,21 +24,49 @@ after migrations, idempotent) - the plain Docker Compose deployment instead
 seeds this manually via the gitignored `scripts/seed.ts`, which has no
 equivalent inside this add-on's image.
 
-Ingress-compatible routing (#6): an nginx service in front of the app
-(`rootfs/etc/nginx/http.d/ingress.conf`) is now the container's only
-listener on `ingress_port` (8099) - the app itself moved to a loopback-only
-internal port. nginx uses `sub_filter` to rewrite the small set of
-root-absolute asset references the app emits server-side (`/_next/...`,
-`/manifest.json`, `/favicon.ico`) using the `X-Ingress-Path` header HA's
-Supervisor sends with every proxied request.
+### Why not true ingress (#6 tried, reverted after real HA testing)
 
-**This does not (and cannot) fix client-side router navigation** -
-`<Link>`, RSC prefetch, and Server Action POSTs build root-absolute URLs at
-runtime from Next's build-time `basePath` (which has to stay empty, since
-HA's ingress path is a per-install runtime token, not something bakeable
-at build time). Whether tab-to-tab navigation survives ingress can only be
-confirmed against a real HA Supervisor - that's Gate A in issue #7, before
-any real data migrates.
+An nginx service in front of the app (`rootfs/etc/nginx/http.d/ingress.conf`)
+used `sub_filter` to rewrite the small set of root-absolute asset references
+the app emits server-side (`/_next/...`, `/manifest.json`, `/favicon.ico`)
+using the `X-Ingress-Path` header HA's Supervisor sends with every proxied
+request - and this part worked, verified both locally (simulated header)
+and on a real HA instance (assets loaded, login page rendered and worked).
+
+**But this can't fix client-side router navigation**, and Gate A confirmed
+it on a real HA instance: after a successful login, the very next
+navigation 404'd. `<Link>`, RSC prefetch, and Server Action redirects all
+build root-absolute URLs (`/summary`, not `/api/hassio_ingress/<token>/summary`)
+at runtime in the browser, from Next's build-time `basePath` - which has to
+stay empty, since HA's ingress path is a per-install runtime token, not
+something bakeable into a build. There's no proxy-layer fix for this: the
+browser is the one constructing these URLs, and it does so with no
+knowledge that it's inside an ingress-rewritten frame at all.
+
+**Fallback adopted**: dropped `ingress`/`ingress_port` from `config.yaml` in
+favor of a real exposed port (nginx still listens on 8099, now host-mapped)
+plus a `webui` field. This isn't a partial workaround - it fully sidesteps
+the problem, since the browser is on the app's real URL rather than a
+rewritten one, so every route (including client-side navigation) just
+works normally, same as the existing plain Docker Compose deployment.
+
+- `webui: "http://[HOST]:[PORT:8099]/"` gives an "Open Web UI" button on
+  the add-on's own Info page (opens in a new tab) with zero extra HA
+  configuration.
+- For a true sidebar-embedded panel (closer to the original ingress goal),
+  add this to HA's `configuration.yaml` manually (not something an add-on
+  can register on its own) and restart HA:
+  ```yaml
+  panel_iframe:
+    budget_assistant:
+      title: "Budget Assistant"
+      icon: mdi:cash-multiple
+      url: "http://<ha-host>:8099/"
+      require_admin: false
+  ```
+  The nginx layer and its `X-Ingress-Path` rewriting logic are left in
+  place (harmless no-ops when that header is absent, which it always is
+  now) rather than ripped out, in case ingress is revisited later.
 
 ## Local build + smoke test (no HA Supervisor required)
 

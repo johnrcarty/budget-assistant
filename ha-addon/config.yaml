@@ -1,17 +1,25 @@
 name: Budget Assistant
 slug: budget_assistant
-version: "0.1.1"
+version: "0.1.2"
 description: Self-hosted zero-based budgeting and finance tracker
 arch:
   - amd64
 startup: application
 boot: auto
 init: false
-ingress: true
-# nginx (rootfs/etc/nginx/http.d/ingress.conf) rewrites root-absolute asset
-# references using the X-Ingress-Path header before they reach the browser -
-# the Next.js app itself now only listens on an internal loopback port.
-ingress_port: 8099
+# True `ingress: true` was tried and reverted (see ha-addon/README.md's
+# "Why not true ingress" section): Next.js's client-side router builds every
+# navigation URL at runtime from a build-time basePath, which can't be made
+# aware of HA's per-install ingress path prefix - confirmed on a real HA
+# instance as a 404 on the very first in-app navigation after login.
+# Exposing a real port + webui button (and optionally a manual panel_iframe
+# entry for true sidebar embedding) sidesteps this entirely: the browser is
+# on the app's real URL, not a rewritten one, so every route just works.
+webui: "http://[HOST]:[PORT:8099]/"
+ports:
+  "8099/tcp": 8099
+ports_description:
+  "8099/tcp": "Budget Assistant web UI"
 panel_icon: mdi:cash-multiple
 panel_title: Budget Assistant
 options:
