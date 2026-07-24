@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { IngressLink, stripIngressPath, useIngressPath } from "@/components/layout/ingress";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Wallet, ArrowLeftRight, Landmark, Ellipsis } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,9 @@ const TABS = [
 ] as const;
 
 export function BottomTabBar() {
-  const pathname = usePathname();
+  // usePathname() reflects the browser URL, which under HA ingress includes
+  // the ingress prefix - strip it so tab matching sees the app-route path.
+  const pathname = stripIngressPath(usePathname(), useIngressPath());
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-card pb-[env(safe-area-inset-bottom)]">
@@ -26,7 +28,7 @@ export function BottomTabBar() {
           const isActive = [href, ...matches].some((prefix) => pathname.startsWith(prefix));
           return (
             <li key={href} className="flex-1">
-              <Link
+              <IngressLink
                 href={href}
                 className={cn(
                   "flex flex-col items-center gap-1 py-2 text-xs",
@@ -35,7 +37,7 @@ export function BottomTabBar() {
               >
                 <Icon className="size-5" strokeWidth={isActive ? 2.5 : 2} />
                 {label}
-              </Link>
+              </IngressLink>
             </li>
           );
         })}

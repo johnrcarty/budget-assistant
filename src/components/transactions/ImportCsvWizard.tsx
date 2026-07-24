@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useIngressNavigate } from "@/components/layout/ingress";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -64,7 +64,7 @@ export function ImportCsvWizard({
 }: {
   accountList: (typeof accounts.$inferSelect)[];
 }) {
-  const router = useRouter();
+  const navigate = useIngressNavigate();
   const [step, setStep] = useState<Step>("select");
   const [accountId, setAccountId] = useState(accountList[0]?.id ?? "");
   const [fileName, setFileName] = useState("");
@@ -337,7 +337,7 @@ export function ImportCsvWizard({
                 </>
               )}
             </p>
-            <Button onClick={() => router.push("/transactions")}>Done</Button>
+            <Button onClick={() => navigate("/transactions")}>Done</Button>
           </CardContent>
         </Card>
       )}

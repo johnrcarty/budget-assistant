@@ -6,9 +6,14 @@ managed by HA like any other add-on. Verified end to end against a real
 Home Assistant instance: install, configure, start, log in, navigate
 between every tab, SimpleFin sync, and a manual backup all work.
 
-Not yet true sidebar-native ingress (see below) — access today is via a
-one-click "Open Web UI" button or an optional manual sidebar panel, both
-described below. Tracked as [epic #70](https://github.com/johnrcarty/budget-assistant/issues/70).
+True sidebar-native ingress (`ingress: true`) is enabled as of 0.2.0: the
+app no longer uses Next.js client-side routing, and builds every
+navigation URL from Supervisor's `X-Ingress-Path` at request time (see
+`src/components/layout/ingress.tsx`). The "Open Web UI" exposed-port
+fallback below still works and stays until real-HA verification completes
+([epic #70](https://github.com/johnrcarty/budget-assistant/issues/70),
+issue #74) — the "Why not true ingress" section below describes the
+pre-0.2.0 blocker this replaced.
 
 ## Install
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,13 +127,13 @@ export function EditAccountDialog({
           )}
 
         {account.isLiability && (
-          <Link
+          <IngressLink
             href={`/accounts/${account.id}`}
             className="flex items-center justify-between border-t pt-3 text-sm font-medium"
           >
             Debt details, balance &amp; terms
             <ChevronRight className="size-4 text-muted-foreground" />
-          </Link>
+          </IngressLink>
         )}
 
         <form action={archiveAccount.bind(null, account.id)} className="border-t pt-3">

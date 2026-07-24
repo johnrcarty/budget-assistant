@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { formatCents } from "@/server/lib/money";
 import { formatDueDate } from "@/lib/month";
 import { amountForMode, type DisplayMode } from "./display-mode";
@@ -16,7 +16,7 @@ export function LineItemRow({
   const amountCents = amountForMode(item.plannedAmountCents, item.spentCents, mode);
 
   return (
-    <Link
+    <IngressLink
       href={`/budget/item/${item.id}`}
       className="flex items-center justify-between border-b py-3 last:border-b-0"
     >
@@ -29,6 +29,6 @@ export function LineItemRow({
         )}
       </div>
       <div className="font-medium">{formatCents(amountCents)}</div>
-    </Link>
+    </IngressLink>
   );
 }

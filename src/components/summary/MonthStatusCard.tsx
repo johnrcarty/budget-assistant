@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import type { getBudgetOverview } from "@/server/db/queries/budget";
 import { formatMonthShort } from "@/lib/month";
 import { formatCents } from "@/server/lib/money";
@@ -21,9 +21,9 @@ export function MonthStatusCard({
         <p className="pt-3 text-sm text-muted-foreground">
           No budget for {monthName} yet.
         </p>
-        <Link href="/budget" className="mt-3 inline-block text-sm font-medium text-primary">
+        <IngressLink href="/budget" className="mt-3 inline-block text-sm font-medium text-primary">
           Create it in the Budget tab →
-        </Link>
+        </IngressLink>
       </div>
     );
   }
@@ -41,9 +41,9 @@ export function MonthStatusCard({
     <div className="rounded-xl bg-card p-4 shadow-xs">
       <div className="flex items-baseline justify-between">
         <h2 className="font-semibold">{monthName} budget</h2>
-        <Link href="/budget" className="text-sm font-medium text-primary">
+        <IngressLink href="/budget" className="text-sm font-medium text-primary">
           Open budget →
-        </Link>
+        </IngressLink>
       </div>
 
       <div className="pt-3 text-sm text-muted-foreground">

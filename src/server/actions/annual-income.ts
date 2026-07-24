@@ -12,6 +12,7 @@ import {
   persons,
 } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
+import { getIngressPath } from "@/server/lib/ingress";
 import { getPerson } from "@/server/db/queries/people";
 import { dollarsToCents } from "@/server/lib/money";
 import {
@@ -176,7 +177,7 @@ export async function createForecast(formData: FormData) {
   }
 
   revalidatePath("/income");
-  redirect(`/income?forecast=${forecast.id}`);
+  redirect(`${await getIngressPath()}/income?forecast=${forecast.id}`);
 }
 
 const importRowSchema = z.object({
@@ -296,5 +297,5 @@ export async function deleteForecast(forecastId: string) {
       ),
     );
   revalidatePath("/income");
-  redirect("/income");
+  redirect(`${await getIngressPath()}/income`);
 }

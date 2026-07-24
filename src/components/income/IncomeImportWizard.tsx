@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -140,9 +140,9 @@ export function IncomeImportWizard({ persons }: { persons: { id: string; name: s
               {result.skippedDuplicates} skipped as duplicates of existing entries.
             </p>
           )}
-          <Link href="/income" className="pt-2 text-sm font-medium text-primary">
+          <IngressLink href="/income" className="pt-2 text-sm font-medium text-primary">
             Back to Income →
-          </Link>
+          </IngressLink>
         </CardContent>
       </Card>
     );

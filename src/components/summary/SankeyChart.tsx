@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { useEffect, useRef, useState } from "react";
 import {
   layoutSankey,
@@ -189,14 +189,14 @@ export function SankeyChart({
                   </span>
                 </p>
                 {isFilterable(selected.id) && (
-                  <Link
+                  <IngressLink
                     href={`/transactions?range=${range}&flow=${encodeURIComponent(
                       selected.id,
                     )}&flowLabel=${encodeURIComponent(selected.label)}`}
                     className="shrink-0 font-medium text-primary"
                   >
                     View transactions
-                  </Link>
+                  </IngressLink>
                 )}
               </>
             ) : (

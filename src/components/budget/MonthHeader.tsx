@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatMonthLabel, shiftMonthString } from "@/lib/month";
 import { DISPLAY_MODES, type DisplayMode } from "./display-mode";
@@ -28,13 +28,13 @@ export function MonthHeader({
     // the content sliding underneath.
     <header className="sticky top-0 z-30 border-b bg-background px-4 pt-6 pb-3">
       {backHref && (
-        <Link
+        <IngressLink
           href={backHref}
           className="mb-1 -ml-1 flex w-fit items-center text-sm font-medium text-muted-foreground"
         >
           <ChevronLeft className="size-4" />
           {backLabel ?? "Back"}
-        </Link>
+        </IngressLink>
       )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -52,19 +52,19 @@ export function MonthHeader({
       {mode && (
         <div className="mt-4 flex rounded-lg bg-muted p-1 text-sm font-medium">
           {DISPLAY_MODES.map((m) => (
-            <Link
+            <IngressLink
               key={m}
               href={`${basePath}?month=${month}&mode=${m}`}
-              // Keep the scroll position - switching the display mode
-              // re-renders the same list, and jumping to the top loses
-              // your place. (Month prev/next still resets, deliberately.)
-              scroll={false}
+              // next/link's scroll={false} kept the list position when
+              // switching display modes; a full-page navigation can't, so
+              // switching modes now returns to the top. Known MPA tradeoff
+              // of the ingress work (epic #70).
               className={`flex-1 rounded-md py-1.5 text-center capitalize ${
                 m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
               }`}
             >
               {m}
-            </Link>
+            </IngressLink>
           ))}
         </div>
       )}
@@ -86,11 +86,11 @@ function MonthNavLink({
   children: React.ReactNode;
 }) {
   return (
-    <Link
+    <IngressLink
       href={`${basePath}?month=${shiftMonthString(month, delta)}${mode ? `&mode=${mode}` : ""}`}
       aria-label={delta < 0 ? "Previous month" : "Next month"}
     >
       {children}
-    </Link>
+    </IngressLink>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Select,
@@ -21,23 +21,23 @@ export function TransactionPagination({
   pageSize: number;
   totalCount: number;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
+  // Relative query-only navigations: resolve against the browser's current
+  // URL, so the HA ingress prefix (when present) is preserved for free.
   function goToPage(nextPage: number) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(nextPage));
-    router.push(`${pathname}?${params.toString()}`);
+    window.location.assign(`?${params.toString()}`);
   }
 
   function changePageSize(nextSize: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("pageSize", nextSize);
     params.delete("page");
-    router.push(`${pathname}?${params.toString()}`);
+    window.location.assign(`?${params.toString()}`);
   }
 
   if (totalCount === 0) return null;

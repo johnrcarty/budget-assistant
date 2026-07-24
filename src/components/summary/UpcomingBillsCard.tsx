@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import type { UpcomingBill, UpcomingBills } from "@/server/db/queries/budget";
 import { formatFullDate } from "@/lib/month";
 import { formatCents } from "@/server/lib/money";
@@ -55,8 +55,8 @@ function BillRow({ bill }: { bill: UpcomingBill }) {
   if (bill.source === "template") return content;
 
   return (
-    <Link href={`/budget/item/${bill.id}`} className="block">
+    <IngressLink href={`/budget/item/${bill.id}`} className="block">
       {content}
-    </Link>
+    </IngressLink>
   );
 }

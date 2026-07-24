@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { IngressLink } from "@/components/layout/ingress";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getDebtPlanData } from "@/server/db/queries/debt-plan";
 import { linkDebtToBudget } from "@/server/actions/debt-plan";
@@ -27,9 +27,9 @@ export default async function DebtPage() {
         <AppHeader title="Debt Payoff" backHref="/more" />
         <div className="px-4 pt-8 text-center text-muted-foreground">
           <p>No debt accounts yet.</p>
-          <Link href="/accounts" className="mt-2 inline-block font-medium text-primary">
+          <IngressLink href="/accounts" className="mt-2 inline-block font-medium text-primary">
             Add one in Accounts →
-          </Link>
+          </IngressLink>
         </div>
       </div>
     );
@@ -283,7 +283,7 @@ function DebtRow({
         isTarget ? "bg-primary/5 ring-1 ring-primary/40" : "border-b last:border-b-0"
       }`}
     >
-      <Link href={`/accounts/${debt.accountId}`} className="block">
+      <IngressLink href={`/accounts/${debt.accountId}`} className="block">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <span
@@ -321,7 +321,7 @@ function DebtRow({
             />
           </div>
         )}
-      </Link>
+      </IngressLink>
       {!linked?.isActive && (
         <form action={linkDebtToBudget.bind(null, debt.accountId)} className="pt-2">
           <Button type="submit" variant="outline" size="sm">
