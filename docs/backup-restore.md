@@ -5,6 +5,38 @@ container daily and keeps the last `BACKUP_RETENTION_DAYS` days of dumps in
 `./backups` on the host. This is a **database-only** backup — no secrets
 are included (see "What's backed up / what's not" below).
 
+## In-app backup & restore (More → Backup & Restore)
+
+The app also has a UI for both directions — no shell access needed, which
+matters on installs where the CLI is a pain to reach (the HA add-on
+especially):
+
+- **Download backup** runs a fresh `pg_dump` (same flags, format, and
+  filename shape as the scheduled job — the files are interchangeable) and
+  downloads it to your browser.
+- **Restore from a backup** uploads a `.dump` file and restores it in
+  place. Destructive, so it mirrors `restore.sh`'s safeguard: you must type
+  `restore` to confirm (checked server-side too). It re-runs Drizzle
+  migrations automatically afterward, so an older-schema dump catches up on
+  its own. If the app acts confused immediately after a restore, restart it
+  (Compose: `docker compose restart app worker`; HA: restart the add-on) —
+  same guidance as the CLI restore.
+
+The scheduled daily backups keep running regardless — the UI is an
+addition, not a replacement. The CLI paths below remain for scripting and
+for disaster recovery when the app itself won't start.
+
+**Migrating between installs via the UI** (e.g. dev → the HA add-on): on
+the old install, More → Backup & Restore → Download backup. On the new
+install, configure it with the **same `SIMPLEFIN_ENCRYPTION_KEY` /
+`simplefin_encryption_key`** as the old one and — for the HA add-on — a
+`household_login_email` matching the old install's current in-app login
+email, then upload the file via Restore. (The add-on's boot-time
+`ensure-household-login` matches by email; a mismatched configured email
+quietly creates a second empty household on the next add-on restart.)
+Then run through steps 7–10 of the host-migration checklist below —
+login, SimpleFin check, MCP URL — which apply the same way.
+
 ## How scheduled backups work
 
 `backup` is a plain `postgres:16-alpine` container (same image as `db`, so
