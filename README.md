@@ -1,7 +1,6 @@
 # Budget Assistant
 
-A self-hosted, zero-based budgeting and finance tracker for one household —
-built to replace EveryDollar without paywalling transaction sync.
+A self-hosted, zero-based budgeting and finance tracker for one household. 
 
 Stack: Next.js 16 (App Router) + TypeScript, Drizzle ORM + PostgreSQL,
 Auth.js (Credentials now, Authentik OIDC-ready later), SimpleFin for bank
