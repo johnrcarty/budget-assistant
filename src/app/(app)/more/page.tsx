@@ -1,5 +1,13 @@
 import Link from "next/link";
-import { ChevronRight, KeyRound, RefreshCw, TrendingDown, TrendingUp, Users } from "lucide-react";
+import {
+  ChevronRight,
+  DatabaseBackup,
+  KeyRound,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ThemeToggleRow } from "@/components/layout/ThemeToggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +44,12 @@ const SECTIONS = [
     title: "Login & Security",
     description: "Change the household login email and password",
     icon: KeyRound,
+  },
+  {
+    href: "/more/backup",
+    title: "Backup & Restore",
+    description: "Download a full data backup or restore from one",
+    icon: DatabaseBackup,
   },
 ] as const;
 

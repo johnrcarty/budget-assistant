@@ -24,6 +24,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# pg_dump/pg_restore for the in-app Backup & Restore screen (More → Backup
+# & Restore). Pinned to the 16.x line to stay version-matched with the db
+# service and the scheduled backup container - see docs/backup-restore.md.
+RUN apk add --no-cache postgresql16-client
+
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 # The migrate/scheduler scripts run outside Next's own request path, so
