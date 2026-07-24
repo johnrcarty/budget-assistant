@@ -4,7 +4,12 @@ import { formatCents } from "@/server/lib/money";
 import { AddLineItemDialog } from "./AddLineItemDialog";
 import { LineItemRow } from "./LineItemRow";
 import { CategoryIcon } from "./category-icons";
-import { amountForMode, type DisplayMode } from "./display-mode";
+import {
+  amountForMode,
+  DISPLAY_MODES,
+  MODE_COLUMNS_GRID,
+  type DisplayMode,
+} from "./display-mode";
 import type { budgetLineItems, categoryGroups } from "@/server/db/schema";
 
 export function CategoryGroupCard({
@@ -23,17 +28,29 @@ export function CategoryGroupCard({
   // or Archive - its items exist only through debt-account linking.
   const isDebtGroup = group.systemKey === "debt";
 
-  // Group total follows the active Planned/Spent/Remaining mode, same math
-  // as the item rows.
-  const totalCents = group.items.reduce(
-    (sum, item) => sum + amountForMode(item.plannedAmountCents, item.spentCents, mode),
-    0,
+  // Group totals follow the same math as the item rows: the active mode's
+  // total on mobile, one total per column on desktop.
+  const totalCentsFor = (m: DisplayMode) =>
+    group.items.reduce(
+      (sum, item) => sum + amountForMode(item.plannedAmountCents, item.spentCents, m),
+      0,
+    );
+
+  const archiveButton = !isDebtGroup && (
+    <form action={archiveCategoryGroup.bind(null, group.id)}>
+      <button
+        type="submit"
+        className="text-xs text-muted-foreground hover:text-destructive"
+      >
+        Archive
+      </button>
+    </form>
   );
 
   return (
     <Card>
       <CardContent>
-        <div className="flex items-center justify-between gap-3 pb-2">
+        <div className={`flex items-center justify-between gap-3 pb-2 ${MODE_COLUMNS_GRID}`}>
           <div className="flex min-w-0 items-center gap-3">
             <div
               className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
@@ -47,23 +64,35 @@ export function CategoryGroupCard({
               />
             </div>
             <h2 className="truncate text-lg font-bold">{group.name}</h2>
+            {/* Desktop home for Archive - the header's right side is the
+                totals columns there. */}
+            <div className="hidden md:block">{archiveButton}</div>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3 md:hidden">
             {group.items.length > 0 && (
-              <span className="font-semibold">{formatCents(totalCents)}</span>
+              <span className="font-semibold">{formatCents(totalCentsFor(mode))}</span>
             )}
-            {!isDebtGroup && (
-              <form action={archiveCategoryGroup.bind(null, group.id)}>
-                <button
-                  type="submit"
-                  className="text-xs text-muted-foreground hover:text-destructive"
-                >
-                  Archive
-                </button>
-              </form>
-            )}
+            {archiveButton}
           </div>
+          {DISPLAY_MODES.map((m) => (
+            <span key={m} className="hidden text-right font-semibold md:block">
+              {group.items.length > 0 ? formatCents(totalCentsFor(m)) : null}
+            </span>
+          ))}
         </div>
+
+        {group.items.length > 0 && (
+          <div
+            className={`hidden border-b pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase ${MODE_COLUMNS_GRID}`}
+          >
+            <span />
+            {DISPLAY_MODES.map((m) => (
+              <span key={m} className="text-right">
+                {m}
+              </span>
+            ))}
+          </div>
+        )}
 
         {group.items.length === 0 && (
           <p className="py-2 text-sm text-muted-foreground">No items</p>

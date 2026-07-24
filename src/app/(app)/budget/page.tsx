@@ -37,7 +37,7 @@ export default async function BudgetPage({
           previousMonth={overview.previousMonthWithBudget.month}
         />
       ) : (
-        <div className="p-4">
+        <div className="mx-auto w-full max-w-5xl p-4">
           <p className="pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Left to budget
           </p>

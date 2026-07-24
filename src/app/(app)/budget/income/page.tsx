@@ -67,7 +67,7 @@ export default async function IncomePage({
         backLabel="Budget"
       />
 
-      <div className="p-4">
+      <div className="mx-auto w-full max-w-5xl p-4">
         <Card className="mb-4">
           <CardContent>
             <div className="text-sm text-muted-foreground">Planned Income</div>

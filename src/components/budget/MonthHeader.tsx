@@ -27,47 +27,53 @@ export function MonthHeader({
     // page's bg-muted) plus the border gives it visible division from
     // the content sliding underneath.
     <header className="sticky top-0 z-30 border-b bg-background px-4 pt-6 pb-3">
-      {backHref && (
-        <IngressLink
-          href={backHref}
-          className="mb-1 -ml-1 flex w-fit items-center text-sm font-medium text-muted-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          {backLabel ?? "Back"}
-        </IngressLink>
-      )}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
-            <ChevronLeft className="size-6" />
-          </MonthNavLink>
-          <h1 className="text-2xl font-bold">{formatMonthLabel(month)}</h1>
-          <MonthNavLink basePath={basePath} month={month} delta={1} mode={mode}>
-            <ChevronRight className="size-6" />
-          </MonthNavLink>
+      {/* Match the pages' centered max-w-5xl column so the header contents
+          line up with the cards below on wide screens. */}
+      <div className="mx-auto w-full max-w-5xl">
+        {backHref && (
+          <IngressLink
+            href={backHref}
+            className="mb-1 -ml-1 flex w-fit items-center text-sm font-medium text-muted-foreground"
+          >
+            <ChevronLeft className="size-4" />
+            {backLabel ?? "Back"}
+          </IngressLink>
+        )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MonthNavLink basePath={basePath} month={month} delta={-1} mode={mode}>
+              <ChevronLeft className="size-6" />
+            </MonthNavLink>
+            <h1 className="text-2xl font-bold">{formatMonthLabel(month)}</h1>
+            <MonthNavLink basePath={basePath} month={month} delta={1} mode={mode}>
+              <ChevronRight className="size-6" />
+            </MonthNavLink>
+          </div>
+          {rightAction}
         </div>
-        {rightAction}
-      </div>
 
-      {mode && (
-        <div className="mt-4 flex rounded-lg bg-muted p-1 text-sm font-medium">
-          {DISPLAY_MODES.map((m) => (
-            <IngressLink
-              key={m}
-              href={`${basePath}?month=${month}&mode=${m}`}
-              // next/link's scroll={false} kept the list position when
-              // switching display modes; a full-page navigation can't, so
-              // switching modes now returns to the top. Known MPA tradeoff
-              // of the ingress work (epic #70).
-              className={`flex-1 rounded-md py-1.5 text-center capitalize ${
-                m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
-              }`}
-            >
-              {m}
-            </IngressLink>
-          ))}
-        </div>
-      )}
+        {mode && (
+          // Desktop shows all three modes as columns in the cards themselves,
+          // so the toggle is mobile-only.
+          <div className="mt-4 flex rounded-lg bg-muted p-1 text-sm font-medium md:hidden">
+            {DISPLAY_MODES.map((m) => (
+              <IngressLink
+                key={m}
+                href={`${basePath}?month=${month}&mode=${m}`}
+                // next/link's scroll={false} kept the list position when
+                // switching display modes; a full-page navigation can't, so
+                // switching modes now returns to the top. Known MPA tradeoff
+                // of the ingress work (epic #70).
+                className={`flex-1 rounded-md py-1.5 text-center capitalize ${
+                  m === mode ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                {m}
+              </IngressLink>
+            ))}
+          </div>
+        )}
+      </div>
     </header>
   );
 }
