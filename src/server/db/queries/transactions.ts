@@ -18,12 +18,14 @@ import {
 import { db } from "@/server/db/client";
 import {
   transactions,
+  transactionExclusions,
   accounts,
   budgetLineItems,
   incomeLineItems,
   incomeTemplates,
   persons,
 } from "@/server/db/schema";
+import { adjustAccountBalance } from "@/server/lib/account-balance";
 import { parseIncomeSlotIdentifier } from "@/lib/income-slots";
 import { shiftMonthString } from "@/lib/month";
 import {
@@ -446,6 +448,50 @@ export async function getTransactionsForLineItem(lineItemId: string) {
     .from(transactions)
     .where(eq(transactions.budgetLineItemId, lineItemId))
     .orderBy(desc(transactions.postedDate), desc(transactions.createdAt));
+}
+
+// Deletes a transaction, first recording an exclusion tombstone when the row
+// has a feed identity (externalId) - otherwise the next SimpleFin sync or
+// overlapping CSV re-import would just re-create it (see
+// transactionExclusions in the schema). Manual rows are simply deleted.
+// Returns true if a row was deleted.
+export async function deleteTransactionById(
+  householdId: string,
+  transactionId: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) return false;
+
+    if (existing.externalId !== null) {
+      await tx
+        .insert(transactionExclusions)
+        .values({
+          householdId: existing.householdId,
+          accountId: existing.accountId,
+          source: existing.source,
+          externalId: existing.externalId,
+          description: existing.description,
+          amountCents: existing.amountCents,
+          postedDate: existing.postedDate,
+        })
+        .onConflictDoNothing();
+    }
+
+    await tx.delete(transactions).where(eq(transactions.id, transactionId));
+    await adjustAccountBalance(tx, existing.accountId, -existing.amountCents);
+    return true;
+  });
 }
 
 export async function getTransaction(householdId: string, transactionId: string) {

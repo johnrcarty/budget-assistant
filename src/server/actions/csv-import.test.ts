@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { importTransactionsCsv } from "@/server/actions/csv-import";
+import { deleteTransactionById } from "@/server/db/queries/transactions";
 import { accounts, transactions } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getTestDb, type TestDb } from "../../../tests/helpers/pglite";
@@ -107,6 +108,27 @@ describe("importTransactionsCsv dedup", () => {
     const twin = { postedDate: "2026-07-01", description: "COFFEE SHOP", amountCents: -450 };
     const result = await importTransactionsCsv(account.id, [twin, twin]);
     expect(result).toEqual({ imported: 1, skippedDuplicates: 1 });
+  });
+
+  it("a deleted imported row is not resurrected by re-importing the same file", async () => {
+    const { household, account } = await seedImportTarget();
+    await importTransactionsCsv(account.id, ROWS);
+
+    const rows = await accountRows(account.id);
+    const coffee = rows.find((row) => row.description === "COFFEE SHOP");
+    expect(coffee).toBeDefined();
+    await deleteTransactionById(household.id, coffee!.id);
+    expect(await accountBalance(account.id)).toBe(-8231 + 250000);
+
+    // The deleted row counts as a duplicate, not an import - and neither the
+    // row nor its balance contribution comes back.
+    const result = await importTransactionsCsv(account.id, ROWS);
+    expect(result).toEqual({ imported: 0, skippedDuplicates: 3 });
+    expect((await accountRows(account.id)).map((row) => row.description).sort()).toEqual([
+      "GROCERY STORE",
+      "PAYCHECK",
+    ]);
+    expect(await accountBalance(account.id)).toBe(-8231 + 250000);
   });
 
   it("dedup is scoped per account - the same content imports on another account", async () => {

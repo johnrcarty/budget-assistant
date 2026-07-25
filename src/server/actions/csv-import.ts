@@ -2,10 +2,10 @@
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db/client";
-import { accounts, transactions } from "@/server/db/schema";
+import { accounts, transactions, transactionExclusions } from "@/server/db/schema";
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { adjustAccountBalance } from "@/server/lib/account-balance";
 import { applyRulesToUncategorized } from "@/server/lib/categorize";
@@ -55,12 +55,27 @@ export async function importTransactionsCsv(
     throw new Error("Account not found");
   }
 
+  // Content hashes the user has deleted before - re-importing an overlapping
+  // file must not resurrect them (see transactionExclusions). They count as
+  // duplicates in the result, same as rows already present.
+  const exclusionRows = await db
+    .select({ externalId: transactionExclusions.externalId })
+    .from(transactionExclusions)
+    .where(
+      and(
+        eq(transactionExclusions.accountId, input.accountId),
+        eq(transactionExclusions.source, "csv_import"),
+      ),
+    );
+  const excludedHashes = new Set(exclusionRows.map((row) => row.externalId));
+
   let imported = 0;
   let netDelta = 0;
 
   await db.transaction(async (tx) => {
     for (const row of input.rows) {
       const externalId = contentHash(row.postedDate, row.description, row.amountCents);
+      if (excludedHashes.has(externalId)) continue;
 
       const inserted = await tx
         .insert(transactions)
