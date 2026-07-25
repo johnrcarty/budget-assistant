@@ -22,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createTransaction, updateTransaction, deleteTransaction } from "@/server/actions/transactions";
+import { currentDateString } from "@/lib/month";
 import type { accounts, transactions } from "@/server/db/schema";
 
 type Account = typeof accounts.$inferSelect;
@@ -88,7 +89,7 @@ export function TransactionDialog({
     undefined,
   );
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = currentDateString();
   const defaultType = transaction && transaction.amountCents > 0 ? "income" : "expense";
   const [type, setType] = useState<"expense" | "income">(defaultType);
   const defaultAmount = transaction

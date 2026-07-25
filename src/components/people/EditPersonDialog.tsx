@@ -26,6 +26,7 @@ import {
   updatePerson,
 } from "@/server/actions/people";
 import { formatCents } from "@/server/lib/money";
+import { currentDateString } from "@/lib/month";
 import { TrendDialog } from "@/components/accounts/TrendDialog";
 import { PersonColorField } from "./PersonColorField";
 
@@ -90,7 +91,7 @@ export function EditPersonDialog({
     },
     undefined,
   );
-  const today = new Date().toISOString().slice(0, 10);
+  const today = currentDateString();
   const latest = netWorthHistory[netWorthHistory.length - 1];
   const netWorthSeries = netWorthHistory.map((p) => p.assetsCents - p.liabilitiesCents);
 

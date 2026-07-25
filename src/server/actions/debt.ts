@@ -14,7 +14,7 @@ import {
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { dollarsToCents } from "@/server/lib/money";
 import { getBudgetMonth } from "@/server/db/queries/budget";
-import { currentMonthString } from "@/lib/month";
+import { addDaysToIsoDate, currentMonthString } from "@/lib/month";
 
 const infoSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -87,7 +87,7 @@ export async function updateDebtAccountInfo(accountId: string, formData: FormDat
 // creating a second entry for the same date.
 const balanceSchema = z.object({
   balance: z.string().trim().min(1),
-  asOfDate: z.string(),
+  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   note: z.string().trim().max(2000).optional(),
 });
 
@@ -129,8 +129,14 @@ export async function addBalanceSnapshot(accountId: string, formData: FormData) 
     });
 
   // Keep the cached "current" balance in sync when this is the newest
-  // known snapshot - an older backfilled date shouldn't overwrite a newer one.
-  if (!account.balanceAsOf || new Date(input.asOfDate) >= account.balanceAsOf) {
+  // known snapshot - an older backfilled date shouldn't overwrite a newer
+  // one. balanceAsOf can carry a time-of-day (account creation and
+  // SimpleFin sync store full timestamps) while asOfDate is a date from
+  // the user's local calendar, so compare at day granularity with a
+  // one-day allowance for the user's clock sitting behind UTC - anything
+  // further back is a genuine backfill.
+  const balanceAsOfDay = account.balanceAsOf?.toISOString().slice(0, 10);
+  if (!balanceAsOfDay || balanceAsOfDay <= addDaysToIsoDate(input.asOfDate, 1)) {
     await db
       .update(accounts)
       .set({ currentBalanceCents: balanceCents, balanceAsOf: new Date(input.asOfDate) })
