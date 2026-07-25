@@ -7,6 +7,7 @@ import { db } from "@/server/db/client";
 import { transactions, lineItemTemplates, incomeTemplates } from "@/server/db/schema";
 import {
   bulkSetTransactionCategory,
+  deleteTransactionById,
   type CategoryTarget,
   type TransactionWhereFilters,
 } from "@/server/db/queries/transactions";
@@ -282,23 +283,7 @@ export async function bulkCategorizeTransactions(
 export async function deleteTransaction(transactionId: string) {
   const householdId = await getCurrentHousehold();
 
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select()
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.id, transactionId),
-          eq(transactions.householdId, householdId),
-        ),
-      )
-      .limit(1);
-
-    if (!existing) return;
-
-    await tx.delete(transactions).where(eq(transactions.id, transactionId));
-    await adjustAccountBalance(tx, existing.accountId, -existing.amountCents);
-  });
+  await deleteTransactionById(householdId, transactionId);
 
   revalidatePath("/transactions");
   revalidatePath("/budget");

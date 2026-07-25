@@ -6,6 +6,7 @@ import {
   syncRuns,
   accounts,
   transactions,
+  transactionExclusions,
   debtBalanceSnapshots,
   accountBalanceSnapshots,
 } from "@/server/db/schema";
@@ -205,7 +206,22 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
           });
       }
 
+      // Feed ids the user has deleted - re-importing them would undo the
+      // deletion, since SimpleFin keeps returning a transaction for as long
+      // as it stays inside the lookback window.
+      const exclusionRows = await db
+        .select({ externalId: transactionExclusions.externalId })
+        .from(transactionExclusions)
+        .where(
+          and(
+            eq(transactionExclusions.accountId, linkedAccountId),
+            eq(transactionExclusions.source, "simplefin"),
+          ),
+        );
+      const excludedIds = new Set(exclusionRows.map((row) => row.externalId));
+
       for (const txn of simplefinAccount.transactions ?? []) {
+        if (excludedIds.has(txn.id)) continue;
         const amountCents = dollarsToCents(txn.amount);
         const pending = txn.pending ?? false;
         // Pending transactions haven't posted yet, so the protocol sends

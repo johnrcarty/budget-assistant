@@ -10,7 +10,9 @@ import {
   simplefinConnections,
   syncRuns,
   transactions,
+  transactionExclusions,
 } from "@/server/db/schema";
+import { deleteTransactionById } from "@/server/db/queries/transactions";
 import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
 import { getTestDb, type TestDb } from "../../../tests/helpers/pglite";
 import {
@@ -174,6 +176,55 @@ describe("sync idempotency", () => {
       .where(eq(debtBalanceSnapshots.accountId, account.id));
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0].balanceCents).toBe(49000);
+  });
+
+  it("a deleted synced transaction stays deleted when the feed still returns it", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    const fixture = () =>
+      sfResponse([
+        sfAccount({
+          id: "sf-1",
+          transactions: [
+            // Modeled on the real trigger: a Fidelity feed artifact reporting
+            // a direct deposit's cash-sweep leg as a phantom negative.
+            sfTransaction({ id: "t-phantom", amount: "-2669.52", posted: epochSeconds("2026-07-22") }),
+            sfTransaction({ id: "t-real", amount: "-45.00", posted: epochSeconds("2026-07-23") }),
+          ],
+        }),
+      ]);
+
+    mockGetAccounts.mockResolvedValue(fixture());
+    await runSimplefinSync(connection.id);
+    expect(await countTransactions(account.id)).toBe(2);
+
+    const [phantom] = await db
+      .select()
+      .from(transactions)
+      .where(
+        and(eq(transactions.accountId, account.id), eq(transactions.externalId, "t-phantom")),
+      );
+    expect(await deleteTransactionById(household.id, phantom.id)).toBe(true);
+
+    // The tombstone carries the feed identity plus a snapshot of the row.
+    const [exclusion] = await db
+      .select()
+      .from(transactionExclusions)
+      .where(eq(transactionExclusions.accountId, account.id));
+    expect(exclusion).toMatchObject({
+      source: "simplefin",
+      externalId: "t-phantom",
+      amountCents: -266952,
+      postedDate: "2026-07-22",
+    });
+
+    mockGetAccounts.mockResolvedValue(fixture());
+    await runSimplefinSync(connection.id);
+
+    const remaining = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.accountId, account.id));
+    expect(remaining.map((row) => row.externalId)).toEqual(["t-real"]);
   });
 });
 

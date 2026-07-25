@@ -59,3 +59,32 @@ export const transactions = pgTable(
   },
   (t) => [unique().on(t.accountId, t.source, t.externalId)],
 );
+
+// Tombstones for deleted synced transactions. Deleting a row with an
+// externalId records its feed identity here, and both importers (SimpleFin
+// sync, CSV import) skip anything recorded for the account - otherwise the
+// next sync's upsert would just re-create what the user deleted, since the
+// feed keeps returning it for as long as it stays inside the lookback
+// window. Manual entries (externalId null) have no feed identity, can never
+// be re-imported, and so are never recorded here. The description/amount/
+// date snapshot exists so an excluded transaction stays identifiable after
+// the original row is gone.
+export const transactionExclusions = pgTable(
+  "transaction_exclusion",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    householdId: uuid()
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    accountId: uuid()
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    source: transactionSourceEnum().notNull(),
+    externalId: text().notNull(),
+    description: text().notNull(),
+    amountCents: bigint({ mode: "number" }).notNull(),
+    postedDate: date().notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.accountId, t.source, t.externalId)],
+);
