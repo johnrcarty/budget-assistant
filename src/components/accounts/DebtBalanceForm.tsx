@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addBalanceSnapshot } from "@/server/actions/debt";
+import { currentDateString } from "@/lib/month";
 import type { debtBalanceSnapshots } from "@/server/db/schema";
 
 export function DebtBalanceForm({
@@ -14,7 +15,9 @@ export function DebtBalanceForm({
   accountId: string;
   latestBalance: typeof debtBalanceSnapshots.$inferSelect | null;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar date - toISOString() is UTC, which rolls to tomorrow
+  // in the evening for anyone west of Greenwich.
+  const today = currentDateString();
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
       try {

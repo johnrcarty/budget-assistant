@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addAssetValueSnapshot, setAssetPurchasePrice } from "@/server/actions/accounts";
 import { formatCents } from "@/server/lib/money";
+import { currentDateString } from "@/lib/month";
 
 // Manual value updates for physical assets (property/vehicle) - the asset
 // analog of DebtBalanceForm. Each save writes a dated snapshot, so the
@@ -19,7 +20,7 @@ export function AssetValueForm({
   currentBalanceCents: number | null;
   originalBalanceCents: number | null;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = currentDateString();
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
       try {

@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addDebtTermsVersion } from "@/server/actions/debt";
+import { currentDateString } from "@/lib/month";
 import {
   PERIODS_PER_YEAR,
   monthlyEquivalentCents,
@@ -50,7 +51,7 @@ export function DebtTermsForm({
         : currentTerms?.minPaymentCents;
     return cents ? (cents / 100).toFixed(2) : "";
   });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = currentDateString();
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
       try {

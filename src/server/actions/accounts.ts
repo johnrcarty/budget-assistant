@@ -15,6 +15,7 @@ import {
 import { getCurrentHousehold } from "@/server/lib/dal";
 import { getValidPersonIds } from "@/server/db/queries/people";
 import { dollarsToCents } from "@/server/lib/money";
+import { addDaysToIsoDate } from "@/lib/month";
 
 const LIABILITY_KINDS = new Set(["credit_card", "loan", "line_of_credit"]);
 // Physical assets: valued manually, never synced, and the only kinds whose
@@ -320,7 +321,11 @@ export async function addAssetValueSnapshot(accountId: string, formData: FormDat
       set: { balanceCents },
     });
 
-  if (!account.balanceAsOf || new Date(input.asOfDate) >= account.balanceAsOf) {
+  // Day-granularity comparison with a one-day timezone-skew allowance -
+  // same reasoning as addBalanceSnapshot in actions/debt.ts: balanceAsOf
+  // can carry a time-of-day, which made same-day updates look "older".
+  const balanceAsOfDay = account.balanceAsOf?.toISOString().slice(0, 10);
+  if (!balanceAsOfDay || balanceAsOfDay <= addDaysToIsoDate(input.asOfDate, 1)) {
     await db
       .update(accounts)
       .set({ currentBalanceCents: balanceCents, balanceAsOf: new Date(input.asOfDate) })
