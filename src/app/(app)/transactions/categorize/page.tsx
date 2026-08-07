@@ -9,6 +9,7 @@ import {
   getRules,
 } from "@/server/db/queries/categorization";
 import { getUncategorizedMerchants } from "@/server/lib/ai-categorize";
+import { hasCategorizationTarget } from "@/lib/rule-match";
 import { deleteRule } from "@/server/actions/categorization";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AiSuggestPanel } from "@/components/categorize/AiSuggestPanel";
@@ -105,8 +106,13 @@ export default async function CategorizePage() {
                       {rule.amountCents != null
                         ? ` · exactly ${formatCents(rule.amountCents)}`
                         : ""}
+                      {rule.forceInflow ? " · forced to money in" : ""}
                     </div>
-                    <ReapplyRuleButton ruleId={rule.id} />
+                    {/* Reapply only moves categorizations; an action-only rule
+                        has none to move. */}
+                    {hasCategorizationTarget(rule) && (
+                      <ReapplyRuleButton ruleId={rule.id} />
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <RuleDialog
@@ -124,12 +130,15 @@ export default async function CategorizePage() {
                             ? `expense:${rule.lineItemTemplateId}`
                             : rule.incomeTemplateId
                               ? `income:${rule.incomeTemplateId}`
-                              : null,
+                              : rule.forceInflow
+                                ? "none"
+                                : null,
                         accountId: rule.accountId,
                         amount:
                           rule.amountCents != null
                             ? (rule.amountCents / 100).toFixed(2)
                             : null,
+                        forceInflow: rule.forceInflow,
                         priority: rule.priority,
                       }}
                     />

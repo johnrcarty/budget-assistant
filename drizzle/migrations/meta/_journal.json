@@ -148,6 +148,13 @@
       "when": 1785011266919,
       "tag": "0020_add-transaction-exclusion",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786122006832,
+      "tag": "0021_add_rule_force_inflow",
+      "breakpoints": true
     }
   ]
 }

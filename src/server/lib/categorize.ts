@@ -5,7 +5,11 @@ import {
   ensureLineItemInstance,
   applyIncomeSlotAssignments,
 } from "@/server/db/queries/line-item-instances";
-import { findMatchingRule, transactionMatchesRule } from "@/lib/rule-match";
+import {
+  findMatchingRule,
+  hasCategorizationTarget,
+  transactionMatchesRule,
+} from "@/lib/rule-match";
 
 export async function getActiveRules(householdId: string) {
   return db
@@ -39,7 +43,10 @@ export interface ApplyRulesResult {
 export async function applyRulesToUncategorized(
   householdId: string,
 ): Promise<ApplyRulesResult> {
-  const rules = await getActiveRules(householdId);
+  // Action-only rules (e.g. forceInflow sign fixes) have no target and are
+  // applied elsewhere - keeping them out of the match list stops them
+  // shadowing a lower-priority rule that does categorize.
+  const rules = (await getActiveRules(householdId)).filter(hasCategorizationTarget);
   if (rules.length === 0) return { matched: 0, scanned: 0 };
 
   const uncategorized = await db
@@ -120,9 +127,13 @@ export async function applyRuleToMatching(
   householdId: string,
   ruleId: string,
 ): Promise<ApplyRulesResult> {
-  const rules = await getActiveRules(householdId);
-  const rule = rules.find((r) => r.id === ruleId);
+  const allRules = await getActiveRules(householdId);
+  const rule = allRules.find((r) => r.id === ruleId);
   if (!rule) return { matched: 0, scanned: 0 };
+  // Nothing to reapply for an action-only rule: its effect (forceInflow) is
+  // applied during sync, not by re-categorizing stored rows.
+  if (!hasCategorizationTarget(rule)) return { matched: 0, scanned: 0 };
+  const rules = allRules.filter(hasCategorizationTarget);
 
   // SQL prefilter: a contains-style ilike is a superset of all three match
   // types; the JS matcher below makes the exact decision.

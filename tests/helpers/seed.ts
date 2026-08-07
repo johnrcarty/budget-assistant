@@ -2,6 +2,7 @@ import {
   accountBalanceSnapshots,
   accountOwners,
   accounts,
+  categorizationRules,
   debtBalanceSnapshots,
   debtTermsVersions,
   households,
@@ -47,6 +48,23 @@ export function seedLiabilityAccount(
     isLiability: true,
     ...overrides,
   });
+}
+
+export async function seedRule(
+  db: TestDb,
+  householdId: string,
+  overrides: Partial<typeof categorizationRules.$inferInsert> = {},
+) {
+  const [rule] = await db
+    .insert(categorizationRules)
+    .values({
+      householdId,
+      pattern: "TEST",
+      matchType: "contains",
+      ...overrides,
+    })
+    .returning();
+  return rule;
 }
 
 // Tie-break tests (same effectiveDate/asOfDate resolved by createdAt DESC)

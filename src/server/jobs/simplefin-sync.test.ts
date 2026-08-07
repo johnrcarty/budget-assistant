@@ -20,6 +20,7 @@ import {
   seedConnectionAccount,
   seedHousehold,
   seedLiabilityAccount,
+  seedRule,
   seedSimplefinConnection,
 } from "../../../tests/helpers/seed";
 import {
@@ -185,8 +186,10 @@ describe("sync idempotency", () => {
         sfAccount({
           id: "sf-1",
           transactions: [
-            // Modeled on the real trigger: a Fidelity feed artifact reporting
-            // a direct deposit's cash-sweep leg as a phantom negative.
+            // A feed row the user decided doesn't belong in their ledger.
+            // (The original Fidelity case that prompted this turned out to be
+            // a sign error, not a phantom - see "forced inflow" below - but
+            // "deleted stays deleted" is the general guarantee.)
             sfTransaction({ id: "t-phantom", amount: "-2669.52", posted: epochSeconds("2026-07-22") }),
             sfTransaction({ id: "t-real", amount: "-45.00", posted: epochSeconds("2026-07-23") }),
           ],
@@ -225,6 +228,146 @@ describe("sync idempotency", () => {
       .from(transactions)
       .where(eq(transactions.accountId, account.id));
     expect(remaining.map((row) => row.externalId)).toEqual(["t-real"]);
+  });
+});
+
+// Fidelity's feed reports deposit-class inflows (payroll direct deposits,
+// 401k contributions) as negative while signing its outflows correctly, so
+// the correction is per-description, not per-account.
+describe("forced inflow sign correction", () => {
+  const payroll = (id: string, amount: string) =>
+    sfResponse([
+      sfAccount({
+        id: "sf-1",
+        transactions: [
+          sfTransaction({
+            id,
+            amount,
+            description: "DIRECT DEPOSIT PROGRESSIVE PAYROLL (Cash)",
+            posted: epochSeconds("2026-08-05"),
+          }),
+        ],
+      }),
+    ]);
+
+  const amountOf = async (accountId: string, externalId: string) => {
+    const [row] = await db
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.accountId, accountId),
+          eq(transactions.externalId, externalId),
+        ),
+      );
+    return row.amountCents;
+  };
+
+  it("stores a matching negative deposit as positive", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    await seedRule(db, household.id, {
+      pattern: "DIRECT DEPOSIT PROGRESSIVE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceInflow: true,
+    });
+
+    mockGetAccounts.mockResolvedValue(payroll("t-pay", "-2669.53"));
+    await runSimplefinSync(connection.id);
+
+    expect(await amountOf(account.id, "t-pay")).toBe(266953);
+  });
+
+  it("leaves the sign alone when no rule matches", async () => {
+    const { account, connection } = await seedSyncSetup();
+
+    mockGetAccounts.mockResolvedValue(payroll("t-pay", "-2669.53"));
+    await runSimplefinSync(connection.id);
+
+    expect(await amountOf(account.id, "t-pay")).toBe(-266953);
+  });
+
+  it("does not touch outflows on the same account", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    await seedRule(db, household.id, {
+      pattern: "DIRECT DEPOSIT PROGRESSIVE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceInflow: true,
+    });
+
+    mockGetAccounts.mockResolvedValue(
+      sfResponse([
+        sfAccount({
+          id: "sf-1",
+          transactions: [
+            sfTransaction({
+              id: "t-purchase",
+              amount: "-46.20",
+              description: "DEBIT CARD PURCHASE SPEEDWAY 45 (Cash)",
+              posted: epochSeconds("2026-08-05"),
+            }),
+          ],
+        }),
+      ]),
+    );
+    await runSimplefinSync(connection.id);
+
+    expect(await amountOf(account.id, "t-purchase")).toBe(-4620);
+  });
+
+  it("is a no-op on an already-positive match, and survives re-sync", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    await seedRule(db, household.id, {
+      pattern: "DIRECT DEPOSIT PROGRESSIVE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceInflow: true,
+    });
+
+    // Feed corrected upstream: force-inflow must not flip it back negative.
+    mockGetAccounts.mockResolvedValue(payroll("t-ok", "2669.53"));
+    await runSimplefinSync(connection.id);
+    expect(await amountOf(account.id, "t-ok")).toBe(266953);
+
+    // And the upsert path re-derives from the raw amount, so a still-negative
+    // feed row stays corrected across syncs rather than drifting back.
+    mockGetAccounts.mockResolvedValue(payroll("t-pay", "-2669.53"));
+    await runSimplefinSync(connection.id);
+    mockGetAccounts.mockResolvedValue(payroll("t-pay", "-2669.53"));
+    await runSimplefinSync(connection.id);
+    expect(await amountOf(account.id, "t-pay")).toBe(266953);
+  });
+
+  it("only applies to the account the rule is scoped to", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    const other = await seedAccount(db, household.id, { name: "Other Checking" });
+    await seedConnectionAccount(db, connection, "sf-2", { accountId: other.id });
+    await seedRule(db, household.id, {
+      pattern: "DIRECT DEPOSIT PROGRESSIVE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceInflow: true,
+    });
+
+    mockGetAccounts.mockResolvedValue(
+      sfResponse([
+        sfAccount({
+          id: "sf-2",
+          transactions: [
+            sfTransaction({
+              id: "t-elsewhere",
+              amount: "-2669.53",
+              description: "DIRECT DEPOSIT PROGRESSIVE PAYROLL (Cash)",
+              posted: epochSeconds("2026-08-05"),
+            }),
+          ],
+        }),
+      ]),
+    );
+    await runSimplefinSync(connection.id);
+
+    expect(await amountOf(other.id, "t-elsewhere")).toBe(-266953);
   });
 });
 

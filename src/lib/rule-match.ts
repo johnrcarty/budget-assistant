@@ -9,6 +9,8 @@ export interface MatchableRule {
   // Optional extra conditions, ANDed with the pattern.
   accountId?: string | null;
   amountCents?: number | null; // compared by absolute value
+  // Sign-correction action, orthogonal to the categorization targets.
+  forceInflow?: boolean | null;
 }
 
 export interface MatchableTransaction {
@@ -57,6 +59,40 @@ export function findMatchingRule<T extends MatchableRule>(
     if (transactionMatchesRule(tx, rule)) return rule;
   }
   return null;
+}
+
+// A rule with no target does nothing during categorization - it exists only
+// for its action columns (today: forceInflow). Letting one reach
+// findMatchingRule would let it match first and silently shadow a
+// lower-priority rule that does have a target.
+export function hasCategorizationTarget(rule: {
+  lineItemTemplateId?: string | null;
+  incomeTemplateId?: string | null;
+  markAsTransfer?: boolean | null;
+}): boolean {
+  return Boolean(
+    rule.lineItemTemplateId || rule.incomeTemplateId || rule.markAsTransfer,
+  );
+}
+
+// Sign correction is resolved INDEPENDENTLY of findMatchingRule: a
+// higher-priority categorization rule matching the same description must not
+// shadow the sign fix, and vice versa. Only forceInflow rules are considered,
+// first match by the caller's ordering wins.
+export function resolveInflow<T extends MatchableRule>(
+  rawCents: number,
+  tx: MatchableTransaction,
+  rules: T[],
+): number {
+  for (const rule of rules) {
+    if (!rule.forceInflow) continue;
+    // Match against the raw amount - transactionMatchesRule compares
+    // amountCents by absolute value, so the inverted sign can't defeat it.
+    if (transactionMatchesRule({ ...tx, amountCents: rawCents }, rule)) {
+      return Math.abs(rawCents);
+    }
+  }
+  return rawCents;
 }
 
 // Collapses a raw bank description to a stable merchant key so repeated
