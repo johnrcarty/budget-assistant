@@ -7,22 +7,28 @@ import {
   MODE_COLUMNS_GRID,
   type DisplayMode,
 } from "./display-mode";
-import type { budgetLineItems } from "@/server/db/schema";
+import type { BudgetGroupItem } from "@/server/db/queries/budget";
 
 export function LineItemRow({
   item,
   month,
   mode,
 }: {
-  item: typeof budgetLineItems.$inferSelect & { spentCents: number };
+  item: BudgetGroupItem;
   month: string;
   mode: DisplayMode;
 }) {
   const amountCents = amountForMode(item.plannedAmountCents, item.spentCents, mode);
 
+  // Projected debt rows have no instance yet - opening one materializes it
+  // first, then lands on the ordinary detail page.
+  const href = item.id
+    ? `/budget/item/${item.id}`
+    : `/budget/item/debt/${item.templateId}?month=${month}`;
+
   return (
     <IngressLink
-      href={`/budget/item/${item.id}`}
+      href={href}
       className={`flex items-center justify-between border-b py-3 last:border-b-0 ${MODE_COLUMNS_GRID}`}
     >
       <div>

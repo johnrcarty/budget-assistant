@@ -10,7 +10,23 @@ import {
 } from "@/server/db/schema";
 import { getSpentCentsByLineItem, getReceivedCentsByIncomeItem } from "./transactions";
 import { getStampingSchedulePersonIds } from "./income-schedules";
+import { getProjectedDebtItems } from "./debt-budget-items";
 import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
+
+// A row in a category group. Stamped items are real budget_line_item rows;
+// projected ones are derived (today: the Debt group) and have no id until
+// materialized, so anything that needs to link to a row must check `id`.
+export type BudgetGroupItem = {
+  id: string | null;
+  templateId: string | null;
+  categoryGroupId: string;
+  name: string;
+  plannedAmountCents: number;
+  dueDay: number | null;
+  sortOrder: number;
+  spentCents: number;
+  projected: boolean;
+};
 
 // Always the 1st of the month - callers pass any date and this normalizes it,
 // so "the month" has one canonical representation everywhere.
@@ -73,8 +89,9 @@ export interface UpcomingBill {
   plannedAmountCents: number;
   // "month" bills are real budget_line_item instances (linkable); "template"
   // bills are projected from line_item_templates when next month's budget
-  // doesn't exist yet.
-  source: "month" | "template";
+  // doesn't exist yet; "projected_debt" bills are derived from debt terms and
+  // carry a template id, materialized on open like the Debt group's rows.
+  source: "month" | "template" | "projected_debt";
 }
 
 export interface UpcomingBills {
@@ -100,6 +117,15 @@ export async function getUpcomingBills(
   const overdue: UpcomingBill[] = [];
   const dueToday: UpcomingBill[] = [];
   const dueThisWeek: UpcomingBill[] = [];
+
+  const [debtGroup] = await db
+    .select({ name: categoryGroups.name })
+    .from(categoryGroups)
+    .where(
+      and(eq(categoryGroups.householdId, householdId), eq(categoryGroups.systemKey, "debt")),
+    )
+    .limit(1);
+  const debtGroupName = debtGroup?.name ?? "Debt";
 
   const addToBucket = (bill: UpcomingBill) => {
     if (bill.dueDate < today) overdue.push(bill);
@@ -134,6 +160,32 @@ export async function getUpcomingBills(
         dueDate: clampedDueDate(monthDate, row.item.dueDay!),
         plannedAmountCents: row.item.plannedAmountCents,
         source: "month",
+      });
+    }
+
+    // Debt payments are derived, not stamped, so a month that predates the
+    // debt link has no row to find above - project them the same way the
+    // budget page's Debt group does, or the mortgage silently drops out of
+    // "upcoming bills". No instance means nothing was ever categorized to
+    // it, so a projected debt is unpaid by construction.
+    const stamped = await db
+      .select({ templateItemId: budgetLineItems.templateItemId })
+      .from(budgetLineItems)
+      .where(eq(budgetLineItems.budgetMonthId, budgetMonth.id));
+    const projected = await getProjectedDebtItems(
+      householdId,
+      monthDate,
+      new Set(stamped.map((r) => r.templateItemId).filter((id): id is string => id !== null)),
+    );
+    for (const item of projected) {
+      if (item.dueDay == null) continue;
+      addToBucket({
+        id: item.templateId,
+        name: item.name,
+        groupName: debtGroupName,
+        dueDate: clampedDueDate(monthDate, item.dueDay),
+        plannedAmountCents: item.plannedAmountCents,
+        source: "projected_debt",
       });
     }
     return true;
@@ -303,10 +355,33 @@ export async function getBudgetOverview(householdId: string, monthDate: string) 
     .orderBy(asc(budgetLineItems.sortOrder));
 
   const spentByItem = await getSpentCentsByLineItem(items.map((i) => i.id));
-  const itemsWithSpent = items.map((item) => ({
+  const itemsWithSpent: BudgetGroupItem[] = items.map((item) => ({
     ...item,
     spentCents: spentByItem.get(item.id) ?? 0,
+    templateId: item.templateItemId,
+    projected: false as const,
   }));
+
+  // The Debt group is derived rather than stamped - see getProjectedDebtItems.
+  // Projected rows have no id until something needs one.
+  const projectedDebt: BudgetGroupItem[] = (
+    await getProjectedDebtItems(
+      householdId,
+      monthDate,
+      new Set(items.map((i) => i.templateItemId).filter((id): id is string => id !== null)),
+    )
+  ).map((item) => ({
+    id: null,
+    templateId: item.templateId,
+    categoryGroupId: item.categoryGroupId,
+    name: item.name,
+    plannedAmountCents: item.plannedAmountCents,
+    dueDay: item.dueDay,
+    sortOrder: item.sortOrder,
+    spentCents: 0,
+    projected: true as const,
+  }));
+  const allItems = [...itemsWithSpent, ...projectedDebt];
 
   const incomeRows = await db
     .select()
@@ -325,11 +400,17 @@ export async function getBudgetOverview(householdId: string, monthDate: string) 
     0,
   );
   const receivedIncomeCents = income.reduce((sum, i) => sum + i.receivedCents, 0);
-  const plannedExpensesCents = items.reduce(
+  // Projected debt counts toward the month's planned expenses and therefore
+  // "left to budget" - a payment you owe is budgeted whether or not a row
+  // has been materialized for it yet.
+  const plannedExpensesCents = allItems.reduce(
     (sum, i) => sum + i.plannedAmountCents,
     0,
   );
 
+  // Projected debt alone doesn't count as "has a budget" - it's derived from
+  // debt terms, not something the user planned, so a month with nothing but
+  // debt projections should still offer to copy last month's budget.
   const hasBudget = items.length > 0 || income.length > 0;
   const previousMonthWithBudget = hasBudget
     ? null
@@ -341,7 +422,9 @@ export async function getBudgetOverview(householdId: string, monthDate: string) 
     previousMonthWithBudget,
     groups: groups.map((group) => ({
       ...group,
-      items: itemsWithSpent.filter((item) => item.categoryGroupId === group.id),
+      items: allItems
+        .filter((item) => item.categoryGroupId === group.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
     })),
     income,
     plannedIncomeCents,
