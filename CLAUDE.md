@@ -86,10 +86,17 @@ financial data connected (a live SimpleFin bank connection).
 
 ## Testing
 
-No automated test suite exists yet as of this writing — verification during
-development was done via manual/scripted checks (throwaway `tsx` scripts
-calling query/job functions directly against the dev DB, cleaned up after).
-See the "Add automated test suite" epic in GitHub Issues for what's planned.
-If you add tests, prefer testing the query/job layer directly (it has no
-Next.js request-context dependency) over trying to test Server Actions or
-Route Handlers in isolation.
+`pnpm test` runs Vitest against an in-memory PGlite database that the real
+`drizzle/migrations` folder is applied to (`tests/helpers/pglite.ts`), with
+seed helpers in `tests/helpers/`. Tests live next to their source as
+`*.test.ts`. `tests/setup.ts` deletes `DATABASE_URL` so an unmocked db
+import fails loudly instead of touching a real database.
+
+Prefer testing the query/job layer directly — it has no Next.js
+request-context dependency. Server Actions are tested only where there's no
+lower-level seam (`csv-import.test.ts` is the one exception, per #12);
+testing them generally means mocking `@/server/lib/dal` and `next/cache`.
+
+One-off data repairs go in `scripts/` (see `scripts/README.md`): explicit
+`householdId`, call query/job functions directly rather than through the
+DAL, and default to a dry run.

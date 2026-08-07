@@ -77,6 +77,33 @@ second time). Prints every change it makes.
 command, on the server, with `DATABASE_URL` pointed at the prod DB) — the
 code fix only stops new mis-links, it doesn't repair ones already made.
 
+## Fixing Fidelity's inverted deposit signs (`fix-fidelity-inverted-signs.ts`)
+
+One-time data fix for SimpleFin's Fidelity feed reporting deposit-class
+*inflows* — payroll direct deposits and 401k contributions — with a negative
+amount, while signing its outflows and interest credits correctly. The code
+fix is a `forceInflow` categorization rule applied during sync
+(`src/server/jobs/simplefin-sync.ts`); this repairs rows stored before it,
+including ones now outside SimpleFin's 3-day re-sync overlap that will never
+be re-fetched.
+
+```bash
+# dry run first - prints every change it would make
+npx tsx --env-file=.env.local scripts/fix-fidelity-inverted-signs.ts <householdId>
+npx tsx --env-file=.env.local scripts/fix-fidelity-inverted-signs.ts <householdId> --apply
+```
+
+It creates the household's `forceInflow` rules if missing (scoped to an
+account *and* a specific description, so a Progressive insurance payment
+can't get flipped into income), re-derives each matched row's amount from
+`rawPayload.amount`, and drops CSV rows that duplicate a now-corrected
+synced row — during the bug a paycheck could be booked twice, once per
+source, with the pair netting to $0.
+
+Idempotent; safe to re-run. It deliberately does **not** touch CSV/feed
+duplicate pairs unrelated to the sign bug (the CSV backfill overlaps the
+feed's first sync by a few days) — it counts and reports those instead.
+
 ## Backup / restore (`scripts/backup/`)
 
 Unlike the scripts above, these are `sh` scripts that run *inside the

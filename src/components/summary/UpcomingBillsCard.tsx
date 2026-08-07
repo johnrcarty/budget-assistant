@@ -54,8 +54,15 @@ function BillRow({ bill }: { bill: UpcomingBill }) {
   // line-item page to link to.
   if (bill.source === "template") return content;
 
+  // Projected debt carries a template id, not an instance id - opening it
+  // materializes the instance first, same as the budget page's Debt rows.
+  const href =
+    bill.source === "projected_debt"
+      ? `/budget/item/debt/${bill.id}?month=${bill.dueDate.slice(0, 7)}-01`
+      : `/budget/item/${bill.id}`;
+
   return (
-    <IngressLink href={`/budget/item/${bill.id}`} className="block">
+    <IngressLink href={href} className="block">
       {content}
     </IngressLink>
   );

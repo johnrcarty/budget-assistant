@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,9 @@ const MATCH_TYPES = {
 } as const;
 
 const ANY_ACCOUNT = "any";
+// Action-only rule: no category, just the sign fix below.
+const NO_TARGET = "none";
+const NO_TARGET_LABEL = "No category — sign fix only";
 
 export interface RuleInitialValues {
   ruleId: string;
@@ -36,6 +40,7 @@ export interface RuleInitialValues {
   target: string | null; // "expense:<id>" / "income:<id>", null if target deleted
   accountId: string | null;
   amount: string | null; // dollars, e.g. "12.34"
+  forceInflow: boolean;
   priority: number;
 }
 
@@ -70,7 +75,13 @@ export function RuleDialog({
     undefined,
   );
 
-  const targetItems = Object.fromEntries(targets.map((t) => [t.value, t.label]));
+  const targetOptions = [
+    ...targets,
+    { value: NO_TARGET, label: NO_TARGET_LABEL },
+  ];
+  const targetItems = Object.fromEntries(
+    targetOptions.map((t) => [t.value, t.label]),
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -123,13 +134,31 @@ export function RuleDialog({
                 <SelectValue placeholder="Pick a category" />
               </SelectTrigger>
               <SelectContent>
-                {targets.map((t) => (
+                {targetOptions.map((t) => (
                   <SelectItem key={t.value} value={t.value}>
                     {t.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                name="forceInflow"
+                value="on"
+                defaultChecked={initial?.forceInflow ?? false}
+                className="mt-0.5"
+              />
+              <span>Treat matches as money in (force positive)</span>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              For banks that report deposits with the wrong sign — Fidelity
+              sends payroll direct deposits and 401k contributions as negative.
+              Applied on every bank sync. Scope it with an account and a
+              specific description so real purchases can&apos;t match.
+            </p>
           </div>
 
           <details

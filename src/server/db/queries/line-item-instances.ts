@@ -8,6 +8,9 @@ import {
   transactions,
 } from "@/server/db/schema";
 import { getOrCreateBudgetMonth } from "@/server/db/queries/budget";
+import { debtPlannedForMonth } from "@/server/db/queries/debt-budget-items";
+import { latestKnownBalance } from "@/server/db/queries/debt";
+import { accounts } from "@/server/db/schema";
 import {
   buildSlotGroups,
   planSlotAssignments,
@@ -67,6 +70,72 @@ export async function ensureLineItemInstance(
       templateItemId: template.id,
       name: template.name,
       plannedAmountCents: 0,
+      sortOrder: template.sortOrder,
+    })
+    .returning({ id: budgetLineItems.id });
+  return created.id;
+}
+
+// Turns a projected Debt row into a real budget_line_item. Unlike
+// ensureLineItemInstance - which deliberately seeds 0 so retroactive
+// categorization can't fabricate a planned amount - this seeds the amount
+// the debt logic derived, because that IS the planned amount: it's what the
+// projected row the user just tapped was already showing.
+//
+// Idempotent, and refuses templates that aren't debt-linked.
+export async function materializeDebtLineItem(
+  householdId: string,
+  templateId: string,
+  month: string, // YYYY-MM-01
+): Promise<string | null> {
+  const [template] = await db
+    .select()
+    .from(lineItemTemplates)
+    .where(
+      and(
+        eq(lineItemTemplates.id, templateId),
+        eq(lineItemTemplates.householdId, householdId),
+      ),
+    )
+    .limit(1);
+  if (!template?.debtAccountId) return null;
+
+  const budgetMonth = await getOrCreateBudgetMonth(householdId, month);
+  const [existing] = await db
+    .select({ id: budgetLineItems.id })
+    .from(budgetLineItems)
+    .where(
+      and(
+        eq(budgetLineItems.budgetMonthId, budgetMonth.id),
+        eq(budgetLineItems.templateItemId, templateId),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing.id;
+
+  const [account] = await db
+    .select()
+    .from(accounts)
+    .where(eq(accounts.id, template.debtAccountId))
+    .limit(1);
+  const snapshot = await latestKnownBalance(template.debtAccountId);
+  const balanceCents = snapshot?.balanceCents ?? account?.currentBalanceCents ?? 0;
+  const { plannedAmountCents, dueDay } = await debtPlannedForMonth(
+    template.debtAccountId,
+    balanceCents,
+    month,
+  );
+
+  const [created] = await db
+    .insert(budgetLineItems)
+    .values({
+      householdId,
+      budgetMonthId: budgetMonth.id,
+      categoryGroupId: template.categoryGroupId,
+      templateItemId: template.id,
+      name: template.name,
+      plannedAmountCents,
+      dueDay,
       sortOrder: template.sortOrder,
     })
     .returning({ id: budgetLineItems.id });

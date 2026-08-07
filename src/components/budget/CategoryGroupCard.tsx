@@ -11,16 +11,15 @@ import {
   MODE_COLUMNS_GRID,
   type DisplayMode,
 } from "./display-mode";
-import type { budgetLineItems, categoryGroups } from "@/server/db/schema";
+import type { BudgetGroupItem } from "@/server/db/queries/budget";
+import type { categoryGroups } from "@/server/db/schema";
 
 export function CategoryGroupCard({
   group,
   month,
   mode,
 }: {
-  group: typeof categoryGroups.$inferSelect & {
-    items: (typeof budgetLineItems.$inferSelect & { spentCents: number })[];
-  };
+  group: typeof categoryGroups.$inferSelect & { items: BudgetGroupItem[] };
   month: string;
   mode: DisplayMode;
 }) {
@@ -83,7 +82,7 @@ export function CategoryGroupCard({
             </span>
           ))}
           items={group.items.map((item) => ({
-            id: item.id,
+            id: item.id ?? `projected:${item.templateId}`,
             name: item.name,
             plannedCents: item.plannedAmountCents,
             spentCents: item.spentCents,
@@ -108,7 +107,12 @@ export function CategoryGroupCard({
         )}
 
         {group.items.map((item) => (
-          <LineItemRow key={item.id} item={item} month={month} mode={mode} />
+          <LineItemRow
+            key={item.id ?? `projected:${item.templateId}`}
+            item={item}
+            month={month}
+            mode={mode}
+          />
         ))}
 
         {!isDebtGroup && (

@@ -41,6 +41,10 @@ export const NODE_WIDTH = 8;
 const NODE_PAD = 8;
 const H_PAD = 4;
 const MIN_NODE_HEIGHT = 2;
+// Labels hang DOWNWARD from a node's top edge (see SankeyChart): a name line
+// plus a value line. The canvas reserves this much above the first node and
+// below the last so neither end's label is cut off.
+export const LABEL_BLOCK_HEIGHT = 28;
 
 export const CASHFLOW_NODE_ID = "cashflow";
 
@@ -192,7 +196,7 @@ export function layoutSankey(
   }
 
   const maxTierCount = Math.max(...[...byTier.values()].map((t) => t.length));
-  const height = Math.max(360, Math.min(560, maxTierCount * 22));
+  const baseHeight = Math.max(360, Math.min(560, maxTierCount * 22));
 
   // One shared value->px scale so ribbon widths mean the same thing in every
   // column: the tightest tier sets it.
@@ -200,20 +204,39 @@ export function layoutSankey(
   for (const tierNodes of byTier.values()) {
     const total = tierNodes.reduce((sum, n) => sum + n.valueCents, 0);
     if (total <= 0) continue;
-    const available = height - (tierNodes.length - 1) * NODE_PAD;
+    const available = baseHeight - (tierNodes.length - 1) * NODE_PAD;
     scale = Math.min(scale, available / total);
   }
   if (!Number.isFinite(scale)) scale = 0;
 
   const columnSpan = maxTier > 0 ? (width - 2 * H_PAD - NODE_WIDTH) / maxTier : 0;
 
+  // MIN_NODE_HEIGHT floors nodes too small to see, so a column of many tiny
+  // items lays out TALLER than the scale assumed - which used to push the
+  // column past both canvas edges, and with it the topmost node's label
+  // (labels hang downward, so a negative y clips the name line first, leaving
+  // an orphaned amount). Measure each column first, then size the canvas to
+  // the tallest one instead of centering into a canvas that can't hold it.
+  const heightsByTier = new Map<number, number[]>();
+  let contentHeight = baseHeight;
+  for (const [tier, tierNodes] of byTier) {
+    const heights = tierNodes.map((n) => Math.max(MIN_NODE_HEIGHT, n.valueCents * scale));
+    heightsByTier.set(tier, heights);
+    contentHeight = Math.max(
+      contentHeight,
+      heights.reduce((sum, h) => sum + h, 0) + (tierNodes.length - 1) * NODE_PAD,
+    );
+  }
+  const height = Math.ceil(contentHeight) + 2 * LABEL_BLOCK_HEIGHT;
+
   const nodes: PositionedNode[] = [];
   const nodeById = new Map<string, PositionedNode>();
   for (const [tier, tierNodes] of byTier) {
-    const heights = tierNodes.map((n) => Math.max(MIN_NODE_HEIGHT, n.valueCents * scale));
+    const heights = heightsByTier.get(tier)!;
     const totalHeight =
       heights.reduce((sum, h) => sum + h, 0) + (tierNodes.length - 1) * NODE_PAD;
-    let y = (height - totalHeight) / 2;
+    // contentHeight >= totalHeight by construction, so y can't go negative.
+    let y = LABEL_BLOCK_HEIGHT + (contentHeight - totalHeight) / 2;
     tierNodes.forEach((node, index) => {
       const positioned: PositionedNode = {
         ...node,

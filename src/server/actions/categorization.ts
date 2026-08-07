@@ -17,17 +17,24 @@ import {
   type AiSuggestion,
 } from "@/server/lib/ai-categorize";
 
-const ruleSchema = z.object({
-  pattern: z.string().trim().min(2).max(120),
-  matchType: z.enum(["contains", "starts_with", "exact"]),
-  // "expense:<templateId>", "income:<templateId>", or "transfer"
-  target: z.string().regex(/^(transfer|(expense|income):[0-9a-f-]{36})$/),
-  accountId: z.uuid().optional(), // extra condition: only this account
-  amount: z.string().trim().optional(), // extra condition: exact amount (abs)
-  // min 0, not 1: early AI-suggested rules were created with priority 0 and
-  // must survive a round-trip through the edit form unchanged.
-  priority: z.coerce.number().int().min(0).max(9999),
-});
+const ruleSchema = z
+  .object({
+    pattern: z.string().trim().min(2).max(120),
+    matchType: z.enum(["contains", "starts_with", "exact"]),
+    // "expense:<templateId>", "income:<templateId>", "transfer", or "none"
+    // ("none" = an action-only rule, valid only alongside forceInflow).
+    target: z.string().regex(/^(none|transfer|(expense|income):[0-9a-f-]{36})$/),
+    accountId: z.uuid().optional(), // extra condition: only this account
+    amount: z.string().trim().optional(), // extra condition: exact amount (abs)
+    forceInflow: z.boolean(),
+    // min 0, not 1: early AI-suggested rules were created with priority 0 and
+    // must survive a round-trip through the edit form unchanged.
+    priority: z.coerce.number().int().min(0).max(9999),
+  })
+  .refine((input) => input.target !== "none" || input.forceInflow, {
+    message: "A rule needs a category, or the sign-fix action, or both",
+    path: ["target"],
+  });
 
 function ruleValues(input: z.infer<typeof ruleSchema>) {
   const [kind, templateId] = input.target.split(":");
@@ -40,6 +47,7 @@ function ruleValues(input: z.infer<typeof ruleSchema>) {
     lineItemTemplateId: kind === "expense" ? templateId : null,
     incomeTemplateId: kind === "income" ? templateId : null,
     markAsTransfer: kind === "transfer",
+    forceInflow: input.forceInflow,
   };
 }
 
@@ -88,6 +96,7 @@ function parseRuleForm(formData: FormData) {
         ? undefined
         : formData.get("accountId") || undefined,
     amount: formData.get("amount") || undefined,
+    forceInflow: formData.get("forceInflow") === "on",
     priority: formData.get("priority") || 100,
   });
 }

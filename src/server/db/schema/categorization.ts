@@ -44,6 +44,15 @@ export const categorizationRules = pgTable("categorization_rule", {
   // Third target kind: mark matches as transfers between own accounts
   // (no template link). When set, both template columns are null.
   markAsTransfer: boolean().notNull().default(false),
+  // Sign correction, applied at SimpleFin sync time - independent of the
+  // three targets above, so a rule may set this INSTEAD of a target (all
+  // three target columns null/false). Fidelity's feed reports deposit-class
+  // inflows - payroll direct deposits, 401k contributions - with a negative
+  // amount, while its outflows and interest credits are signed correctly.
+  // Matches are stored as Math.abs(amount): "force inflow" rather than
+  // "flip", so it's idempotent and self-heals if the feed is ever corrected
+  // upstream. See simplefin-sync.ts.
+  forceInflow: boolean().notNull().default(false),
   priority: integer().notNull().default(0),
   isActive: boolean().notNull().default(true),
   createdAt: timestamp().notNull().defaultNow(),

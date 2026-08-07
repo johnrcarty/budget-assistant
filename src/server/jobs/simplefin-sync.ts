@@ -13,7 +13,8 @@ import {
 import { decryptSecret } from "@/server/lib/crypto/secret-box";
 import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
 import { dollarsToCents } from "@/server/lib/money";
-import { applyRulesToUncategorized } from "@/server/lib/categorize";
+import { applyRulesToUncategorized, getActiveRules } from "@/server/lib/categorize";
+import { resolveInflow } from "@/lib/rule-match";
 
 // A day short of the protocol's actual 90-day cap - avoids tripping the
 // "date range exceeds limit" notice from clock skew/rounding at the boundary.
@@ -99,6 +100,12 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         .set({ lastError: errorDetail })
         .where(eq(simplefinConnections.id, connection.id));
     }
+
+    // Sign-correction rules, loaded once for the whole connection. Ordered by
+    // priority already; resolveInflow ignores rules without forceInflow.
+    const inflowRules = (await getActiveRules(connection.householdId)).filter(
+      (rule) => rule.forceInflow,
+    );
 
     for (const simplefinAccount of response.accounts) {
       accountsSynced += 1;
@@ -222,7 +229,23 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
 
       for (const txn of simplefinAccount.transactions ?? []) {
         if (excludedIds.has(txn.id)) continue;
-        const amountCents = dollarsToCents(txn.amount);
+        // Same theme as the liability-balance normalization above: some feeds
+        // don't share our sign convention. Fidelity reports deposit-class
+        // inflows (payroll direct deposits, 401k contributions) as negative
+        // while signing its outflows correctly, so the correction has to be
+        // per-description, not per-account. Applying it here rather than
+        // post-insert keeps it idempotent - the amount is re-derived from
+        // txn.amount on every sync, including through the upsert below.
+        const rawCents = dollarsToCents(txn.amount);
+        const amountCents = resolveInflow(
+          rawCents,
+          {
+            description: txn.description,
+            accountId: linkedAccountId,
+            amountCents: rawCents,
+          },
+          inflowRules,
+        );
         const pending = txn.pending ?? false;
         // Pending transactions haven't posted yet, so the protocol sends
         // posted: 0 for them (which is unix epoch, not "no date") - fall
