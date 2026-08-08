@@ -15,7 +15,13 @@ import {
 } from "@/components/ui/dialog";
 import { createCategoryGroup } from "@/server/actions/category-groups";
 
-export function AddCategoryGroupDialog() {
+export function AddCategoryGroupDialog({
+  triggerContent,
+  triggerClassName,
+}: {
+  triggerContent?: React.ReactNode;
+  triggerClassName?: string;
+} = {}) {
   const [open, setOpen] = useState(false);
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
@@ -32,8 +38,11 @@ export function AddCategoryGroupDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger aria-label="Add group" className="text-foreground">
-        <Plus className="size-6" />
+      <DialogTrigger
+        aria-label="Add group"
+        className={triggerClassName ?? "text-foreground"}
+      >
+        {triggerContent ?? <Plus className="size-6" />}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

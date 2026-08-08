@@ -7,6 +7,16 @@ export function clampedDueDate(month: string, dueDay: number): string {
   return `${month.slice(0, 7)}-${String(day).padStart(2, "0")}`;
 }
 
+// "AUG 16" from a YYYY-MM-DD string - pure string math, no timezone traps.
+const MONTH_ABBR = [
+  "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+];
+export function shortDateLabel(date: string): string {
+  const [, m, d] = date.split("-").map(Number);
+  return `${MONTH_ABBR[m - 1]} ${d}`;
+}
+
 // One dated entry in the month's money timeline - a bill (expense with a
 // due day) or an expected paycheck. Undated items never appear here.
 export interface UpcomingEntry {
