@@ -1,6 +1,7 @@
 import { IngressLink } from "@/components/layout/ingress";
 import type { getBudgetOverview } from "@/server/db/queries/budget";
 import { formatMonthShort } from "@/lib/month";
+import { sumSpentCents } from "@/lib/budget-totals";
 import { formatCents } from "@/server/lib/money";
 
 type BudgetOverview = Awaited<ReturnType<typeof getBudgetOverview>>;
@@ -28,9 +29,7 @@ export function MonthStatusCard({
     );
   }
 
-  const spentCents = overview.groups
-    .flatMap((group) => group.items)
-    .reduce((sum, item) => sum + item.spentCents, 0);
+  const spentCents = sumSpentCents(overview.groups);
   const plannedCents = overview.plannedExpensesCents;
   const overspent = spentCents > plannedCents;
   const progressPct =

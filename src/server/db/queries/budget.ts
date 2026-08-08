@@ -11,7 +11,8 @@ import {
 import { getSpentCentsByLineItem, getReceivedCentsByIncomeItem } from "./transactions";
 import { getStampingSchedulePersonIds } from "./income-schedules";
 import { getProjectedDebtItems } from "./debt-budget-items";
-import { addDaysToIsoDate, daysInMonth, shiftMonthString } from "@/lib/month";
+import { addDaysToIsoDate, shiftMonthString } from "@/lib/month";
+import { clampedDueDate } from "@/lib/upcoming-money";
 
 // A row in a category group. Stamped items are real budget_line_item rows;
 // projected ones are derived (today: the Debt group) and have no id until
@@ -98,13 +99,6 @@ export interface UpcomingBills {
   overdue: UpcomingBill[];
   dueToday: UpcomingBill[];
   dueThisWeek: UpcomingBill[];
-}
-
-// dueDay is a day-of-month integer; clamp to the month's length so e.g.
-// dueDay 31 in September resolves to Sept 30 instead of an invalid date.
-function clampedDueDate(month: string, dueDay: number): string {
-  const day = Math.min(dueDay, daysInMonth(month));
-  return `${month.slice(0, 7)}-${String(day).padStart(2, "0")}`;
 }
 
 export async function getUpcomingBills(
