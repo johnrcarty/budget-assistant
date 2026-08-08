@@ -13,7 +13,7 @@ export default async function AppLayout({
   // WebKit propagates that inset into the HA ingress iframe, so without it
   // the last row of every page hides behind the bar.
   return (
-    <div className="min-h-svh bg-muted pb-[calc(4rem+env(safe-area-inset-bottom))]">
+    <div className="min-h-svh bg-background pb-[calc(4rem+env(safe-area-inset-bottom))]">
       {children}
       <BottomTabBar />
     </div>
