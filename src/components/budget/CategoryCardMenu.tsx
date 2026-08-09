@@ -34,6 +34,7 @@ export function CategoryCardMenu({
   groupName: string;
 }) {
   const [renameOpen, setRenameOpen] = useState(false);
+  const [archiveError, setArchiveError] = useState(false);
   const [archiving, startArchive] = useTransition();
   const [error, renameAction, renaming] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
@@ -64,12 +65,24 @@ export function CategoryCardMenu({
           <DropdownMenuItem
             variant="destructive"
             disabled={archiving}
-            onClick={() => startArchive(() => archiveCategoryGroup(groupId))}
+            onClick={() =>
+              startArchive(async () => {
+                setArchiveError(false);
+                try {
+                  await archiveCategoryGroup(groupId);
+                } catch {
+                  setArchiveError(true);
+                }
+              })
+            }
           >
             {archiving ? "Archiving…" : "Archive"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {archiveError && (
+        <p className="text-xs text-destructive">Couldn&apos;t archive</p>
+      )}
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>

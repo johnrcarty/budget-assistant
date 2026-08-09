@@ -28,14 +28,17 @@ export function SegmentedProgress({
 }) {
   const filled = filledSegments(spentCents, plannedCents, segments);
   const tone = progressTone(spentCents, plannedCents);
+  // With no plan, spending still fills the bar ("over"), so the meter's max
+  // has to follow the spend or screen readers would hear 0-of-0 on a full bar.
+  const meterMax = plannedCents > 0 ? plannedCents : Math.max(spentCents, 0);
 
   return (
     <div
       role="meter"
       aria-label={ariaLabel ?? "Spent of planned"}
       aria-valuemin={0}
-      aria-valuemax={plannedCents}
-      aria-valuenow={Math.max(0, Math.min(spentCents, plannedCents))}
+      aria-valuemax={meterMax}
+      aria-valuenow={Math.max(0, Math.min(spentCents, meterMax))}
       className={cn("flex gap-[3px]", className)}
     >
       {Array.from({ length: segments }, (_, i) => (

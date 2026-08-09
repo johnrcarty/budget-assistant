@@ -30,20 +30,25 @@ export interface AddItemGroupOption {
 }
 
 // Two homes: inside a category card (categoryGroupId fixed, hidden input)
-// and in the month header (groups list, user picks the category).
+// and in the month header (groups list, user picks the category). The
+// union keeps callers from providing neither, which would render an empty
+// category Select.
+type AddLineItemDialogProps = {
+  month: string;
+  triggerContent?: React.ReactNode;
+  triggerClassName?: string;
+} & (
+  | { categoryGroupId: string; groups?: never }
+  | { categoryGroupId?: never; groups: AddItemGroupOption[] }
+);
+
 export function AddLineItemDialog({
   month,
   categoryGroupId,
   groups,
   triggerContent,
   triggerClassName,
-}: {
-  month: string;
-  categoryGroupId?: string;
-  groups?: AddItemGroupOption[];
-  triggerContent?: React.ReactNode;
-  triggerClassName?: string;
-}) {
+}: AddLineItemDialogProps) {
   const [open, setOpen] = useState(false);
   const [error, formAction, pending] = useActionState(
     async (_prevState: string | undefined, formData: FormData) => {
