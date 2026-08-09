@@ -1,12 +1,7 @@
 import { IngressLink } from "@/components/layout/ingress";
 import { formatCents } from "@/server/lib/money";
 import { formatDueDate } from "@/lib/month";
-import {
-  amountForMode,
-  DISPLAY_MODES,
-  MODE_COLUMNS_GRID,
-  type DisplayMode,
-} from "./display-mode";
+import { amountForMode, type DisplayMode } from "./display-mode";
 import type { BudgetGroupItem } from "@/server/db/queries/budget";
 
 export function LineItemRow({
@@ -29,22 +24,19 @@ export function LineItemRow({
   return (
     <IngressLink
       href={href}
-      className={`flex items-center justify-between border-b py-3 last:border-b-0 ${MODE_COLUMNS_GRID}`}
+      className="flex items-center justify-between gap-3 border-b py-3 last:border-b-0"
     >
-      <div>
-        <div className="font-medium">{item.name}</div>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{item.name}</div>
         {item.dueDay && (
-          <div className="text-sm text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {formatDueDate(month, item.dueDay)}
           </div>
         )}
       </div>
-      <div className="font-medium md:hidden">{formatCents(amountCents)}</div>
-      {DISPLAY_MODES.map((m) => (
-        <div key={m} className="hidden text-right font-medium md:block">
-          {formatCents(amountForMode(item.plannedAmountCents, item.spentCents, m))}
-        </div>
-      ))}
+      <div className="shrink-0 text-sm font-medium tabular-nums">
+        {formatCents(amountCents)}
+      </div>
     </IngressLink>
   );
 }
