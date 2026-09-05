@@ -9,7 +9,15 @@ import { updateLoginCredentials } from "@/server/actions/user";
 
 type FormState = { error?: string; success?: boolean };
 
-export function UpdateLoginForm({ currentEmail }: { currentEmail: string }) {
+export function UpdateLoginForm({
+  currentEmail,
+  hasPassword,
+}: {
+  currentEmail: string;
+  // False for a login provisioned from Home Assistant that hasn't set a
+  // password yet - no "current password" to ask for.
+  hasPassword: boolean;
+}) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     async (_prev, formData) => {
       try {
@@ -25,10 +33,11 @@ export function UpdateLoginForm({ currentEmail }: { currentEmail: string }) {
   return (
     <Card>
       <CardContent>
-        <h2 className="pb-2 font-bold">Household login</h2>
+        <h2 className="pb-2 font-bold">Email &amp; password</h2>
         <p className="pb-4 text-sm text-muted-foreground">
-          One shared login for the household. Changes take effect on the next
-          sign-in — devices already signed in stay signed in.
+          {hasPassword
+            ? "For signing in outside Home Assistant. Changes take effect on the next sign-in — devices already signed in stay signed in."
+            : "You sign in through Home Assistant. Set an email and password here if you also want to sign in directly, outside Home Assistant."}
         </p>
         <form action={formAction} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
@@ -42,16 +51,18 @@ export function UpdateLoginForm({ currentEmail }: { currentEmail: string }) {
               autoComplete="username"
             />
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              name="currentPassword"
-              type="password"
-              required
-              autoComplete="current-password"
-            />
-          </div>
+          {hasPassword && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                name="currentPassword"
+                type="password"
+                required
+                autoComplete="current-password"
+              />
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <Label htmlFor="new-password">New password</Label>
             <Input
@@ -59,7 +70,8 @@ export function UpdateLoginForm({ currentEmail }: { currentEmail: string }) {
               name="newPassword"
               type="password"
               autoComplete="new-password"
-              placeholder="Leave blank to keep current password"
+              required={!hasPassword}
+              placeholder={hasPassword ? "Leave blank to keep current password" : undefined}
             />
           </div>
           <div className="flex flex-col gap-2">

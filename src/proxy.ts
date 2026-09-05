@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { haIngressAuthEnabled, HA_USER_ID_HEADER } from "@/server/lib/ha-identity";
 
-// Optimistic check only: reads the JWT session cookie, does not hit the
-// database. Real authorization happens in the DAL (server/lib/dal.ts) close
-// to the data. See Next.js's auth guide for why Proxy alone isn't sufficient.
+// Optimistic check only: reads the JWT session cookie (or the trusted HA
+// ingress identity header), does not hit the database. Real authorization
+// happens in the DAL (server/lib/dal.ts) close to the data. See Next.js's
+// auth guide for why Proxy alone isn't sufficient.
 const PUBLIC_PATHS = ["/login"];
 
 export function proxy(request: NextRequest) {
@@ -12,6 +14,13 @@ export function proxy(request: NextRequest) {
   const hasSessionCookie =
     request.cookies.has("authjs.session-token") ||
     request.cookies.has("__Secure-authjs.session-token");
+  // Under HA ingress Supervisor identifies the user on every request, so
+  // there's no cookie to look for. Only believed when the add-on's option
+  // bridge enabled it AND nginx let the header through (see
+  // server/lib/ha-identity.ts for the trust chain).
+  const hasTrustedHaUser =
+    haIngressAuthEnabled() && (request.headers.get(HA_USER_ID_HEADER)?.trim() ?? "") !== "";
+  const isAuthenticated = hasSessionCookie || hasTrustedHaUser;
 
   // Under Home Assistant ingress, Supervisor strips its dynamic
   // `/api/hassio_ingress/<token>` prefix before forwarding the request here,
@@ -23,11 +32,11 @@ export function proxy(request: NextRequest) {
   // prefix is empty and behavior there is unchanged.
   const ingressPath = request.headers.get("x-ingress-path") ?? "";
 
-  if (!isPublic && !hasSessionCookie) {
+  if (!isPublic && !isAuthenticated) {
     return NextResponse.redirect(new URL(`${ingressPath}/login`, request.url));
   }
 
-  if (pathname === "/login" && hasSessionCookie) {
+  if (pathname === "/login" && isAuthenticated) {
     return NextResponse.redirect(new URL(`${ingressPath}/summary`, request.url));
   }
 

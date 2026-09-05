@@ -30,6 +30,28 @@ Port 8099 is still published, but only for HA's Model Context Protocol
 (Assist) integration, which reaches the MCP endpoint at
 `http://127.0.0.1:8099/api/mcp?token=...` — UI access is via ingress.
 
+## Who's signed in
+
+Since 0.3.0 the add-on signs people in from the Home Assistant user
+behind the ingress request (Supervisor's `X-Remote-User-*` headers), so
+there's no separate app login when you open it from the HA sidebar or
+companion app.
+
+- The **first HA user to open the add-on** after upgrading is linked to
+  the existing household login and becomes the owner. Nothing to
+  configure.
+- Every **other HA user** gets a waiting screen until an owner adds them
+  under **More → Members** and links them to a person.
+- `household_login_email` / `household_login_password` still bootstrap the
+  owner's email/password login, which keeps working as a fallback outside
+  Home Assistant. Members can set their own on **More → Login & Security**.
+
+The identity headers are only believed when they come from Supervisor
+itself: nginx inside the add-on blanks them for any other client (port
+8099 is reachable on the LAN for the MCP endpoint), and the app only reads
+them under Supervisor (`HA_INGRESS_AUTH`), never in the plain Docker
+Compose deployment.
+
 ## How ingress works here
 
 HA's `ingress: true` mode embeds an add-on in the sidebar with no exposed

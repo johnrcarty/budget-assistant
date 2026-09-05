@@ -32,4 +32,13 @@ set_env ANTHROPIC_API_KEY "$(opt anthropic_api_key ANTHROPIC_API_KEY)"
 set_env MCP_AUTH_TOKEN "$(opt mcp_auth_token MCP_AUTH_TOKEN)"
 set_env BACKUP_RETENTION_DAYS "$(opt backup_retention_days BACKUP_RETENTION_DAYS)"
 
+# Only under Supervisor (options.json exists) may the app believe the
+# X-Remote-User-* identity headers - nginx already restricts them to
+# Supervisor's ingress address, this is the second lock (see
+# src/server/lib/ha-identity.ts). A plain `docker run` of this image gets
+# no flag, so a forged header there is inert.
+if [ -f "$OPTIONS_FILE" ]; then
+  set_env HA_INGRESS_AUTH "1"
+fi
+
 echo "[options] bridged HA options into container_environment"

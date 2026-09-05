@@ -4,10 +4,13 @@ import {
   DatabaseBackup,
   KeyRound,
   RefreshCw,
+  ShieldCheck,
   TrendingDown,
   TrendingUp,
   Users,
 } from "lucide-react";
+import { getCurrentMembership } from "@/server/lib/dal";
+import { getViewerProfile } from "@/server/db/queries/members";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ThemeToggleRow } from "@/components/layout/ThemeToggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +37,13 @@ const SECTIONS = [
     icon: TrendingUp,
   },
   {
+    href: "/settings/members",
+    title: "Members",
+    description: "Who can open this budget from Home Assistant, and which person each one is",
+    icon: ShieldCheck,
+    ownerOnly: true,
+  },
+  {
     href: "/settings/simplefin",
     title: "Bank Sync",
     description: "SimpleFin connection and account mapping",
@@ -42,7 +52,7 @@ const SECTIONS = [
   {
     href: "/more/account",
     title: "Login & Security",
-    description: "Change the household login email and password",
+    description: "Password for signing in outside Home Assistant",
     icon: KeyRound,
   },
   {
@@ -53,12 +63,24 @@ const SECTIONS = [
   },
 ] as const;
 
-export default function MorePage() {
+export default async function MorePage() {
+  const membership = await getCurrentMembership();
+  const viewer = await getViewerProfile(membership.householdId, membership.userId);
+  const sections = SECTIONS.filter(
+    (s) => !("ownerOnly" in s && s.ownerOnly) || membership.role === "owner",
+  );
+  const viewerLabel = viewer?.personName ?? viewer?.name ?? viewer?.email ?? "";
+
   return (
     <div>
-      <AppHeader title="More" />
+      <AppHeader title="More">
+        <p className="pt-1 text-sm text-muted-foreground">
+          Signed in as <span className="font-medium text-foreground">{viewerLabel}</span>
+          {membership.source === "home-assistant" ? " via Home Assistant" : ""}
+        </p>
+      </AppHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        {SECTIONS.map(({ href, title, description, icon: Icon }) => (
+        {sections.map(({ href, title, description, icon: Icon }) => (
           <IngressLink key={href} href={href}>
             <Card>
               <CardContent className="flex items-center gap-4">
