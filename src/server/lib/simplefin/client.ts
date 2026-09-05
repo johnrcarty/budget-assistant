@@ -1,5 +1,45 @@
 import type { SimplefinAccountsResponse } from "@/types/simplefin";
 
+// Cloudflare fronts the SimpleFin bridge and gives the origin 100s before
+// answering 524 itself; bailing out just short of that keeps a slow bridge
+// from pinning a manual "Sync now" behind HA ingress for minutes.
+export const REQUEST_TIMEOUT_MS = 90_000;
+
+// A failed /accounts call, classified so the sync job can decide whether
+// the connection needs the user (auth) or just a retry next sweep.
+export class SimplefinRequestError extends Error {
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "SimplefinRequestError";
+    this.status = status;
+  }
+
+  // Only a rejected credential means the Access URL itself is dead and the
+  // connection must be re-established. Everything else (5xx, Cloudflare
+  // timeouts, network blips) is expected to clear on its own.
+  get needsReconnect(): boolean {
+    return this.status === 401 || this.status === 403;
+  }
+}
+
+// One readable line for an error body. Cloudflare and nginx error pages
+// are full HTML documents - keep just their <title> ("524: A timeout
+// occurred"), not the markup, since this lands verbatim on the settings
+// screen and in sync_run.error_detail.
+export function summarizeErrorBody(status: number, body: string): string {
+  const trimmed = body.trim();
+  const title = /<title>([^<]*)<\/title>/i.exec(trimmed)?.[1]?.trim();
+  if (title) {
+    // "simplefin.org | 524: A timeout occurred" -> "524: A timeout occurred"
+    const withoutSite = title.replace(/^[^|]*\|\s*/, "");
+    return withoutSite.startsWith(String(status)) ? withoutSite : `${status} ${withoutSite}`;
+  }
+  const oneLine = trimmed.replace(/\s+/g, " ");
+  return oneLine.length > 200 ? `${status} ${oneLine.slice(0, 200)}…` : `${status} ${oneLine}`;
+}
+
 // Setup Token -> claim URL is a one-time base64 decode. The claim itself is
 // single-use (the resulting Access URL is what gets persisted, never the
 // token), so this must be called exactly once per token.
@@ -59,10 +99,27 @@ export async function getSimplefinAccounts(
     url.searchParams.append("account", id);
   }
 
-  const response = await fetch(url, { headers: { Authorization: authHeader } });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const reason =
+      error instanceof Error && error.name === "TimeoutError"
+        ? `no response within ${REQUEST_TIMEOUT_MS / 1000}s`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    throw new SimplefinRequestError(`SimpleFin /accounts failed: ${reason}`, null, {
+      cause: error,
+    });
+  }
   if (!response.ok) {
-    throw new Error(
-      `SimpleFin /accounts failed: ${response.status} ${await response.text()}`,
+    throw new SimplefinRequestError(
+      `SimpleFin /accounts failed: ${summarizeErrorBody(response.status, await response.text())}`,
+      response.status,
     );
   }
 

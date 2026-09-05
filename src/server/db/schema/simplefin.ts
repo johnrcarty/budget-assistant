@@ -52,6 +52,16 @@ export const simplefinConnectionAccounts = pgTable(
     accountId: uuid().references(() => accounts.id, { onDelete: "set null" }),
     lastSyncedBalanceCents: bigint({ mode: "number" }),
     lastSyncedAt: timestamp(),
+    // SimpleFin's institution-connection id (`conn_id`) for this account,
+    // learned from the feed. Lets a sync attribute an errlist entry to the
+    // accounts behind it even when the broken institution's accounts drop
+    // out of the response entirely.
+    simplefinConnId: text(),
+    // Set by the sync when SimpleFin reports the institution needs
+    // attention (e.g. con.auth "Auth required"); cleared when the account
+    // comes back clean. Surfaced on the account so the user knows to go
+    // reconnect at SimpleFin rather than wonder why balances are stale.
+    syncIssue: text(),
   },
   (t) => [unique().on(t.connectionId, t.simplefinAccountId)],
 );

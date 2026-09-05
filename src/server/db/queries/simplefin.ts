@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   simplefinConnections,
@@ -43,4 +43,29 @@ export async function getLastSyncRun(connectionId: string) {
     .limit(1);
 
   return run ?? null;
+}
+
+// Local account id -> the sync issue SimpleFin last reported for it, for
+// every mapped account in the household. Empty when everything is healthy.
+export async function getSyncIssuesByAccountId(
+  householdId: string,
+): Promise<Record<string, string>> {
+  const rows = await db
+    .select({
+      accountId: simplefinConnectionAccounts.accountId,
+      syncIssue: simplefinConnectionAccounts.syncIssue,
+    })
+    .from(simplefinConnectionAccounts)
+    .where(
+      and(
+        eq(simplefinConnectionAccounts.householdId, householdId),
+        isNotNull(simplefinConnectionAccounts.accountId),
+        isNotNull(simplefinConnectionAccounts.syncIssue),
+      ),
+    );
+  const byAccount: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.accountId && row.syncIssue) byAccount[row.accountId] = row.syncIssue;
+  }
+  return byAccount;
 }
