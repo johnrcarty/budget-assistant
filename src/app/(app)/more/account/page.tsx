@@ -8,7 +8,7 @@ import { verifySession } from "@/server/lib/dal";
 export default async function AccountPage() {
   const { userId } = await verifySession();
   const [user] = await db
-    .select({ email: users.email })
+    .select({ email: users.email, passwordHash: users.passwordHash })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -17,7 +17,10 @@ export default async function AccountPage() {
     <div>
       <AppHeader title="Login & Security" backHref="/more" />
       <div className="flex flex-col gap-4 p-4">
-        <UpdateLoginForm currentEmail={user?.email ?? ""} />
+        <UpdateLoginForm
+          currentEmail={user?.email.endsWith("@home-assistant.invalid") ? "" : (user?.email ?? "")}
+          hasPassword={Boolean(user?.passwordHash)}
+        />
       </div>
     </div>
   );

@@ -13,7 +13,9 @@ const updateSchema = z
     // keyboards shouldn't fail the format check. Lowercased to match the
     // login lookup and seed script.
     email: z.string().trim().toLowerCase().max(255).pipe(z.email()),
-    currentPassword: z.string().min(1, "Current password is required"),
+    // Required when the login already has a password; a Home Assistant
+    // user setting one for the first time has nothing to confirm.
+    currentPassword: z.string().optional(),
     // Blank = keep the existing password. When set, mirror the seed
     // script's rules (bcrypt cost 12) with a modest length floor.
     newPassword: z
@@ -29,10 +31,12 @@ const updateSchema = z
     path: ["confirmPassword"],
   });
 
-// Change the shared household login's email and/or password. Requires the
-// current password - the session cookie alone isn't enough to rotate
+// Change the viewer's login email and/or password. When a password already
+// exists it's required - the session cookie alone isn't enough to rotate
 // credentials (a borrowed unlocked phone shouldn't be able to lock the
-// household out).
+// household out). A user provisioned from Home Assistant has no password
+// yet; they're already authenticated by HA, so setting the first one needs
+// no confirmation and is what enables the /login fallback for them.
 //
 // Existing JWT sessions stay valid after a change (they're signed, not
 // checked against the DB), so the other phone keeps working until its next
@@ -42,19 +46,26 @@ export async function updateLoginCredentials(formData: FormData) {
 
   const input = updateSchema.parse({
     email: formData.get("email"),
-    currentPassword: formData.get("currentPassword"),
+    currentPassword: formData.get("currentPassword") ?? undefined,
     newPassword: formData.get("newPassword") ?? undefined,
     confirmPassword: formData.get("confirmPassword") ?? undefined,
   });
 
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  if (!user?.passwordHash) {
+  if (!user) {
     throw new Error("This login can't be managed here.");
   }
 
-  const passwordOk = await bcrypt.compare(input.currentPassword, user.passwordHash);
-  if (!passwordOk) {
-    throw new Error("Current password is incorrect.");
+  if (user.passwordHash) {
+    if (!input.currentPassword) {
+      throw new Error("Current password is required.");
+    }
+    const passwordOk = await bcrypt.compare(input.currentPassword, user.passwordHash);
+    if (!passwordOk) {
+      throw new Error("Current password is incorrect.");
+    }
+  } else if (!input.newPassword) {
+    throw new Error("Choose a password to enable signing in with email and password.");
   }
 
   const normalizedEmail = input.email;
