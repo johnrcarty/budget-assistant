@@ -10,6 +10,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ConnectSimplefinForm } from "@/components/accounts/ConnectSimplefinForm";
+import { SyncIssueBadge } from "@/components/accounts/SyncIssueBadge";
 import { MapAccountForm } from "@/components/accounts/MapAccountForm";
 import { triggerSync, disconnectSimplefin } from "@/server/actions/simplefin";
 
@@ -100,7 +101,10 @@ async function ConnectedView({
                   key={connectionAccount.id}
                   className="flex items-center justify-between border-b py-3 last:border-b-0"
                 >
-                  <span className="font-medium">{linkedAccountName}</span>
+                  <div className="min-w-0">
+                    <div className="font-medium">{linkedAccountName}</div>
+                    <SyncIssueBadge issue={connectionAccount.syncIssue} />
+                  </div>
                   <span className="text-sm text-muted-foreground">
                     {connectionAccount.lastSyncedBalanceCents !== null
                       ? formatCents(connectionAccount.lastSyncedBalanceCents)

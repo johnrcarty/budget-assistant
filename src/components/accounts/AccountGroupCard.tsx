@@ -21,6 +21,7 @@ import { EditAccountDialog } from "./EditAccountDialog";
 import { OwnerSelectField } from "./OwnerSelectField";
 import { TrendDialog } from "./TrendDialog";
 import { KIND_LABELS } from "./account-kinds";
+import { SyncIssueBadge } from "./SyncIssueBadge";
 
 export interface GroupMember {
   id: string;
@@ -31,6 +32,7 @@ export interface GroupMember {
   currentBalanceCents: number | null;
   originalBalanceCents: number | null;
   accountGroupId: string | null;
+  syncIssue?: string | null;
 }
 
 // One collapsible rollup card per account group: summed balance (tappable
@@ -162,6 +164,7 @@ export function AccountGroupCard({
                           {KIND_LABELS[member.kind] ?? member.kind}
                           {aprBps != null && ` · ${(aprBps / 100).toFixed(2)}% APR`}
                         </div>
+                        <SyncIssueBadge issue={member.syncIssue} size="xs" />
                       </div>
                     }
                   />

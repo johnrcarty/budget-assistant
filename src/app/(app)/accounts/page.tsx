@@ -4,6 +4,7 @@ import { getCurrentHousehold } from "@/server/lib/dal";
 import { getAccounts, getArchivedAccounts, getAccountGroups } from "@/server/db/queries/accounts";
 import { getBalanceTrends, type BalanceTrends } from "@/server/db/queries/balance-trends";
 import { getCurrentAprByAccount } from "@/server/db/queries/debt";
+import { getSyncIssuesByAccountId } from "@/server/db/queries/simplefin";
 import { getActivePersons, getOwnersByAccountIds } from "@/server/db/queries/people";
 import { formatCents, formatCentsCompact } from "@/server/lib/money";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -12,6 +13,7 @@ import { EditAccountDialog } from "@/components/accounts/EditAccountDialog";
 import { AccountGroupCard } from "@/components/accounts/AccountGroupCard";
 import { TrendDialog } from "@/components/accounts/TrendDialog";
 import { KIND_LABELS } from "@/components/accounts/account-kinds";
+import { SyncIssueBadge } from "@/components/accounts/SyncIssueBadge";
 import { unarchiveAccount } from "@/server/actions/accounts";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -19,13 +21,15 @@ type Account = Awaited<ReturnType<typeof getAccounts>>[number];
 
 export default async function AccountsPage() {
   const householdId = await getCurrentHousehold();
-  const [accounts, archived, trends, accountGroupList, persons] = await Promise.all([
-    getAccounts(householdId),
-    getArchivedAccounts(householdId),
-    getBalanceTrends(householdId),
-    getAccountGroups(householdId),
-    getActivePersons(householdId),
-  ]);
+  const [accounts, archived, trends, accountGroupList, persons, syncIssueByAccount] =
+    await Promise.all([
+      getAccounts(householdId),
+      getArchivedAccounts(householdId),
+      getBalanceTrends(householdId),
+      getAccountGroups(householdId),
+      getActivePersons(householdId),
+      getSyncIssuesByAccountId(householdId),
+    ]);
   const ownersByAccount = await getOwnersByAccountIds(accounts.map((a) => a.id));
 
   const assets = accounts.filter((a) => !a.isLiability);
@@ -113,6 +117,7 @@ export default async function AccountsPage() {
             aprByAccount={aprByAccount}
             persons={personOptions}
             ownersByAccount={ownersByAccount}
+            syncIssueByAccount={syncIssueByAccount}
           />
         )}
 
@@ -127,6 +132,7 @@ export default async function AccountsPage() {
             aprByAccount={aprByAccount}
             persons={personOptions}
             ownersByAccount={ownersByAccount}
+            syncIssueByAccount={syncIssueByAccount}
             isLiability
           />
         )}
@@ -183,6 +189,7 @@ function AccountSection({
   aprByAccount = {},
   persons = [],
   ownersByAccount = {},
+  syncIssueByAccount = {},
   isLiability = false,
 }: {
   title: string;
@@ -195,6 +202,7 @@ function AccountSection({
   aprByAccount?: Record<string, number | null>;
   persons?: { id: string; name: string }[];
   ownersByAccount?: Record<string, string[]>;
+  syncIssueByAccount?: Record<string, string>;
   isLiability?: boolean;
 }) {
   const seriesByAccount = new Map(trends.accounts.map((t) => [t.accountId, t.series]));
@@ -243,6 +251,7 @@ function AccountSection({
               currentBalanceCents: m.currentBalanceCents,
               originalBalanceCents: m.originalBalanceCents,
               accountGroupId: m.accountGroupId,
+              syncIssue: syncIssueByAccount[m.id] ?? null,
             }))}
             points={trends.points}
             seriesByMember={Object.fromEntries(
@@ -287,6 +296,7 @@ function AccountSection({
                     <div className="text-sm text-muted-foreground">
                       {KIND_LABELS[account.kind] ?? account.kind}
                     </div>
+                    <SyncIssueBadge issue={syncIssueByAccount[account.id]} />
                     {equity && (
                       <div
                         className={`truncate text-sm ${

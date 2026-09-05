@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import {
   simplefinConnections,
@@ -11,15 +11,45 @@ import {
   accountBalanceSnapshots,
 } from "@/server/db/schema";
 import { decryptSecret } from "@/server/lib/crypto/secret-box";
-import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
+import { getSimplefinAccounts, SimplefinRequestError } from "@/server/lib/simplefin/client";
 import { dollarsToCents } from "@/server/lib/money";
 import { applyRulesToUncategorized, getActiveRules } from "@/server/lib/categorize";
 import { resolveInflow } from "@/lib/rule-match";
 
-// A day short of the protocol's actual 90-day cap - avoids tripping the
-// "date range exceeds limit" notice from clock skew/rounding at the boundary.
-const LOOKBACK_SECONDS = 89 * 24 * 60 * 60;
-const OVERLAP_SECONDS = 3 * 24 * 60 * 60;
+const DAY_SECONDS = 24 * 60 * 60;
+// First-ever sync for a connection: a day short of the protocol's actual
+// 90-day cap - avoids tripping the "date range exceeds limit" notice from
+// clock skew/rounding at the boundary.
+const LOOKBACK_SECONDS = 89 * DAY_SECONDS;
+// Every later sync: never ask for more than SimpleFin's recommended 45
+// days. Asking for more makes the bridge slow enough to time out behind
+// Cloudflare (524) - that's what stalled syncing in Sept 2026 when one
+// institution needing re-auth had quietly stretched the window past 45
+// days - and SimpleFin warns the range "may be capped in the future".
+export const MAX_WINDOW_SECONDS = 45 * DAY_SECONDS;
+const OVERLAP_SECONDS = 3 * DAY_SECONDS;
+
+// The bridge reports an institution as "MBR-<uuid>" in errlist but tags
+// its accounts "MX-MBR-<uuid>" (aggregator-prefixed), so an exact compare
+// never matches. Treat them as the same connection when one id ends with
+// the other.
+export function connIdsMatch(a: string, b: string): boolean {
+  return a === b || a.endsWith(b) || b.endsWith(a);
+}
+
+// Start of the transaction window for this run, in epoch seconds. Based on
+// the last run that actually reached SimpleFin (success or partial), NOT on
+// per-account lastSyncedAt: an account whose institution is broken drops
+// out of the feed, its timestamp freezes, and a min() over accounts would
+// widen the window a day at a time forever (see MAX_WINDOW_SECONDS).
+export function computeWindowStart(
+  lastReachedAt: Date | null,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): number {
+  if (!lastReachedAt) return nowSeconds - LOOKBACK_SECONDS;
+  const fromLastRun = Math.floor(lastReachedAt.getTime() / 1000) - OVERLAP_SECONDS;
+  return Math.max(fromLastRun, nowSeconds - MAX_WINDOW_SECONDS);
+}
 
 export async function runSimplefinSync(connectionId?: string) {
   // A specific connectionId means "the user explicitly asked for this" (Sync
@@ -65,19 +95,15 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
       .from(simplefinConnectionAccounts)
       .where(eq(simplefinConnectionAccounts.connectionId, connection.id));
 
-    const oldestLastSync = connAccounts.reduce<number | null>((min, ca) => {
-      if (!ca.lastSyncedAt) return min;
-      const seconds = Math.floor(ca.lastSyncedAt.getTime() / 1000);
-      return min === null ? seconds : Math.min(min, seconds);
-    }, null);
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
     // 3-day overlap catches pending->posted transitions; first-ever sync for
     // this connection uses the full 90-day max the protocol allows.
-    const startDate =
-      oldestLastSync !== null
-        ? oldestLastSync - OVERLAP_SECONDS
-        : nowSeconds - LOOKBACK_SECONDS;
+    const [lastReached] = await db
+      .select({ startedAt: syncRuns.startedAt })
+      .from(syncRuns)
+      .where(and(eq(syncRuns.connectionId, connection.id), ne(syncRuns.status, "error")))
+      .orderBy(desc(syncRuns.startedAt))
+      .limit(1);
+    const startDate = computeWindowStart(lastReached?.startedAt ?? null);
 
     const response = await getSimplefinAccounts(accessUrl, { startDate, pending: true });
 
@@ -101,6 +127,40 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         .where(eq(simplefinConnections.id, connection.id));
     }
 
+    // Which institution/account each errlist entry is about, so the issue
+    // can be pinned to the affected accounts (and cleared from the rest).
+    const issueByConnId = new Map<string, string>();
+    const issueByAccountId = new Map<string, string>();
+    for (const e of response.errlist) {
+      const msg = `${e.code}: ${e.msg}`;
+      if (e.conn_id) issueByConnId.set(e.conn_id, msg);
+      if (e.account_id) issueByAccountId.set(e.account_id, msg);
+    }
+    const issueFor = (simplefinAccountId: string, connId: string | null | undefined) => {
+      const byAccount = issueByAccountId.get(simplefinAccountId);
+      if (byAccount) return byAccount;
+      if (!connId) return null;
+      for (const [errConnId, msg] of issueByConnId) {
+        if (connIdsMatch(connId, errConnId)) return msg;
+      }
+      return null;
+    };
+
+    // Accounts missing from this response whose institution is in the
+    // errlist: a broken institution's accounts typically vanish from the
+    // feed, so this is the only way to flag them.
+    const returnedIds = new Set(response.accounts.map((a) => a.id));
+    for (const ca of connAccounts) {
+      if (returnedIds.has(ca.simplefinAccountId)) continue;
+      const issue = issueFor(ca.simplefinAccountId, ca.simplefinConnId);
+      if (issue !== ca.syncIssue) {
+        await db
+          .update(simplefinConnectionAccounts)
+          .set({ syncIssue: issue })
+          .where(eq(simplefinConnectionAccounts.id, ca.id));
+      }
+    }
+
     // Sign-correction rules, loaded once for the whole connection. Ordered by
     // priority already; resolveInflow ignores rules without forceInflow.
     const inflowRules = (await getActiveRules(connection.householdId)).filter(
@@ -122,6 +182,7 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         )
         .limit(1);
 
+      const syncIssue = issueFor(simplefinAccount.id, simplefinAccount.conn_id);
       if (existingConnAccount) {
         await db
           .update(simplefinConnectionAccounts)
@@ -129,6 +190,8 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
             simplefinAccountName: simplefinAccount.name,
             lastSyncedBalanceCents: balanceCents,
             lastSyncedAt: new Date(),
+            simplefinConnId: simplefinAccount.conn_id ?? existingConnAccount.simplefinConnId,
+            syncIssue,
           })
           .where(eq(simplefinConnectionAccounts.id, existingConnAccount.id));
       } else {
@@ -139,6 +202,8 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
           simplefinAccountName: simplefinAccount.name,
           lastSyncedBalanceCents: balanceCents,
           lastSyncedAt: new Date(),
+          simplefinConnId: simplefinAccount.conn_id ?? null,
+          syncIssue,
         });
       }
 
@@ -287,12 +352,29 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
     // Auto-categorize newly synced (and any backlogged) transactions via
     // the household's categorization rules. Idempotent.
     await applyRulesToUncategorized(connection.householdId);
+
+    // Reaching SimpleFin at all (success or partial) means the Access URL
+    // works, so a connection parked in "error" by an earlier rejected
+    // request rejoins the scheduled sweep here - this is the recovery path
+    // for "Sync now" after a reconnect. A clean run also supersedes
+    // whatever the last one complained about.
+    await db
+      .update(simplefinConnections)
+      .set(status === "success" ? { status: "active", lastError: null } : { status: "active" })
+      .where(eq(simplefinConnections.id, connection.id));
   } catch (error) {
     status = "error";
     errorDetail = error instanceof Error ? error.message : String(error);
+    // Only a rejected credential takes the connection out of the scheduled
+    // sweep - that genuinely needs the user to reconnect. A transient
+    // failure (bridge 5xx, Cloudflare timeout, network) is recorded and
+    // left "active" so the next sweep simply tries again; flipping it to
+    // "error" here used to stop all future syncs after one bad request.
+    const needsReconnect =
+      error instanceof SimplefinRequestError ? error.needsReconnect : false;
     await db
       .update(simplefinConnections)
-      .set({ status: "error", lastError: errorDetail })
+      .set(needsReconnect ? { status: "error", lastError: errorDetail } : { lastError: errorDetail })
       .where(eq(simplefinConnections.id, connection.id));
   }
 

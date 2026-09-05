@@ -1,7 +1,12 @@
 import { and, eq, ne } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runSimplefinSync } from "@/server/jobs/simplefin-sync";
+import {
+  computeWindowStart,
+  connIdsMatch,
+  MAX_WINDOW_SECONDS,
+  runSimplefinSync,
+} from "@/server/jobs/simplefin-sync";
 import {
   accountBalanceSnapshots,
   accounts,
@@ -13,7 +18,7 @@ import {
   transactionExclusions,
 } from "@/server/db/schema";
 import { deleteTransactionById } from "@/server/db/queries/transactions";
-import { getSimplefinAccounts } from "@/server/lib/simplefin/client";
+import { getSimplefinAccounts, SimplefinRequestError } from "@/server/lib/simplefin/client";
 import { getTestDb, type TestDb } from "../../../tests/helpers/pglite";
 import {
   seedAccount,
@@ -35,10 +40,10 @@ vi.mock("@/server/db/client", async () => {
   return { db: await createTestDb() };
 });
 
-vi.mock("@/server/lib/simplefin/client", () => ({
-  claimAccessUrl: vi.fn(),
-  getSimplefinAccounts: vi.fn(),
-}));
+vi.mock("@/server/lib/simplefin/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/lib/simplefin/client")>();
+  return { ...actual, claimAccessUrl: vi.fn(), getSimplefinAccounts: vi.fn() };
+});
 
 const mockGetAccounts = vi.mocked(getSimplefinAccounts);
 
@@ -507,19 +512,170 @@ describe("error handling", () => {
     expect(await countTransactions(account.id)).toBe(1);
   });
 
-  it("a request-level failure marks the run and connection as error", async () => {
+  it("a transient request failure (5xx, timeout) records the error but keeps the connection active", async () => {
     const { connection } = await seedSyncSetup();
 
-    mockGetAccounts.mockRejectedValue(new Error("SimpleFin request failed: 503"));
+    mockGetAccounts.mockRejectedValue(
+      new SimplefinRequestError("SimpleFin /accounts failed: 524: A timeout occurred", 524),
+    );
     await runSimplefinSync(connection.id);
 
     const run = await latestSyncRun(connection.id);
     expect(run.status).toBe("error");
-    expect(run.errorDetail).toContain("503");
+    expect(run.errorDetail).toContain("524");
 
+    // Still in the scheduled sweep: the next cron run retries on its own.
+    const conn = await getConnection(connection.id);
+    expect(conn.status).toBe("active");
+    expect(conn.lastError).toContain("524: A timeout occurred");
+  });
+
+  it("a rejected credential (401/403) takes the connection out of the sweep", async () => {
+    const { connection } = await seedSyncSetup();
+
+    mockGetAccounts.mockRejectedValue(
+      new SimplefinRequestError("SimpleFin /accounts failed: 403 Forbidden", 403),
+    );
+    await runSimplefinSync(connection.id);
+
+    expect((await latestSyncRun(connection.id)).status).toBe("error");
     const conn = await getConnection(connection.id);
     expect(conn.status).toBe("error");
-    expect(conn.lastError).toContain("503");
+    expect(conn.lastError).toContain("403");
+  });
+
+  it("a clean run clears the connection's last error", async () => {
+    const { connection } = await seedSyncSetup();
+    await db
+      .update(simplefinConnections)
+      .set({ lastError: "old news" })
+      .where(eq(simplefinConnections.id, connection.id));
+
+    mockGetAccounts.mockResolvedValue(sfResponse([sfAccount({ id: "sf-1" })]));
+    await runSimplefinSync(connection.id);
+
+    expect((await getConnection(connection.id)).lastError).toBeNull();
+  });
+});
+
+describe("transaction window", () => {
+  const DAY = 24 * 60 * 60;
+  const now = epochSeconds("2026-09-05");
+
+  it("first-ever sync asks for the protocol's ~90-day maximum", () => {
+    expect(computeWindowStart(null, now)).toBe(now - 89 * DAY);
+  });
+
+  it("a later sync starts 3 days before the last run that reached SimpleFin", () => {
+    const lastRun = new Date((now - 1 * DAY) * 1000);
+    expect(computeWindowStart(lastRun, now)).toBe(now - 4 * DAY);
+  });
+
+  it("never asks for more than SimpleFin's recommended 45 days, however stale", () => {
+    const lastRun = new Date((now - 120 * DAY) * 1000);
+    expect(computeWindowStart(lastRun, now)).toBe(now - MAX_WINDOW_SECONDS);
+  });
+
+  it("bases the window on the last non-error run, not on a stuck account's lastSyncedAt", async () => {
+    const { connection } = await seedSyncSetup();
+    // The stuck-institution scenario: one account last seen months ago...
+    await seedConnectionAccount(db, connection, "sf-stuck", {
+      lastSyncedAt: new Date("2026-05-01T00:00:00Z"),
+    });
+    // ...but the connection itself reached SimpleFin yesterday (partial),
+    // and an even more recent run that never got through doesn't count.
+    const yesterday = new Date(Date.now() - 1 * DAY * 1000);
+    await db.insert(syncRuns).values([
+      { connectionId: connection.id, startedAt: yesterday, status: "partial" },
+      { connectionId: connection.id, startedAt: new Date(), status: "error" },
+    ]);
+
+    mockGetAccounts.mockResolvedValue(sfResponse([]));
+    await runSimplefinSync(connection.id);
+
+    const opts = mockGetAccounts.mock.calls[0][1]!;
+    const expected = Math.floor(yesterday.getTime() / 1000) - 3 * DAY;
+    expect(Math.abs(opts.startDate! - expected)).toBeLessThan(5);
+  });
+});
+
+describe("per-account sync issues", () => {
+  it("pins an errlist entry to the accounts behind that institution and clears it when healthy", async () => {
+    const { account, connection } = await seedSyncSetup();
+
+    // First run: account reports its conn_id and its institution is broken.
+    mockGetAccounts.mockResolvedValue(
+      sfResponse(
+        [sfAccount({ id: "sf-1", conn_id: "MBR-1" })],
+        [{ code: "con.auth", msg: "Auth required", conn_id: "MBR-1" }],
+      ),
+    );
+    await runSimplefinSync(connection.id);
+
+    let [ca] = await db
+      .select()
+      .from(simplefinConnectionAccounts)
+      .where(eq(simplefinConnectionAccounts.accountId, account.id));
+    expect(ca.simplefinConnId).toBe("MBR-1");
+    expect(ca.syncIssue).toBe("con.auth: Auth required");
+
+    // Second run: institution still broken and its account has dropped out
+    // of the feed entirely - the stored conn_id keeps the flag on.
+    mockGetAccounts.mockResolvedValue(
+      sfResponse([], [{ code: "con.auth", msg: "Auth required", conn_id: "MBR-1" }]),
+    );
+    await runSimplefinSync(connection.id);
+    [ca] = await db
+      .select()
+      .from(simplefinConnectionAccounts)
+      .where(eq(simplefinConnectionAccounts.accountId, account.id));
+    expect(ca.syncIssue).toBe("con.auth: Auth required");
+
+    // Third run: reconnected at SimpleFin - flag clears.
+    mockGetAccounts.mockResolvedValue(sfResponse([sfAccount({ id: "sf-1", conn_id: "MBR-1" })]));
+    await runSimplefinSync(connection.id);
+    [ca] = await db
+      .select()
+      .from(simplefinConnectionAccounts)
+      .where(eq(simplefinConnectionAccounts.accountId, account.id));
+    expect(ca.syncIssue).toBeNull();
+  });
+
+  it("matches the bridge's aggregator-prefixed account conn_id to the errlist conn_id", async () => {
+    expect(connIdsMatch("MX-MBR-8cd0b6af", "MBR-8cd0b6af")).toBe(true);
+    expect(connIdsMatch("MBR-8cd0b6af", "MX-MBR-8cd0b6af")).toBe(true);
+    expect(connIdsMatch("MX-MBR-8cd0b6af", "MBR-8cd0b6af-other")).toBe(false);
+    expect(connIdsMatch("MX-MBR-1", "MBR-2")).toBe(false);
+
+    const { account, connection } = await seedSyncSetup();
+    mockGetAccounts.mockResolvedValue(
+      sfResponse(
+        [sfAccount({ id: "sf-1", conn_id: "MX-MBR-8cd0b6af" })],
+        [{ code: "con.auth", msg: "Auth required", conn_id: "MBR-8cd0b6af" }],
+      ),
+    );
+    await runSimplefinSync(connection.id);
+    const [ca] = await db
+      .select()
+      .from(simplefinConnectionAccounts)
+      .where(eq(simplefinConnectionAccounts.accountId, account.id));
+    expect(ca.syncIssue).toBe("con.auth: Auth required");
+  });
+
+  it("leaves accounts from healthy institutions unflagged", async () => {
+    const { account, connection } = await seedSyncSetup();
+    mockGetAccounts.mockResolvedValue(
+      sfResponse(
+        [sfAccount({ id: "sf-1", conn_id: "MBR-healthy" })],
+        [{ code: "con.auth", msg: "Auth required", conn_id: "MBR-other" }],
+      ),
+    );
+    await runSimplefinSync(connection.id);
+    const [ca] = await db
+      .select()
+      .from(simplefinConnectionAccounts)
+      .where(eq(simplefinConnectionAccounts.accountId, account.id));
+    expect(ca.syncIssue).toBeNull();
   });
 });
 
@@ -552,6 +708,8 @@ describe("connection scoping", () => {
 
     expect(mockGetAccounts).toHaveBeenCalledTimes(1);
     expect((await latestSyncRun(errored.id)).status).toBe("success");
+    // ...and it rejoins the scheduled sweep.
+    expect((await getConnection(errored.id)).status).toBe("active");
   });
 
   it("an explicit connectionId never syncs a revoked connection", async () => {
