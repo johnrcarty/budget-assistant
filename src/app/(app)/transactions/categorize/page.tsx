@@ -9,7 +9,7 @@ import {
   getRules,
 } from "@/server/db/queries/categorization";
 import { getUncategorizedMerchants } from "@/server/lib/ai-categorize";
-import { hasCategorizationTarget } from "@/lib/rule-match";
+import { hasCategorizationTarget, hasSignAction } from "@/lib/rule-match";
 import { deleteRule } from "@/server/actions/categorization";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AiSuggestPanel } from "@/components/categorize/AiSuggestPanel";
@@ -107,10 +107,11 @@ export default async function CategorizePage() {
                         ? ` · exactly ${formatCents(rule.amountCents)}`
                         : ""}
                       {rule.forceInflow ? " · forced to money in" : ""}
+                      {rule.forceOutflow ? " · forced to money out" : ""}
                     </div>
-                    {/* Reapply only moves categorizations; an action-only rule
-                        has none to move. */}
-                    {hasCategorizationTarget(rule) && (
+                    {/* Reapply moves categorizations, or for a sign-only
+                        rule re-derives signs across stored rows. */}
+                    {(hasCategorizationTarget(rule) || hasSignAction(rule)) && (
                       <ReapplyRuleButton ruleId={rule.id} />
                     )}
                   </div>
@@ -130,7 +131,7 @@ export default async function CategorizePage() {
                             ? `expense:${rule.lineItemTemplateId}`
                             : rule.incomeTemplateId
                               ? `income:${rule.incomeTemplateId}`
-                              : rule.forceInflow
+                              : hasSignAction(rule)
                                 ? "none"
                                 : null,
                         accountId: rule.accountId,
@@ -138,7 +139,11 @@ export default async function CategorizePage() {
                           rule.amountCents != null
                             ? (rule.amountCents / 100).toFixed(2)
                             : null,
-                        forceInflow: rule.forceInflow,
+                        signFix: rule.forceInflow
+                          ? "inflow"
+                          : rule.forceOutflow
+                            ? "outflow"
+                            : "none",
                         priority: rule.priority,
                       }}
                     />

@@ -74,7 +74,7 @@ export async function getRules(householdId: string): Promise<RuleWithTarget[]> {
           : `Income › ${row.incomeName}`;
     } else if (row.groupName && row.itemName) {
       targetLabel = `${row.groupName} › ${row.itemName}`;
-    } else if (row.rule.forceInflow) {
+    } else if (row.rule.forceInflow || row.rule.forceOutflow) {
       // Action-only rule: no target is the intended state, not a dangling one.
       targetLabel = "No category — sign fix only";
     }

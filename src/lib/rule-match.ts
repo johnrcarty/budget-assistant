@@ -9,8 +9,16 @@ export interface MatchableRule {
   // Optional extra conditions, ANDed with the pattern.
   accountId?: string | null;
   amountCents?: number | null; // compared by absolute value
-  // Sign-correction action, orthogonal to the categorization targets.
+  // Sign-correction actions, orthogonal to the categorization targets.
   forceInflow?: boolean | null;
+  forceOutflow?: boolean | null;
+}
+
+export function hasSignAction(rule: {
+  forceInflow?: boolean | null;
+  forceOutflow?: boolean | null;
+}): boolean {
+  return Boolean(rule.forceInflow || rule.forceOutflow);
 }
 
 export interface MatchableTransaction {
@@ -62,7 +70,7 @@ export function findMatchingRule<T extends MatchableRule>(
 }
 
 // A rule with no target does nothing during categorization - it exists only
-// for its action columns (today: forceInflow). Letting one reach
+// for its action columns (forceInflow / forceOutflow). Letting one reach
 // findMatchingRule would let it match first and silently shadow a
 // lower-priority rule that does have a target.
 export function hasCategorizationTarget(rule: {
@@ -77,19 +85,21 @@ export function hasCategorizationTarget(rule: {
 
 // Sign correction is resolved INDEPENDENTLY of findMatchingRule: a
 // higher-priority categorization rule matching the same description must not
-// shadow the sign fix, and vice versa. Only forceInflow rules are considered,
-// first match by the caller's ordering wins.
-export function resolveInflow<T extends MatchableRule>(
+// shadow the sign fix, and vice versa. Only rules with a sign action are
+// considered, first match by the caller's ordering wins. "Force", not
+// "flip": the result is derived from the feed's raw amount every time, so
+// it's idempotent and self-heals if the feed is corrected upstream.
+export function resolveSignedAmount<T extends MatchableRule>(
   rawCents: number,
   tx: MatchableTransaction,
   rules: T[],
 ): number {
   for (const rule of rules) {
-    if (!rule.forceInflow) continue;
+    if (!hasSignAction(rule)) continue;
     // Match against the raw amount - transactionMatchesRule compares
     // amountCents by absolute value, so the inverted sign can't defeat it.
     if (transactionMatchesRule({ ...tx, amountCents: rawCents }, rule)) {
-      return Math.abs(rawCents);
+      return rule.forceInflow ? Math.abs(rawCents) : -Math.abs(rawCents);
     }
   }
   return rawCents;

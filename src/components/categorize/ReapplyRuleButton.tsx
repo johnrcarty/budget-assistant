@@ -12,7 +12,7 @@ export function ReapplyRuleButton({ ruleId }: { ruleId: string }) {
       try {
         const { matched, scanned } = await reapplyRule(ruleId);
         return matched > 0
-          ? `Recategorized ${matched} of ${scanned} matching.`
+          ? `Updated ${matched} of ${scanned} matching.`
           : `No changes among ${scanned} matching.`;
       } catch {
         return "Re-apply failed.";

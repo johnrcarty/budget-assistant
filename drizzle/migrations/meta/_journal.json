@@ -162,6 +162,13 @@
       "when": 1788639160639,
       "tag": "0022_add_connection_account_sync_issue",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788666263407,
+      "tag": "0023_add_rule_force_outflow",
+      "breakpoints": true
     }
   ]
 }

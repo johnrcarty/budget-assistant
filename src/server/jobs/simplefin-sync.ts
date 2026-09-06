@@ -13,8 +13,12 @@ import {
 import { decryptSecret } from "@/server/lib/crypto/secret-box";
 import { getSimplefinAccounts, SimplefinRequestError } from "@/server/lib/simplefin/client";
 import { dollarsToCents } from "@/server/lib/money";
-import { applyRulesToUncategorized, getActiveRules } from "@/server/lib/categorize";
-import { resolveInflow } from "@/lib/rule-match";
+import {
+  applyRulesToUncategorized,
+  getActiveRules,
+  reapplySignRules,
+} from "@/server/lib/categorize";
+import { hasSignAction, resolveSignedAmount } from "@/lib/rule-match";
 
 const DAY_SECONDS = 24 * 60 * 60;
 // First-ever sync for a connection: a day short of the protocol's actual
@@ -162,10 +166,8 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
     }
 
     // Sign-correction rules, loaded once for the whole connection. Ordered by
-    // priority already; resolveInflow ignores rules without forceInflow.
-    const inflowRules = (await getActiveRules(connection.householdId)).filter(
-      (rule) => rule.forceInflow,
-    );
+    // priority already; resolveSignedAmount ignores rules without a sign action.
+    const signRules = (await getActiveRules(connection.householdId)).filter(hasSignAction);
 
     for (const simplefinAccount of response.accounts) {
       accountsSynced += 1;
@@ -295,21 +297,23 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
       for (const txn of simplefinAccount.transactions ?? []) {
         if (excludedIds.has(txn.id)) continue;
         // Same theme as the liability-balance normalization above: some feeds
-        // don't share our sign convention. Fidelity reports deposit-class
-        // inflows (payroll direct deposits, 401k contributions) as negative
-        // while signing its outflows correctly, so the correction has to be
-        // per-description, not per-account. Applying it here rather than
-        // post-insert keeps it idempotent - the amount is re-derived from
-        // txn.amount on every sync, including through the upsert below.
+        // don't share our sign convention. Fidelity has reported deposit-class
+        // inflows as negative, and (since 2026-07-27) debit-card purchases as
+        // positive, while signing other rows correctly - so the correction
+        // has to be per-description, not per-account. Applying it here
+        // rather than post-insert keeps it idempotent - the amount is
+        // re-derived from txn.amount on every sync, including through the
+        // upsert below. Rows outside the sync window are covered by
+        // reapplySignRules after the loop.
         const rawCents = dollarsToCents(txn.amount);
-        const amountCents = resolveInflow(
+        const amountCents = resolveSignedAmount(
           rawCents,
           {
             description: txn.description,
             accountId: linkedAccountId,
             amountCents: rawCents,
           },
-          inflowRules,
+          signRules,
         );
         const pending = txn.pending ?? false;
         // Pending transactions haven't posted yet, so the protocol sends
@@ -348,6 +352,12 @@ async function syncConnection(connection: typeof simplefinConnections.$inferSele
         transactionsImported += 1;
       }
     }
+
+    // Rows older than this run's window never come back through the upsert
+    // above, so a sign rule added after the fact (or a feed that changes its
+    // convention mid-history, as Fidelity did) is applied to stored rows
+    // from their raw payload here. Idempotent and cheap.
+    await reapplySignRules(connection.householdId);
 
     // Auto-categorize newly synced (and any backlogged) transactions via
     // the household's categorization rules. Idempotent.
