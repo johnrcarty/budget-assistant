@@ -27,6 +27,7 @@ import {
   seedLiabilityAccount,
   seedRule,
   seedSimplefinConnection,
+  seedTransaction,
 } from "../../../tests/helpers/seed";
 import {
   epochSeconds,
@@ -373,6 +374,74 @@ describe("forced inflow sign correction", () => {
     await runSimplefinSync(connection.id);
 
     expect(await amountOf(other.id, "t-elsewhere")).toBe(-266953);
+  });
+});
+
+// Since 2026-07-27 the same feed reports debit-card purchases as POSITIVE.
+describe("forced outflow sign correction", () => {
+  const purchase = (id: string, amount: string, posted = "2026-08-05") =>
+    sfResponse([
+      sfAccount({
+        id: "sf-1",
+        transactions: [
+          sfTransaction({
+            id,
+            amount,
+            description: "DEBIT CARD PURCHASE STARBUCKS 8007827282 (Cash)",
+            posted: epochSeconds(posted),
+          }),
+        ],
+      }),
+    ]);
+
+  const amountOf = async (accountId: string, externalId: string) => {
+    const [row] = await db
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.accountId, accountId), eq(transactions.externalId, externalId)));
+    return row.amountCents;
+  };
+
+  it("stores a matching positive purchase as negative", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    await seedRule(db, household.id, {
+      pattern: "DEBIT CARD PURCHASE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceOutflow: true,
+    });
+
+    mockGetAccounts.mockResolvedValue(purchase("t-sbux", "10.00"));
+    await runSimplefinSync(connection.id);
+
+    expect(await amountOf(account.id, "t-sbux")).toBe(-1000);
+  });
+
+  it("re-derives rows OUTSIDE the sync window from their raw payload", async () => {
+    const { household, account, connection } = await seedSyncSetup();
+    // A row synced months ago, before the feed flipped and before any rule
+    // existed: stored positive, raw positive. The feed won't send it again.
+    const old = await seedTransaction(db, household.id, account.id, {
+      amountCents: 12330,
+      description: "DEBIT CARD PURCHASE LOWE'S #00 (Cash)",
+      postedDate: "2026-08-01",
+      source: "simplefin",
+      externalId: "t-old",
+      rawPayload: { id: "t-old", amount: "123.30", description: "DEBIT CARD PURCHASE LOWE'S #00 (Cash)" },
+    });
+    await seedRule(db, household.id, {
+      pattern: "DEBIT CARD PURCHASE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceOutflow: true,
+    });
+
+    // Today's sync carries nothing for that row.
+    mockGetAccounts.mockResolvedValue(sfResponse([sfAccount({ id: "sf-1" })]));
+    await runSimplefinSync(connection.id);
+
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, old.id));
+    expect(row.amountCents).toBe(-12330);
   });
 });
 

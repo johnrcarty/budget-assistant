@@ -1,5 +1,11 @@
 // One-time data repair for Fidelity's sign-inverted deposits.
 //
+// SUPERSEDED for the sign part: since add-on 0.3.2 the app re-derives every
+// synced row's sign from its raw payload whenever a sign rule is saved and
+// after every sync (reapplySignRules in src/server/lib/categorize.ts), so
+// creating the rules through the Categorize UI is enough. Step 3 (CSV
+// duplicate cleanup) is still only available here.
+//
 // SimpleFin's Fidelity feed reports deposit-class INFLOWS (payroll direct
 // deposits, 401k contributions) with a negative amount, while signing its
 // outflows and interest credits correctly. The fix in code is a

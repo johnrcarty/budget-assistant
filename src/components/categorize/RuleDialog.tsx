@@ -4,7 +4,6 @@ import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -33,6 +32,13 @@ const ANY_ACCOUNT = "any";
 const NO_TARGET = "none";
 const NO_TARGET_LABEL = "No category — sign fix only";
 
+const SIGN_FIXES = {
+  none: "Keep the bank's sign",
+  inflow: "Money in (force positive)",
+  outflow: "Money out (force negative)",
+} as const;
+export type SignFix = keyof typeof SIGN_FIXES;
+
 export interface RuleInitialValues {
   ruleId: string;
   pattern: string;
@@ -40,7 +46,7 @@ export interface RuleInitialValues {
   target: string | null; // "expense:<id>" / "income:<id>", null if target deleted
   accountId: string | null;
   amount: string | null; // dollars, e.g. "12.34"
-  forceInflow: boolean;
+  signFix: SignFix;
   priority: number;
 }
 
@@ -144,20 +150,25 @@ export function RuleDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                name="forceInflow"
-                value="on"
-                defaultChecked={initial?.forceInflow ?? false}
-                className="mt-0.5"
-              />
-              <span>Treat matches as money in (force positive)</span>
-            </label>
+            <Label htmlFor="rule-sign-fix">Sign fix</Label>
+            <Select name="signFix" defaultValue={initial?.signFix ?? "none"} items={SIGN_FIXES}>
+              <SelectTrigger id="rule-sign-fix" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(SIGN_FIXES).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
-              For banks that report deposits with the wrong sign — Fidelity
-              sends payroll direct deposits and 401k contributions as negative.
-              Applied on every bank sync. Scope it with an account and a
-              specific description so real purchases can&apos;t match.
+              For banks that report the wrong sign — Fidelity has sent payroll
+              and 401k contributions as negative, and debit-card purchases as
+              positive. Applied to every synced transaction, past and future.
+              Scope it with an account and a specific description so other
+              rows can&apos;t match.
             </p>
           </div>
 

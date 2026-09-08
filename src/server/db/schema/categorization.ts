@@ -53,6 +53,11 @@ export const categorizationRules = pgTable("categorization_rule", {
   // "flip", so it's idempotent and self-heals if the feed is ever corrected
   // upstream. See simplefin-sync.ts.
   forceInflow: boolean().notNull().default(false),
+  // Mirror of forceInflow: matches are stored as -Math.abs(amount). Added
+  // when Fidelity's feed started reporting debit-card purchases as
+  // POSITIVE (from 2026-07-27), so every coffee landed as income. A rule
+  // sets at most one of the two.
+  forceOutflow: boolean().notNull().default(false),
   priority: integer().notNull().default(0),
   isActive: boolean().notNull().default(true),
   createdAt: timestamp().notNull().defaultNow(),

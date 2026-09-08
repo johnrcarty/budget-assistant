@@ -1,9 +1,14 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { applyRulesToUncategorized, applyRuleToMatching } from "@/server/lib/categorize";
+import {
+  applyRulesToUncategorized,
+  applyRuleToMatching,
+  reapplySignRules,
+} from "@/server/lib/categorize";
 import {
   budgetLineItems,
+  categorizationRules,
   categoryGroups,
   lineItemTemplates,
   transactions,
@@ -119,5 +124,116 @@ describe("action-only rules don't shadow categorization", () => {
       matched: 0,
       scanned: 0,
     });
+  });
+});
+
+describe("reapplySignRules", () => {
+  const amountOf = async (id: string) => {
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, id));
+    return row.amountCents;
+  };
+
+  async function seedFidelityRows(householdId: string, accountId: string) {
+    const purchase = await seedTransaction(db, householdId, accountId, {
+      amountCents: 1000,
+      description: "DEBIT CARD PURCHASE STARBUCKS (Cash)",
+      source: "simplefin",
+      externalId: "p-1",
+      rawPayload: { amount: "10.00" },
+    });
+    const payroll = await seedTransaction(db, householdId, accountId, {
+      amountCents: -266953,
+      description: "DIRECT DEPOSIT PROGRESSIVE PAYROLL (Cash)",
+      source: "simplefin",
+      externalId: "d-1",
+      rawPayload: { amount: "-2669.53" },
+    });
+    const debit = await seedTransaction(db, householdId, accountId, {
+      amountCents: -3000,
+      description: "DIRECT DEBIT BANK OF AMERICA (Cash)",
+      source: "simplefin",
+      externalId: "b-1",
+      rawPayload: { amount: "-30.00" },
+    });
+    const noPayload = await seedTransaction(db, householdId, accountId, {
+      amountCents: 500,
+      description: "DEBIT CARD PURCHASE LEGACY ROW",
+      source: "simplefin",
+      externalId: "legacy-1",
+      rawPayload: null,
+    });
+    const csv = await seedTransaction(db, householdId, accountId, {
+      amountCents: 700,
+      description: "DEBIT CARD PURCHASE FROM CSV",
+      source: "csv_import",
+      externalId: "csv-1",
+    });
+    return { purchase, payroll, debit, noPayload, csv };
+  }
+
+  it("re-derives every synced row's sign from its raw payload through the current rules", async () => {
+    const household = await seedHousehold(db);
+    const account = await seedAccount(db, household.id);
+    const rows = await seedFidelityRows(household.id, account.id);
+    await seedRule(db, household.id, {
+      pattern: "DEBIT CARD PURCHASE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceOutflow: true,
+    });
+    await seedRule(db, household.id, {
+      pattern: "DIRECT DEPOSIT PROGRESSIVE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceInflow: true,
+    });
+
+    const result = await reapplySignRules(household.id);
+
+    expect(result.matched).toBe(2);
+    expect(await amountOf(rows.purchase.id)).toBe(-1000);
+    expect(await amountOf(rows.payroll.id)).toBe(266953);
+    // Unmatched, payload-less, and non-SimpleFin rows are untouched.
+    expect(await amountOf(rows.debit.id)).toBe(-3000);
+    expect(await amountOf(rows.noPayload.id)).toBe(500);
+    expect(await amountOf(rows.csv.id)).toBe(700);
+
+    // Idempotent.
+    expect((await reapplySignRules(household.id)).matched).toBe(0);
+  });
+
+  it("reverts to the feed's raw sign once the rule is gone", async () => {
+    const household = await seedHousehold(db);
+    const account = await seedAccount(db, household.id);
+    const rows = await seedFidelityRows(household.id, account.id);
+    const rule = await seedRule(db, household.id, {
+      pattern: "DEBIT CARD PURCHASE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceOutflow: true,
+    });
+    await reapplySignRules(household.id);
+    expect(await amountOf(rows.purchase.id)).toBe(-1000);
+
+    await db.update(categorizationRules).set({ isActive: false }).where(eq(categorizationRules.id, rule.id));
+    await reapplySignRules(household.id);
+    expect(await amountOf(rows.purchase.id)).toBe(1000);
+  });
+
+  it("applyRuleToMatching on a sign-only rule runs the sign reapply", async () => {
+    const household = await seedHousehold(db);
+    const account = await seedAccount(db, household.id);
+    const rows = await seedFidelityRows(household.id, account.id);
+    const rule = await seedRule(db, household.id, {
+      pattern: "DEBIT CARD PURCHASE",
+      matchType: "starts_with",
+      accountId: account.id,
+      forceOutflow: true,
+    });
+
+    const result = await applyRuleToMatching(household.id, rule.id);
+
+    expect(result.matched).toBe(1);
+    expect(await amountOf(rows.purchase.id)).toBe(-1000);
   });
 });

@@ -10,6 +10,7 @@ import { dollarsToCents } from "@/server/lib/money";
 import {
   applyRulesToUncategorized,
   applyRuleToMatching,
+  reapplySignRules,
   type ApplyRulesResult,
 } from "@/server/lib/categorize";
 import {
@@ -22,16 +23,18 @@ const ruleSchema = z
     pattern: z.string().trim().min(2).max(120),
     matchType: z.enum(["contains", "starts_with", "exact"]),
     // "expense:<templateId>", "income:<templateId>", "transfer", or "none"
-    // ("none" = an action-only rule, valid only alongside forceInflow).
+    // ("none" = an action-only rule, valid only alongside a sign fix).
     target: z.string().regex(/^(none|transfer|(expense|income):[0-9a-f-]{36})$/),
     accountId: z.uuid().optional(), // extra condition: only this account
     amount: z.string().trim().optional(), // extra condition: exact amount (abs)
-    forceInflow: z.boolean(),
+    // Sign fix: leave alone, or force matches positive (money in) / negative
+    // (money out). Stored as the two boolean columns.
+    signFix: z.enum(["none", "inflow", "outflow"]),
     // min 0, not 1: early AI-suggested rules were created with priority 0 and
     // must survive a round-trip through the edit form unchanged.
     priority: z.coerce.number().int().min(0).max(9999),
   })
-  .refine((input) => input.target !== "none" || input.forceInflow, {
+  .refine((input) => input.target !== "none" || input.signFix !== "none", {
     message: "A rule needs a category, or the sign-fix action, or both",
     path: ["target"],
   });
@@ -47,7 +50,8 @@ function ruleValues(input: z.infer<typeof ruleSchema>) {
     lineItemTemplateId: kind === "expense" ? templateId : null,
     incomeTemplateId: kind === "income" ? templateId : null,
     markAsTransfer: kind === "transfer",
-    forceInflow: input.forceInflow,
+    forceInflow: input.signFix === "inflow",
+    forceOutflow: input.signFix === "outflow",
   };
 }
 
@@ -96,7 +100,7 @@ function parseRuleForm(formData: FormData) {
         ? undefined
         : formData.get("accountId") || undefined,
     amount: formData.get("amount") || undefined,
-    forceInflow: formData.get("forceInflow") === "on",
+    signFix: formData.get("signFix") ?? "none",
     priority: formData.get("priority") || 100,
   });
 }
@@ -112,7 +116,12 @@ export async function createRule(formData: FormData) {
     ...values,
   });
 
+  // A sign rule must reach history, not just the next sync's window.
+  if (values.forceInflow || values.forceOutflow) await reapplySignRules(householdId);
+
   revalidatePath("/transactions/categorize");
+  revalidatePath("/transactions");
+  revalidatePath("/summary");
 }
 
 export async function updateRule(ruleId: string, formData: FormData) {
@@ -131,7 +140,13 @@ export async function updateRule(ruleId: string, formData: FormData) {
       ),
     );
 
+  // Unconditional: the rule may have just LOST its sign action, in which
+  // case the rows it used to correct revert to the feed's raw sign.
+  await reapplySignRules(householdId);
+
   revalidatePath("/transactions/categorize");
+  revalidatePath("/transactions");
+  revalidatePath("/summary");
 }
 
 export async function deleteRule(ruleId: string) {
@@ -145,6 +160,10 @@ export async function deleteRule(ruleId: string) {
       ),
     );
   revalidatePath("/transactions/categorize");
+  // The deleted rule may have been a sign fix - revert its rows to raw.
+  await reapplySignRules(householdId);
+  revalidatePath("/transactions");
+  revalidatePath("/summary");
 }
 
 export async function runRules(): Promise<ApplyRulesResult> {

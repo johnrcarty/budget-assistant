@@ -8,8 +8,11 @@ import {
 import {
   findMatchingRule,
   hasCategorizationTarget,
+  hasSignAction,
+  resolveSignedAmount,
   transactionMatchesRule,
 } from "@/lib/rule-match";
+import { dollarsToCents } from "@/server/lib/money";
 
 export async function getActiveRules(householdId: string) {
   return db
@@ -27,6 +30,47 @@ export async function getActiveRules(householdId: string) {
 export interface ApplyRulesResult {
   matched: number;
   scanned: number;
+}
+
+// Re-derives amountCents from rawPayload.amount for every stored SimpleFin
+// transaction in the household, through the current sign rules. This is
+// what makes a sign rule take effect on history - the sync only re-fetches
+// a few days, so without this a rule saved today would never touch last
+// month's rows. Synced accounts take their balance from the feed, not from
+// summing rows, so no balance adjustment is needed. Rows without a raw
+// payload (pre-payload imports) are left alone. Idempotent.
+export async function reapplySignRules(householdId: string): Promise<ApplyRulesResult> {
+  const signRules = (await getActiveRules(householdId)).filter(hasSignAction);
+
+  const rows = await db
+    .select({
+      id: transactions.id,
+      description: transactions.description,
+      accountId: transactions.accountId,
+      amountCents: transactions.amountCents,
+      rawPayload: transactions.rawPayload,
+    })
+    .from(transactions)
+    .where(and(eq(transactions.householdId, householdId), eq(transactions.source, "simplefin")));
+
+  let matched = 0;
+  for (const row of rows) {
+    const rawAmount = (row.rawPayload as { amount?: string } | null)?.amount;
+    if (rawAmount == null) continue;
+    const rawCents = dollarsToCents(rawAmount);
+    const corrected = resolveSignedAmount(
+      rawCents,
+      { description: row.description, accountId: row.accountId, amountCents: rawCents },
+      signRules,
+    );
+    if (corrected === row.amountCents) continue;
+    await db
+      .update(transactions)
+      .set({ amountCents: corrected, updatedAt: new Date() })
+      .where(eq(transactions.id, row.id));
+    matched += 1;
+  }
+  return { matched, scanned: rows.length };
 }
 
 // Links every uncategorized transaction whose description matches an active
@@ -130,9 +174,11 @@ export async function applyRuleToMatching(
   const allRules = await getActiveRules(householdId);
   const rule = allRules.find((r) => r.id === ruleId);
   if (!rule) return { matched: 0, scanned: 0 };
-  // Nothing to reapply for an action-only rule: its effect (forceInflow) is
-  // applied during sync, not by re-categorizing stored rows.
-  if (!hasCategorizationTarget(rule)) return { matched: 0, scanned: 0 };
+  // An action-only rule has no categorizations to move; "reapply" for it
+  // means re-deriving signs across stored rows.
+  if (!hasCategorizationTarget(rule)) {
+    return hasSignAction(rule) ? reapplySignRules(householdId) : { matched: 0, scanned: 0 };
+  }
   const rules = allRules.filter(hasCategorizationTarget);
 
   // SQL prefilter: a contains-style ilike is a superset of all three match
