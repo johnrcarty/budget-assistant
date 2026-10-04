@@ -1,2 +1,0 @@
-ALTER TABLE "transaction" ADD COLUMN "is_transfer" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "categorization_rule" ADD COLUMN "mark_as_transfer" boolean DEFAULT false NOT NULL;

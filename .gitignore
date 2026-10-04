@@ -1,52 +1,19 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
+.venv/
+.env
+.env.*
 !.env.example
-
-# vercel
-.vercel
-
-# local tooling
-.claude/
-
-# contains real household financial data (amounts, creditor names) -
-# keep local-only, never push
-scripts/seed.ts
-
-# real household DB dumps produced by scripts/backup/backup.sh - never push
-/backups/
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+data/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+frontend/node_modules/
+frontend/dist/
+node_modules/
+artifacts/
+screenshots/
+.DS_Store

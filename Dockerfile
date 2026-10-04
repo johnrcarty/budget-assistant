@@ -1,57 +1,25 @@
-FROM node:22-alpine AS base
+FROM node:20-bookworm-slim AS frontend-build
+WORKDIR /build/frontend
+COPY frontend/package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+COPY frontend/ ./
+RUN npm run build
 
-FROM base AS deps
+FROM python:3.11-slim-bookworm
+ARG BUILD_VERSION=0.2.0
+ARG BUILD_ARCH=aarch64
+LABEL io.hass.version="${BUILD_VERSION}" \
+      io.hass.type="app" \
+      io.hass.arch="${BUILD_ARCH}"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    BUDGET_DATA_DIR=/data
 WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-
-FROM base AS builder
-WORKDIR /app
-RUN corepack enable
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-# next build statically evaluates route modules (including the (app) layout's
-# db/client.ts import chain) to collect page data, even for fully dynamic
-# routes that never query at build time - it just needs DATABASE_URL to be a
-# parseable, non-empty value. The real one is supplied at container runtime.
-ENV DATABASE_URL="postgres://build:build@localhost:5432/build_placeholder"
-RUN pnpm run build
-
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# pg_dump/pg_restore for the in-app Backup & Restore screen (More → Backup
-# & Restore). Pinned to the 16.x line to stay version-matched with the db
-# service and the scheduled backup container - see docs/backup-restore.md.
-RUN apk add --no-cache postgresql16-client
-
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
-
-# The migrate/scheduler scripts run outside Next's own request path, so
-# Next's standalone output tracer doesn't bundle everything they need (e.g.
-# drizzle-orm/postgres-js/migrator). Use the full node_modules from the deps
-# stage instead of the pruned standalone one - simpler and more robust than
-# hand-tracing a second dependency graph, at the cost of a larger image.
-# Ownership is set on the COPY itself: a separate `RUN chown -R` would
-# re-copy every file (node_modules especially) into a new uncacheable layer,
-# which cost ~3.5 minutes per rebuild and ballooned the image.
-COPY --chown=nextjs:nodejs --from=deps /app/node_modules ./node_modules
-COPY --chown=nextjs:nodejs --from=builder /app/public ./public
-COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone/server.js ./server.js
-COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone/.next ./.next
-COPY --chown=nextjs:nodejs --from=builder /app/.next/static ./.next/static
-COPY --chown=nextjs:nodejs --from=builder /app/drizzle ./drizzle
-COPY --chown=nextjs:nodejs --from=builder /app/src ./src
-COPY --chown=nextjs:nodejs --from=builder /app/scripts ./scripts
-COPY --chown=nextjs:nodejs --from=builder /app/tsconfig.json ./tsconfig.json
-
-USER nextjs
-EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
-
-CMD ["node", "server.js"]
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
+COPY backend/ ./backend/
+COPY scripts/run.sh scripts/launch.py ./scripts/
+COPY --from=frontend-build /build/frontend/dist ./frontend/dist
+RUN chmod +x scripts/run.sh && mkdir -p /data
+EXPOSE 8099
+ENTRYPOINT ["/app/scripts/run.sh"]

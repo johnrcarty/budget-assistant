@@ -1,0 +1,15 @@
+services:
+  budget-assistant:
+    build: .
+    ports:
+      - "${BUDGET_BIND_ADDRESS:-127.0.0.1}:8099:8099"
+    environment:
+      BUDGET_DATA_DIR: /data
+      BUDGET_AUTH_MODE: "${BUDGET_AUTH_MODE:-local}"
+      BUDGET_LOCAL_AUTH: "${BUDGET_LOCAL_AUTH:-true}"
+      BUDGET_INGRESS_PROXY: "${BUDGET_INGRESS_PROXY:-172.30.32.2}"
+      BUDGET_DEMO: "${BUDGET_DEMO:-0}"
+      BUDGET_TIMEZONE: "${BUDGET_TIMEZONE:-America/New_York}"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

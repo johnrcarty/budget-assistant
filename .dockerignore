@@ -1,14 +1,19 @@
-node_modules
-.next
 .git
-.env*
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/node_modules
+frontend/dist
+data
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+.env
+.env.*
 !.env.example
-*.log
-npm-debug.log*
-
-# contains real household financial data - gitignored, never bake into an
-# image either (see .gitignore's matching entry)
-scripts/seed.ts
-
-# real household DB dumps - never bake into an image
-/backups/
+legacy
+legacy-source
+tests
+artifacts
+screenshots

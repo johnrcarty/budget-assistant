@@ -1,8 +1,0 @@
-#!/command/with-contenv sh
-cd /app || exit 1
-export PORT=3000
-# Loopback-only: nginx (this service's only intended client, listening on
-# the actual ingress_port) runs in the same container and reaches this over
-# 127.0.0.1. No other network namespace can reach this port directly.
-export HOSTNAME=127.0.0.1
-exec su-exec nextjs node server.js
