@@ -1,6 +1,6 @@
 import { Check, Trash2, AlertCircle, Link2, ExternalLink } from "lucide-react";
 import { Button, Field, Modal } from "./ui.jsx";
-import { today, monthLabel, stepMonth, colors } from "../lib/format.js";
+import { today, stepMonth } from "../lib/format.js";
 export default function BudgetDialog({
   modal,
   user,
@@ -9,17 +9,31 @@ export default function BudgetDialog({
   scope,
   month,
   groups,
+  categories = [],
   accounts,
   formError,
   save,
   confirmDelete,
   onClose,
 }) {
+  const itemCategories = categories.filter(
+    (category) =>
+      category.active !== false ||
+      (modal.item?.id && category.id === modal.item.budget_category_id),
+  );
+  const currentCategory = categories.find(
+    (category) => category.id === modal.item?.budget_category_id,
+  );
+  const selectedCategory = itemCategories.some(
+    (category) => category.id === modal.item?.budget_category_id,
+  )
+    ? modal.item.budget_category_id
+    : itemCategories[0]?.id || "";
   return (
     <Modal
       title={
         {
-          item: modal.item?.id ? "Edit a purpose" : "Make room for a purpose",
+          item: modal.item?.id ? "Edit item" : "Add item",
           bill: modal.item ? "Edit a bill" : "One less thing to remember",
           transaction: modal.item
             ? "Edit transaction"
@@ -33,7 +47,7 @@ export default function BudgetDialog({
       }
       description={
         {
-          item: "Give this part of your life a place in the plan.",
+          item: "Choose its category and planned amount.",
           bill: "A due date, an amount, and a little peace of mind.",
           transaction: "Add the details and give it a purpose.",
           account: "Add a balance you’d like to keep in view.",
@@ -76,27 +90,41 @@ export default function BudgetDialog({
         <form onSubmit={save}>
           {modal.type === "item" && (
             <>
-              <Field label="Purpose">
+              <Field label="Item name">
                 <input
                   name="name"
                   required
+                  maxLength={120}
                   defaultValue={modal.item?.name || ""}
                   placeholder="Groceries, weekend adventures…"
                 />
               </Field>
               <div className="form-grid">
-                <Field label="Group">
-                  <input
-                    name="group_name"
+                <Field
+                  label="Category"
+                  help={
+                    currentCategory?.active === false && modal.item?.id
+                      ? "This category is archived. Keep the item here or move it to an active category."
+                      : !itemCategories.length
+                        ? "Add or reactivate a category before adding an item."
+                        : undefined
+                  }
+                >
+                  <select
+                    name="budget_category_id"
                     required
-                    defaultValue={modal.item?.group_name || "Everyday living"}
-                    list="budget-group-names"
-                  />
-                  <datalist id="budget-group-names">
-                    {groups.map((g) => (
-                      <option key={g.name} value={g.name} />
+                    defaultValue={selectedCategory}
+                  >
+                    {!itemCategories.length && (
+                      <option value="">No active categories</option>
+                    )}
+                    {itemCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                        {category.active === false ? " (archived)" : ""}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </Field>
                 <Field label="Planned amount">
                   <div className="money-input">
@@ -117,29 +145,6 @@ export default function BudgetDialog({
                   </div>
                 </Field>
               </div>
-              <Field label="Group color">
-                <select
-                  name="color"
-                  defaultValue={
-                    modal.item?.color || colors[groups.length % colors.length]
-                  }
-                >
-                  {colors.map((c, i) => (
-                    <option key={c} value={c}>
-                      {
-                        [
-                          "Forest",
-                          "Terracotta",
-                          "Ochre",
-                          "Sage",
-                          "Slate",
-                          "Walnut",
-                        ][i]
-                      }
-                    </option>
-                  ))}
-                </select>
-              </Field>
             </>
           )}
           {modal.type === "bill" && (
@@ -444,6 +449,7 @@ export default function BudgetDialog({
             <Button
               type="submit"
               busy={busy}
+              disabled={modal.type === "item" && !itemCategories.length}
               icon={modal.type === "simplefin" ? Link2 : Check}
             >
               {modal.type === "simplefin"

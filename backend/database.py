@@ -23,11 +23,20 @@ CREATE TABLE IF NOT EXISTS budget_months (
     income_cents INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(household_id,owner_id,scope,month)
 );
+CREATE TABLE IF NOT EXISTS budget_categories (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
+    owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
+    name TEXT NOT NULL, name_key TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#4f766b', active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(household_id,owner_id,scope,name_key)
+);
 CREATE TABLE IF NOT EXISTS budget_items (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
     owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
     month TEXT NOT NULL, name TEXT NOT NULL, group_name TEXT NOT NULL,
-    color TEXT NOT NULL DEFAULT '#4f766b', planned_cents INTEGER NOT NULL DEFAULT 0
+    color TEXT NOT NULL DEFAULT '#4f766b', planned_cents INTEGER NOT NULL DEFAULT 0,
+    budget_category_id INTEGER REFERENCES budget_categories(id)
 );
 CREATE TABLE IF NOT EXISTS bills (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
@@ -138,6 +147,12 @@ def initialize(path: str | Path) -> None:
         db.execute('PRAGMA journal_mode=WAL')
         db.executescript(SCHEMA)
         # Forward migration for early local previews. No destructive data rebuilds.
+        item_columns = {row['name'] for row in db.execute('PRAGMA table_info(budget_items)')}
+        if 'budget_category_id' not in item_columns:
+            db.execute('ALTER TABLE budget_items ADD COLUMN budget_category_id INTEGER REFERENCES budget_categories(id)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_item_category ON budget_items(budget_category_id,month)')
+        from .categories import ensure_categories
+        ensure_categories(db)
         columns = {row['name'] for row in db.execute('PRAGMA table_info(transactions)')}
         if 'amount_override_cents' not in columns:
             db.execute('ALTER TABLE transactions ADD COLUMN amount_override_cents INTEGER')

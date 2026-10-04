@@ -39,6 +39,14 @@ Compose binds localhost by default; set `BUDGET_BIND_ADDRESS=0.0.0.0` for LAN ac
 
 The Home Assistant automation token exposes **household bill counts and amounts only**. It cannot access bill names, personal bills, budgets, or transactions. Local user JWTs cannot authenticate to the automation endpoint; automation tokens cannot authenticate to user endpoints.
 
+## Budget categories
+
+In Budget, use **Add category** at the bottom of the category list, then **Add item** inside that category. An empty list shows only **Add category**. Categories are stored independently of monthly items, so an empty category remains available after a refresh or in another month.
+
+Edit a category to rename it, change its color, or archive it. Archived categories remain in the stored list and can be reactivated. Archiving preserves their budget items, transactions, and planned totals; existing items stay editable, while adding or moving items into an archived category requires reactivation. Copying a month retains the source plan and category associations, including archived categories with existing items.
+
+Existing group names are carried over automatically, separately for household and personal budgets. Personal category details remain private even when their owner shares aggregate totals. Transaction categorization continues to select a budget item inside a category.
+
 ## Income and pay schedules
 
 In Budget, use **Add income** to name each income source and enter its net amount. Scheduling is optional: manual income can be an undated monthly line or have a date for a one-time payment. Existing monthly totals are kept as editable income lines. When entering a replacement breakdown, select **Replace previous monthly total** explicitly to avoid counting that total twice.

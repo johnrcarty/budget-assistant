@@ -23,6 +23,7 @@ import { today, thisMonth, monthLabel, cents } from "./lib/format.js";
 import { IconButton, Button, Brand, PageHeading } from "./components/ui.jsx";
 import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
+import CategoryDialog from "./components/CategoryDialog.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
 import Overview from "./pages/Overview.jsx";
 import Budget from "./pages/Budget.jsx";
@@ -95,6 +96,7 @@ export default function App() {
         accounts,
         settings,
         income,
+        categories,
       ] = await Promise.all([
         api(`dashboard?${query}`),
         api(`budget/items?${query}`),
@@ -103,6 +105,7 @@ export default function App() {
         api(`accounts?${query}`),
         api(`settings?${query}`),
         api(`income?${query}`),
+        api(`budget/categories?${query}`),
       ]);
       if (sequence === reloadSequence.current)
         setData({
@@ -113,6 +116,7 @@ export default function App() {
           accounts,
           settings,
           income,
+          categories,
         });
     } catch (e) {
       if (sequence === reloadSequence.current) setLoadError(e.message);
@@ -196,8 +200,7 @@ export default function App() {
         scope,
         month,
         name: values.name,
-        group_name: values.group_name,
-        color: values.color,
+        budget_category_id: Number(values.budget_category_id),
         planned_cents: cents(values.amount),
       };
       path = `budget/items${modal.item?.id ? `/${modal.item.id}` : ""}?${query}`;
@@ -284,6 +287,34 @@ export default function App() {
         "DELETE",
         undefined,
         "Removed.",
+      );
+    } catch {}
+  }
+  async function saveCategory(event) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const category = modal.item;
+    try {
+      await mutate(
+        `budget/categories${category ? `/${category.id}` : ""}?${query}`,
+        category ? "PATCH" : "POST",
+        { name: values.name, color: values.color },
+        category
+          ? "Category updated."
+          : "Category added. Choose Add item to start filling it.",
+      );
+    } catch {}
+  }
+  async function setCategoryActive() {
+    const active = modal.type === "category-restore";
+    try {
+      await mutate(
+        `budget/categories/${modal.item.id}?${query}`,
+        "PATCH",
+        { active },
+        active
+          ? "Category reactivated."
+          : "Category archived. Its items and history are kept.",
       );
     } catch {}
   }
@@ -438,6 +469,7 @@ export default function App() {
     bills = data?.bills || [],
     accounts = data?.accounts || [],
     items = data?.items || [];
+  const categories = data?.categories || [];
   const unpaid = bills
     .filter((b) => !b.paid)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -458,6 +490,7 @@ export default function App() {
     dash,
     income,
     groups,
+    categories,
     transactions,
     bills,
     accounts,
@@ -694,6 +727,17 @@ export default function App() {
           onDelete={deleteIncome}
           onClose={() => setModal(null)}
         />
+      ) : modal?.type.startsWith("category") ? (
+        <CategoryDialog
+          key={`${modal.type}-${modal.item?.id || "new"}`}
+          modal={modal}
+          categories={categories}
+          busy={busy}
+          error={formError}
+          onSave={saveCategory}
+          onSetActive={setCategoryActive}
+          onClose={() => setModal(null)}
+        />
       ) : (
         modal && (
           <BudgetDialog
@@ -704,6 +748,7 @@ export default function App() {
             scope={scope}
             month={month}
             groups={groups}
+            categories={categories}
             accounts={accounts}
             formError={formError}
             save={save}

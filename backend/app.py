@@ -30,7 +30,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .database import connect, initialize
 from . import income as income_plans
-from .models import (Account, AccountPatch, Bill, BillPatch, BudgetCopy, BudgetItem, BudgetPatch,
+from . import categories as budget_categories
+from .models import (Account, AccountPatch, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
+                     BudgetCopy, BudgetItem, BudgetPatch,
                      Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch,
                      Login, Member, Settings, Setup, SimpleFINConnect,
                      SimpleFINSync, Transaction, TransactionPatch)
@@ -463,23 +465,34 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                     for key in personal:
                         shared[key] += personal[key]
                     shared['contributors'] += 1
-            groups = {}
-            for row in db.execute('''SELECT i.*,COALESCE((SELECT SUM(-t.amount_cents) FROM transactions t
-                                     WHERE t.category_id=i.id AND t.household_id=i.household_id AND t.owner_id=i.owner_id
-                                     AND t.scope=i.scope AND t.date>=? AND t.date<?),0) spent_cents
-                                     FROM budget_items i WHERE i.household_id=? AND i.owner_id=? AND i.scope=? AND i.month=? ORDER BY i.id''',
-                                  (start, end, *identity, current_month)):
-                group = groups.setdefault(row['group_name'], {'id': row['group_name'], 'name': row['group_name'],
-                                                'color': row['color'], 'planned_cents': 0, 'spent_cents': 0, 'items': []})
-                group['planned_cents'] += row['planned_cents']
-                group['spent_cents'] += row['spent_cents']
-                group['items'].append({key: row[key] for key in ('id', 'name', 'planned_cents', 'spent_cents')})
+            groups = budget_categories.categories_for(db, identity, current_month, start, end)
             combined = {key: totals[key] + shared[key] for key in totals}
             return combined | {'remaining_cents': combined['planned_cents'] - combined['spent_cents'],
                                'unassigned_cents': combined['income_cents'] - combined['planned_cents'],
-                               'shared_personal': shared, 'groups': list(groups.values()),
+                               'shared_personal': shared, 'groups': groups,
                                'bill_summary': bill_summary(db, identity, local_today(request, user)),
                                'recent_transactions': transactions_for(db, identity, current_month, 5), 'month': current_month}
+
+    @app.get('/api/budget/categories')
+    def list_budget_categories(request: Request, scope: Literal['household', 'personal'] = 'household',
+                               month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        start, end = month_bounds(current_month)
+        with connect(db_path) as db:
+            return budget_categories.categories_for(db, scope_identity(user, scope), current_month, start, end)
+
+    @app.post('/api/budget/categories', status_code=201)
+    def add_budget_category(payload: BudgetCategory, scope: Literal['household', 'personal'] = 'household',
+                            user=Depends(current_user)):
+        with connect(db_path) as db:
+            return budget_categories.create_category(db, scope_identity(user, scope), payload)
+
+    @app.put('/api/budget/categories/{category_id}')
+    @app.patch('/api/budget/categories/{category_id}')
+    def update_budget_category(category_id: int, payload: BudgetCategoryPatch,
+                               scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return budget_categories.update_category(db, scope_identity(user, scope), category_id, payload)
 
     @app.get('/api/budget/items')
     def budget_items(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None,
@@ -487,8 +500,13 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         current_month = month or local_today(request, user).strftime('%Y-%m')
         month_bounds(current_month)
         with connect(db_path) as db:
-            return [dict(row) for row in db.execute('SELECT id,name,group_name,color,planned_cents FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=? ORDER BY id',
-                                                   (*scope_identity(user, scope), current_month))]
+            identity = scope_identity(user, scope)
+            budget_categories.ensure_categories(db, identity)
+            return [budget_categories.item_payload(row) for row in db.execute('''SELECT i.*,c.name current_group_name,c.color current_color
+                                  FROM budget_items i LEFT JOIN budget_categories c ON c.id=i.budget_category_id
+                                  AND c.household_id=i.household_id AND c.owner_id=i.owner_id AND c.scope=i.scope
+                                  WHERE i.household_id=? AND i.owner_id=? AND i.scope=? AND i.month=? ORDER BY i.id''',
+                                                                               (*identity, current_month))]
 
     @app.post('/api/budget/items', status_code=201)
     def add_budget_item(payload: BudgetItem, request: Request, scope: Literal['household', 'personal'] = 'household',
@@ -496,23 +514,41 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         current_month = month or local_today(request, user).strftime('%Y-%m')
         month_bounds(current_month)
         with connect(db_path) as db:
-            uid = db.execute('INSERT INTO budget_items(household_id,owner_id,scope,month,name,group_name,color,planned_cents) VALUES (?,?,?,?,?,?,?,?)',
-                             (*scope_identity(user, scope), current_month, payload.name.strip(), payload.group_name.strip(), payload.color, payload.planned_cents)).lastrowid
-        return {'id': uid} | payload.model_dump()
+            identity = scope_identity(user, scope)
+            category = budget_categories.resolve_membership(db, identity, category_id=payload.budget_category_id,
+                                                            group_name=payload.group_name, color=payload.color)
+            uid = db.execute('''INSERT INTO budget_items(household_id,owner_id,scope,month,name,group_name,color,planned_cents,budget_category_id)
+                                VALUES (?,?,?,?,?,?,?,?,?)''',
+                             (*identity, current_month, payload.name, category['name'], category['color'],
+                              payload.planned_cents, category['id'])).lastrowid
+            return budget_categories.item_payload(db.execute('SELECT * FROM budget_items WHERE id=?', (uid,)).fetchone(), category)
 
     @app.patch('/api/budget/items/{item_id}')
     def update_budget_item(item_id: int, payload: BudgetPatch, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
-            require_scope_item(db, 'budget_items', item_id, scope_identity(user, scope))
+            identity = scope_identity(user, scope)
+            budget_categories.ensure_categories(db, identity)
+            item = require_scope_item(db, 'budget_items', item_id, identity)
             updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+            if 'budget_category_id' in updates or 'group_name' in updates:
+                category = budget_categories.resolve_membership(db, identity, category_id=updates.get('budget_category_id'),
+                                                                group_name=updates.get('group_name'), color=updates.get('color'), existing=item)
+                updates.pop('group_name', None)
+                updates.pop('color', None)
+                updates.pop('budget_category_id', None)
+                if category['id'] != item['budget_category_id']:
+                    updates.update(budget_category_id=category['id'], group_name=category['name'], color=category['color'])
             if updates:
                 db.execute('UPDATE budget_items SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), item_id))
-            return dict(db.execute('SELECT id,name,group_name,color,planned_cents FROM budget_items WHERE id=?', (item_id,)).fetchone())
+            updated = db.execute('SELECT * FROM budget_items WHERE id=?', (item_id,)).fetchone()
+            return budget_categories.item_payload(updated, budget_categories.require_category(db, identity, updated['budget_category_id']))
 
     @app.delete('/api/budget/items/{item_id}', status_code=204)
     def delete_budget_item(item_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
-            require_scope_item(db, 'budget_items', item_id, scope_identity(user, scope))
+            identity = scope_identity(user, scope)
+            budget_categories.ensure_categories(db, identity)
+            require_scope_item(db, 'budget_items', item_id, identity)
             db.execute('DELETE FROM budget_items WHERE id=?', (item_id,))
         return Response(status_code=204)
 
@@ -523,6 +559,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         identity = scope_identity(user, payload.scope)
         with connect(db_path) as db:
             db.execute('BEGIN IMMEDIATE')
+            budget_categories.ensure_categories(db, identity)
             if db.execute('SELECT 1 FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.to_month)).fetchone():
                 raise HTTPException(409, 'The destination month already has a budget')
             source = db.execute('SELECT 1 FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.from_month)).fetchone()
@@ -530,8 +567,8 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
             income = db.execute('SELECT 1 FROM income_entries WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.from_month)).fetchone()
             if not source and not income:
                 raise HTTPException(404, 'The source month has no budget to copy')
-            db.execute('''INSERT INTO budget_items(household_id,owner_id,scope,month,name,group_name,color,planned_cents)
-                          SELECT household_id,owner_id,scope,?,name,group_name,color,planned_cents FROM budget_items
+            db.execute('''INSERT INTO budget_items(household_id,owner_id,scope,month,name,group_name,color,planned_cents,budget_category_id)
+                          SELECT household_id,owner_id,scope,?,name,group_name,color,planned_cents,budget_category_id FROM budget_items
                           WHERE household_id=? AND owner_id=? AND scope=? AND month=?''', (payload.to_month, *identity, payload.from_month))
             income_plans.copy_monthly_lines(db, identity, payload.from_month, payload.to_month)
             db.execute('INSERT OR IGNORE INTO budget_months(household_id,owner_id,scope,month,income_cents) VALUES (?,?,?,?,0)',

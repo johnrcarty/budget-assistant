@@ -1,18 +1,159 @@
-import { Wallet, Plus, Pencil, Trash2, Leaf, Copy } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Leaf,
+  Copy,
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+} from "lucide-react";
 import { money, monthLabel, colors } from "../lib/format.js";
-import { IconButton, Button, Empty, Progress } from "../components/ui.jsx";
+import { IconButton, Button, Progress } from "../components/ui.jsx";
 import IncomeSection from "../components/IncomeSection.jsx";
+
+function CategoryCard({ category, index, busy, open, deleteItem }) {
+  const items = category.items || [];
+  const color = category.color || colors[index % colors.length];
+  const archived = category.active === false;
+  return (
+    <section className={`card budget-group ${archived ? "is-archived" : ""}`}>
+      <div className="group-heading">
+        <div>
+          <span
+            className="group-symbol"
+            style={{ background: `${color}18`, color }}
+            aria-hidden="true"
+          >
+            <Leaf size={19} />
+          </span>
+          <h2>{category.name}</h2>
+          <span className="item-count">
+            {items.length} item{items.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="group-total">
+          <strong>{money(category.spent_cents)}</strong>
+          <span>of {money(category.planned_cents)} planned</span>
+        </div>
+      </div>
+      {items.length > 0 && (
+        <>
+          <Progress
+            value={category.spent_cents}
+            total={category.planned_cents}
+            color={color}
+          />
+          <div className="budget-column-head">
+            <span>ITEM</span>
+            <span>PLANNED</span>
+            <span>SPENT</span>
+            <span>REMAINING</span>
+            <span />
+          </div>
+          {items.map((item) => (
+            <div className="budget-item" key={item.id}>
+              <div>
+                <span className="item-line" style={{ background: color }} />
+                <strong>{item.name}</strong>
+              </div>
+              <button
+                type="button"
+                className="editable-money"
+                onClick={() =>
+                  open("item", { ...item, budget_category_id: category.id })
+                }
+                aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
+                disabled={busy}
+              >
+                {money(item.planned_cents)}
+                <Pencil size={12} aria-hidden="true" />
+              </button>
+              <span>{money(item.spent_cents)}</span>
+              <span
+                className={
+                  item.planned_cents - item.spent_cents < 0
+                    ? "amount-negative"
+                    : "amount-positive"
+                }
+              >
+                {money(item.planned_cents - item.spent_cents)}
+              </span>
+              <IconButton
+                label={`Delete ${item.name}`}
+                onClick={() => deleteItem("item", item)}
+                disabled={busy}
+              >
+                <Trash2 size={14} />
+              </IconButton>
+            </div>
+          ))}
+        </>
+      )}
+      {(category.historical_item_spent_cents || 0) !== 0 && (
+        <p className="category-history-note">
+          Includes {money(category.historical_item_spent_cents)} in net spending
+          on items planned in other months.
+        </p>
+      )}
+      <div className="category-footer">
+        {archived ? (
+          <Button
+            variant="ghost"
+            icon={ArchiveRestore}
+            onClick={() => open("category-restore", category)}
+            disabled={busy}
+          >
+            Reactivate
+          </Button>
+        ) : (
+          <button
+            type="button"
+            className="group-add"
+            onClick={() => open("item", { budget_category_id: category.id })}
+            aria-label={`Add item to ${category.name}`}
+            disabled={busy}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add item
+          </button>
+        )}
+        <div className="category-actions">
+          <IconButton
+            label={`Edit ${category.name} category`}
+            onClick={() => open("category", category)}
+            disabled={busy}
+          >
+            <Pencil size={16} />
+          </IconButton>
+          {!archived && (
+            <IconButton
+              label={`Archive ${category.name} category`}
+              onClick={() => open("category-archive", category)}
+              disabled={busy}
+            >
+              <Archive size={16} />
+            </IconButton>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Budget({
   scope,
   dash,
   income,
   resetIncome,
-  groups,
+  categories = [],
   month,
   busy,
   open,
   deleteItem,
 }) {
+  const active = categories.filter((category) => category.active !== false);
+  const archived = categories.filter((category) => category.active === false);
   return (
     <>
       <div className="budget-summary">
@@ -36,9 +177,6 @@ export default function Budget({
           <Button variant="secondary" onClick={() => open("copy")} icon={Copy}>
             Copy a month
           </Button>
-          <Button onClick={() => open("item")} icon={Plus}>
-            Add budget item
-          </Button>
         </div>
       </div>
       <IncomeSection
@@ -59,120 +197,60 @@ export default function Budget({
         onRestoreSkipped={(source) => open("income-restore", source)}
       />
       <div className="budget-groups">
-        {groups.map((g, i) => (
-          <section className="card budget-group" key={g.id || g.name}>
-            <div className="group-heading">
-              <div>
-                <span
-                  className="group-symbol"
-                  style={{
-                    background: `${g.color || colors[i % colors.length]}18`,
-                    color: g.color || colors[i % colors.length],
-                  }}
-                >
-                  <Leaf size={19} />
-                </span>
-                <h2>{g.name}</h2>
-                <span className="item-count">{g.items.length} items</span>
-              </div>
-              <div className="group-total">
-                <strong>{money(g.spent_cents)}</strong>
-                <span>of {money(g.planned_cents)} planned</span>
-              </div>
-            </div>
-            <Progress
-              value={g.spent_cents}
-              total={g.planned_cents}
-              color={g.color || colors[i % colors.length]}
-            />
-            <div className="budget-column-head">
-              <span>PURPOSE</span>
-              <span>PLANNED</span>
-              <span>SPENT</span>
-              <span>REMAINING</span>
-              <span />
-            </div>
-            {g.items.map((item) => (
-              <div className="budget-item" key={item.id}>
-                <div>
-                  <span
-                    className="item-line"
-                    style={{
-                      background: g.color || colors[i % colors.length],
-                    }}
-                  />
-                  <strong>{item.name}</strong>
-                </div>
-                <button
-                  className="editable-money"
-                  onClick={() =>
-                    open("item", {
-                      ...item,
-                      group_name: g.name,
-                      color: g.color,
-                    })
-                  }
-                  title={`Edit ${item.name}`}
-                >
-                  {money(item.planned_cents)}
-                  <Pencil size={12} />
-                </button>
-                <span>{money(item.spent_cents)}</span>
-                <span
-                  className={
-                    item.planned_cents - item.spent_cents < 0
-                      ? "amount-negative"
-                      : "amount-positive"
-                  }
-                >
-                  {money(item.planned_cents - item.spent_cents)}
-                </span>
-                <IconButton
-                  label={`Delete ${item.name}`}
-                  onClick={() => deleteItem("item", item)}
-                >
-                  <Trash2 size={14} />
-                </IconButton>
-              </div>
-            ))}
-            <button
-              className="group-add"
-              onClick={() =>
-                open("item", {
-                  group_name: g.name,
-                  color: g.color,
-                })
-              }
-            >
-              <Plus size={15} />
-              Add to {g.name}
-            </button>
-          </section>
-        ))}
-      </div>
-      {!groups.length && (
-        <section className="card">
-          <Empty
-            title={`A fresh plan for ${monthLabel(month).split(" ")[0]}.`}
-            description="Begin with your income, then make room for each purpose. You can also bring last month’s plan along."
-            icon={Wallet}
-            action={
-              <div className="empty-actions">
-                <Button onClick={() => open("income")} icon={Plus}>
-                  Add named income
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => open("copy")}
-                  icon={Copy}
-                >
-                  Copy last month
-                </Button>
-              </div>
-            }
+        {active.map((category, index) => (
+          <CategoryCard
+            key={category.id}
+            category={category}
+            index={index}
+            busy={busy}
+            open={open}
+            deleteItem={deleteItem}
           />
-        </section>
-      )}
+        ))}
+        {archived.length > 0 && (
+          <details
+            className="archived-categories"
+            key={`archived-${month}-${scope}`}
+            open={archived.some(
+              (category) =>
+                category.items?.length > 0 || (category.spent_cents || 0) !== 0,
+            )}
+          >
+            <summary>
+              <Archive size={17} aria-hidden="true" />
+              <span>
+                Archived categories <small>{archived.length}</small>
+              </span>
+              <ChevronDown size={17} aria-hidden="true" />
+            </summary>
+            <p>
+              Items and transactions are kept and still count in this month’s
+              totals.
+            </p>
+            <div className="archived-category-list">
+              {archived.map((category, index) => (
+                <CategoryCard
+                  key={category.id}
+                  category={category}
+                  index={index}
+                  busy={busy}
+                  open={open}
+                  deleteItem={deleteItem}
+                />
+              ))}
+            </div>
+          </details>
+        )}
+        <button
+          type="button"
+          className="category-add"
+          onClick={() => open("category")}
+          disabled={busy}
+        >
+          <Plus size={18} aria-hidden="true" />
+          Add category
+        </button>
+      </div>
     </>
   );
 }

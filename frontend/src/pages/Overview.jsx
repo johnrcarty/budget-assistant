@@ -287,14 +287,14 @@ export default function Overview({
           {!groups.length && (
             <Empty
               title="Start with what matters"
-              description="Build a plan with a few budget items."
+              description="Start with a category, then add its budget items."
               action={
                 <Button
                   variant="secondary"
-                  onClick={() => open("item")}
+                  onClick={() => navigate("budget")}
                   icon={Plus}
                 >
-                  Add an item
+                  Open budget
                 </Button>
               }
             />

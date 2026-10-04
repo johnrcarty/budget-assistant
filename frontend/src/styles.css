@@ -3953,3 +3953,201 @@ h3 {
     white-space: nowrap;
   }
 }
+
+/* Categories stay visible independently of their monthly items. */
+.budget-group .group-heading {
+  gap: 12px;
+  align-items: flex-start;
+}
+.budget-group .group-heading > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.budget-group .group-heading h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.budget-group .group-symbol {
+  flex-shrink: 0;
+}
+.budget-group .group-total {
+  max-width: 45%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.budget-group .group-total > span {
+  color: #68765b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.budget-group .budget-column-head,
+.budget-group .budget-item {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, 0.35fr)) 44px;
+  gap: 14px;
+}
+.budget-group .budget-item > div:first-child {
+  min-width: 0;
+}
+.budget-group .budget-item strong,
+.budget-group .budget-item > span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.budget-group .item-line {
+  flex-shrink: 0;
+}
+.budget-group .editable-money {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  min-height: 44px;
+  flex-wrap: wrap;
+}
+.budget-group .editable-money svg {
+  flex-shrink: 0;
+}
+.budget-group .icon-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+.category-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+}
+.category-footer .group-add {
+  min-height: 44px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: #4d6543;
+}
+.category-footer .button {
+  min-height: 44px;
+  font-size: 13px;
+}
+.category-actions {
+  display: flex;
+  align-items: center;
+}
+.category-add {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 56px;
+  padding: 12px 20px;
+  border: 1px dashed #bdc8af;
+  border-radius: 7px;
+  background: #f7f8ef;
+  color: #4d6543;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.category-add:hover {
+  background: #edf2e3;
+}
+.category-history-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #68765b;
+  margin: 12px 0 0;
+}
+.category-confirm-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #68765b;
+  margin-bottom: 16px;
+}
+.archived-categories > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 0;
+  list-style: none;
+  cursor: pointer;
+  color: #4d6543;
+  font-size: 13px;
+}
+.archived-categories > summary::-webkit-details-marker {
+  display: none;
+}
+.archived-categories > summary::marker {
+  content: "";
+}
+.archived-categories > summary:focus-visible {
+  outline: 2px solid var(--forest);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.archived-categories > summary > span {
+  flex: 1;
+}
+.archived-categories > summary small {
+  font-size: 11px;
+  background: #e9ecdf;
+  padding: 3px 6px;
+  margin-left: 5px;
+  border-radius: 3px;
+}
+.archived-categories[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.archived-categories > p {
+  font-size: 12px;
+  color: #68765b;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.archived-category-list {
+  display: grid;
+  gap: 16px;
+}
+.budget-group.is-archived {
+  background: #faf9f2;
+}
+@media (max-width: 800px) {
+  .budget-group .budget-column-head,
+  .budget-group .budget-item {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.8fr) 44px;
+    gap: 8px;
+  }
+}
+@media (max-width: 640px) {
+  .budget-group .group-heading {
+    gap: 8px;
+  }
+  .budget-group .group-heading > div:first-child {
+    gap: 8px;
+  }
+  .budget-group .group-heading h2 {
+    font-size: 21px;
+  }
+  .budget-group .group-symbol {
+    width: 30px;
+    height: 30px;
+  }
+  .budget-group .group-total {
+    max-width: 42%;
+  }
+  .budget-group .budget-column-head,
+  .budget-group .budget-item {
+    gap: 4px;
+  }
+  .budget-group .editable-money {
+    padding: 6px 4px;
+    gap: 4px;
+  }
+  .budget-group .budget-item,
+  .budget-group .editable-money,
+  .budget-group .budget-item strong {
+    font-size: 12px;
+  }
+  .category-add {
+    padding: 12px 16px;
+  }
+}

@@ -49,16 +49,51 @@ class Member(BaseModel):
 
 class BudgetItem(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    group_name: str = Field(min_length=1, max_length=80)
-    color: str = Field(default='#4f766b', pattern=r'^#[0-9a-fA-F]{6}$')
+    budget_category_id: int | None = Field(default=None, ge=1, strict=True)
+    group_name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
     planned_cents: int = Field(default=0, ge=0, le=10**12, strict=True)
+
+    @field_validator('name', 'group_name')
+    @classmethod
+    def nonblank_text(cls, value):
+        if value is not None:
+            value = value.strip()
+            if not value:
+                raise ValueError('Enter a name')
+        return value
+
+    @model_validator(mode='after')
+    def category_required(self):
+        if self.budget_category_id is None and self.group_name is None:
+            raise ValueError('Choose a budget category')
+        return self
 
 
 class BudgetPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    budget_category_id: int | None = Field(default=None, ge=1, strict=True)
     group_name: str | None = Field(default=None, min_length=1, max_length=80)
     color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
     planned_cents: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+
+    _nonblank_text = field_validator('name', 'group_name')(BudgetItem.nonblank_text.__func__)
+
+
+class BudgetCategory(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default='#4f766b', pattern=r'^#[0-9a-fA-F]{6}$')
+    active: bool = True
+
+    _nonblank_name = field_validator('name')(BudgetItem.nonblank_text.__func__)
+
+
+class BudgetCategoryPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+    active: bool | None = None
+
+    _nonblank_name = field_validator('name')(BudgetItem.nonblank_text.__func__)
 
 
 class BudgetCopy(BaseModel):
