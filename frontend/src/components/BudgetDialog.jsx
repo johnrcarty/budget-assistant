@@ -57,9 +57,12 @@ export default function BudgetDialog({
             "Members share the household and get their own private budget.",
           copy: "Copy your expense plan and undated monthly income. Scheduled paydays are calculated for the new month; dated one-time income is not copied. Income already entered for the new month stays as it is.",
           delete:
-            modal.item?.kind === "bill" && modal.item?.recurrence === "monthly"
-              ? `This “${modal.item?.name}” bill will be removed and future unpaid reminders canceled. Other past or paid occurrences will be kept.`
-              : `“${modal.item?.name || "this item"}” will be removed from this budget.`,
+            modal.item?.kind === "item"
+              ? `“${modal.item?.name || "This item"}” will be removed from this month’s plan. Linked transactions are kept. Reminders can continue while other copies of this item remain; remove its due schedule first if you want to stop future reminders.`
+              : modal.item?.kind === "bill" &&
+                  modal.item?.recurrence === "monthly"
+                ? `This “${modal.item?.name}” bill will be removed and future unpaid reminders canceled. Other past or paid occurrences will be kept.`
+                : `“${modal.item?.name || "this item"}” will be removed from this budget.`,
         }[modal.type]
       }
       onClose={() => !busy && onClose()}

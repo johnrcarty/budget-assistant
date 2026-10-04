@@ -104,7 +104,7 @@ def resolve_membership(db, identity, *, category_id=None, group_name=None, color
 
 
 def item_payload(row, category=None):
-    payload = {key: row[key] for key in ('id', 'name', 'group_name', 'color', 'planned_cents', 'budget_category_id')}
+    payload = {key: row[key] for key in ('id', 'name', 'group_name', 'color', 'planned_cents', 'budget_category_id', 'lineage_id')}
     payload.update(snapshot_group_name=row['group_name'], snapshot_color=row['color'])
     # Keep old clients' display fields in sync with current category metadata,
     # while retaining the original labels both in storage and explicit fields.
@@ -116,7 +116,8 @@ def item_payload(row, category=None):
 
 
 def categories_for(db, identity, month, start, end):
-    ensure_categories(db, identity)
+    from .item_details import ensure_lineages
+    ensure_lineages(db, identity)
     categories = {row['id']: metadata(row) | {'planned_cents': 0, 'spent_cents': 0,
                                              'historical_item_spent_cents': 0, 'items': []}
                   for row in db.execute('''SELECT * FROM budget_categories

@@ -31,12 +31,29 @@ CREATE TABLE IF NOT EXISTS budget_categories (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(household_id,owner_id,scope,name_key)
 );
+CREATE TABLE IF NOT EXISTS budget_item_lineages (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
+    owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
+    bill_recurrence_key TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS budget_item_due_versions (
+    id INTEGER PRIMARY KEY, lineage_id INTEGER NOT NULL REFERENCES budget_item_lineages(id),
+    due_day TEXT, effective_from TEXT NOT NULL, effective_to TEXT,
+    UNIQUE(lineage_id,effective_from)
+);
+CREATE TABLE IF NOT EXISTS budget_item_payment_facts (
+    lineage_id INTEGER NOT NULL REFERENCES budget_item_lineages(id), month TEXT NOT NULL,
+    paid INTEGER NOT NULL DEFAULT 0 CHECK(paid IN (0,1)),
+    PRIMARY KEY(lineage_id,month)
+);
 CREATE TABLE IF NOT EXISTS budget_items (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
     owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
     month TEXT NOT NULL, name TEXT NOT NULL, group_name TEXT NOT NULL,
     color TEXT NOT NULL DEFAULT '#4f766b', planned_cents INTEGER NOT NULL DEFAULT 0,
-    budget_category_id INTEGER REFERENCES budget_categories(id)
+    budget_category_id INTEGER REFERENCES budget_categories(id),
+    lineage_id INTEGER REFERENCES budget_item_lineages(id)
 );
 CREATE TABLE IF NOT EXISTS bills (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
@@ -45,6 +62,7 @@ CREATE TABLE IF NOT EXISTS bills (
     paid INTEGER NOT NULL DEFAULT 0, autopay INTEGER NOT NULL DEFAULT 0,
     recurrence TEXT NOT NULL DEFAULT 'none' CHECK(recurrence IN ('none','monthly')),
     recurrence_key TEXT, recurrence_day INTEGER,
+    budget_item_lineage_id INTEGER REFERENCES budget_item_lineages(id), item_month TEXT,
     UNIQUE(household_id,owner_id,scope,recurrence_key,due_date)
 );
 CREATE TABLE IF NOT EXISTS accounts (
@@ -150,9 +168,19 @@ def initialize(path: str | Path) -> None:
         item_columns = {row['name'] for row in db.execute('PRAGMA table_info(budget_items)')}
         if 'budget_category_id' not in item_columns:
             db.execute('ALTER TABLE budget_items ADD COLUMN budget_category_id INTEGER REFERENCES budget_categories(id)')
+        if 'lineage_id' not in item_columns:
+            db.execute('ALTER TABLE budget_items ADD COLUMN lineage_id INTEGER REFERENCES budget_item_lineages(id)')
         db.execute('CREATE INDEX IF NOT EXISTS idx_item_category ON budget_items(budget_category_id,month)')
         from .categories import ensure_categories
         ensure_categories(db)
+        from .item_details import ensure_lineages
+        ensure_lineages(db)
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_item_lineage_month ON budget_items(lineage_id,month) WHERE lineage_id IS NOT NULL')
+        bill_columns = {row['name'] for row in db.execute('PRAGMA table_info(bills)')}
+        for name, definition in (('budget_item_lineage_id', 'INTEGER REFERENCES budget_item_lineages(id)'), ('item_month', 'TEXT')):
+            if name not in bill_columns:
+                db.execute(f'ALTER TABLE bills ADD COLUMN {name} {definition}')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_bill_item_month ON bills(budget_item_lineage_id,item_month) WHERE budget_item_lineage_id IS NOT NULL')
         columns = {row['name'] for row in db.execute('PRAGMA table_info(transactions)')}
         if 'amount_override_cents' not in columns:
             db.execute('ALTER TABLE transactions ADD COLUMN amount_override_cents INTEGER')

@@ -32,7 +32,7 @@ Compose binds localhost by default; set `BUDGET_BIND_ADDRESS=0.0.0.0` for LAN ac
 - Household members can read and edit the household budget, bills, transactions, and accounts.
 - Each member has a personal scope. Only that member can access its items, accounts, transactions, and bills, including through direct API requests.
 - Personal totals are private by default. An owner may share monthly income, planned amounts, and spending totals. These totals are added to the household picture, while categories and individual records stay private.
-- A month has named expected income and editable budget purposes grouped into categories. Copying a month copies expense plans and undated manual income, with independent items in the destination month. Scheduled income is calculated from the destination month's actual paydays; dated one-time income and transactions stay in their original month.
+- A month has named expected income and editable budget purposes grouped into categories. Copying a month copies expense plans and undated manual income into new monthly item rows. Copied items share a history identity, while planned amounts and paid confirmations remain specific to each month. Scheduled income is calculated from the destination month's actual paydays; dated one-time income and transactions stay in their original month.
 - Money is stored as integer cents. Transactions use positive amounts for inflows and negative amounts for outflows. Categorized positive transactions reduce spending as refunds.
 - Expected income is the amount you enter for planning; imported deposits do not automatically replace that plan. Uncategorized outflows count toward total spending and remain visible in the transaction inbox.
 - Budgets and bill totals currently use USD. Non-USD bank account balances are retained with their currency; their transactions are skipped with a warning to prevent mixing currencies.
@@ -46,6 +46,18 @@ In Budget, use **Add category** at the bottom of the category list, then **Add i
 Edit a category to rename it, change its color, or archive it. Archived categories remain in the stored list and can be reactivated. Archiving preserves their budget items, transactions, and planned totals; existing items stay editable, while adding or moving items into an archived category requires reactivation. Copying a month retains the source plan and category associations, including archived categories with existing items.
 
 Existing group names are carried over automatically, separately for household and personal budgets. Personal category details remain private even when their owner shares aggregate totals. Transaction categorization continues to select a budget item inside a category.
+
+## Budget item details
+
+Tap an item in Budget to open its details from the right. The panel shows the selected month's plan and spending, paid confirmation, linked transactions, and a bar chart for the trailing twelve months ending in the selected month. History uses recorded transactions, includes pending amounts consistently with the budget totals, and treats positive categorized transactions as refunds. Months without spending remain visible.
+
+A due date is optional. Choose a monthly calendar day or the last day of the month; a day such as the 31st clamps in February and returns to the 31st in March. The schedule carries across copied budgets and uses the same bill occurrences as the Bills page and Home Assistant unpaid buckets. An existing bill can be linked explicitly instead of creating another reminder. Paid confirmations apply to one month and remain separate from transaction categorization.
+
+Paid confirmation also works without a due date. Schedule changes take effect from the selected budget month forward. Removing a due schedule stops upcoming unpaid reminders while retaining overdue debt and paid history. Removing the final monthly plan for an item stops its future reminders; deleting one monthly plan leaves the schedule running when other copied plans remain. Linked reminders are managed through the budget item's panel; their paid status can also be changed in Bills.
+
+Link a transaction already in the selected month's scope, or record one from the panel. Reassigning a transaction from another item requires explicit confirmation. Unlinking retains the transaction and its bank identifiers and amount corrections. Budget item amounts use USD; transaction linking rejects accounts in other currencies.
+
+History follows the stable identity retained when an item is copied, including later name changes. Older monthly items start with separate identities because previous releases did not record which item was copied; migration preserves their IDs and transaction associations instead of guessing relationships from matching names.
 
 ## Income and pay schedules
 

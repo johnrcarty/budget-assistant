@@ -24,6 +24,7 @@ import { IconButton, Button, Brand, PageHeading } from "./components/ui.jsx";
 import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
 import CategoryDialog from "./components/CategoryDialog.jsx";
+import ItemDetails from "./components/ItemDetails.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
 import Overview from "./pages/Overview.jsx";
 import Budget from "./pages/Budget.jsx";
@@ -52,6 +53,7 @@ export default function App() {
     [loading, setLoading] = useState(false),
     [loadError, setLoadError] = useState(""),
     [modal, setModal] = useState(null),
+    [selectedItem, setSelectedItem] = useState(null),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState(""),
     [toast, setToast] = useState(null),
@@ -141,6 +143,7 @@ export default function App() {
     reloadSequence.current++;
     setData(null);
     setModal(null);
+    setSelectedItem(null);
     setScope(next);
   }
   function changeMonth(next) {
@@ -148,6 +151,7 @@ export default function App() {
     reloadSequence.current++;
     setData(null);
     setModal(null);
+    setSelectedItem(null);
     setMonth(next);
   }
   function notify(text) {
@@ -155,7 +159,12 @@ export default function App() {
   }
   function open(type, item = null) {
     setFormError("");
+    setSelectedItem(null);
     setModal({ type, item });
+  }
+  function openItemDetails(item) {
+    setModal(null);
+    setSelectedItem(item);
   }
   async function mutate(path, method, body, message, close = true) {
     setBusy(true);
@@ -462,6 +471,7 @@ export default function App() {
     setUser(null);
     setData(null);
     setHaToken(null);
+    setSelectedItem(null);
   }
   const dash = data?.dashboard || {},
     groups = dash.groups || [],
@@ -509,6 +519,8 @@ export default function App() {
     haToken,
     navigate,
     open,
+    openItemDetails,
+    openBillBudget,
     paid,
     deleteItem,
     sync,
@@ -519,8 +531,13 @@ export default function App() {
     resetIncome,
   };
   function navigate(id) {
+    setSelectedItem(null);
     setTab(id);
     setMobileNav(false);
+  }
+  function openBillBudget(bill) {
+    if (bill.item_month) changeMonth(bill.item_month);
+    navigate("budget");
   }
   if (authError)
     return (
@@ -711,6 +728,21 @@ export default function App() {
             <X size={16} />
           </IconButton>
         </div>
+      )}
+      {selectedItem && (
+        <ItemDetails
+          key={`${scope}-${month}-${selectedItem.id}`}
+          initialItem={selectedItem}
+          scope={scope}
+          month={month}
+          user={user}
+          transactions={transactions}
+          accounts={accounts}
+          onClose={() => setSelectedItem(null)}
+          onEditItem={(item) => open("item", item)}
+          onChanged={reload}
+          notify={notify}
+        />
       )}
       {modal?.type.startsWith("income") ? (
         <IncomeDialog

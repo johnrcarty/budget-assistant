@@ -31,6 +31,7 @@ export default function Bills({
   haToken,
   navigate,
   open,
+  openBillBudget,
   paid,
   deleteItem,
   sync,
@@ -103,6 +104,7 @@ export default function Bills({
                               ? "Monthly"
                               : "One time"}
                             {b.autopay ? " · Autopay" : ""}
+                            {b.source === "budget_item" ? " · Budget item" : ""}
                           </small>
                         </div>
                       </div>
@@ -135,18 +137,29 @@ export default function Bills({
                         >
                           {b.paid ? "Undo" : "Mark paid"}
                         </Button>
-                        <IconButton
-                          label={`Edit ${b.name}`}
-                          onClick={() => open("bill", b)}
-                        >
-                          <Pencil size={15} />
-                        </IconButton>
-                        <IconButton
-                          label={`Delete ${b.name}`}
-                          onClick={() => deleteItem("bill", b)}
-                        >
-                          <Trash2 size={15} />
-                        </IconButton>
+                        {b.source === "budget_item" ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => openBillBudget(b)}
+                          >
+                            Open budget
+                          </Button>
+                        ) : (
+                          <>
+                            <IconButton
+                              label={`Edit ${b.name}`}
+                              onClick={() => open("bill", b)}
+                            >
+                              <Pencil size={15} />
+                            </IconButton>
+                            <IconButton
+                              label={`Delete ${b.name}`}
+                              onClick={() => deleteItem("bill", b)}
+                            >
+                              <Trash2 size={15} />
+                            </IconButton>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

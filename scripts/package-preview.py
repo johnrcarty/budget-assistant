@@ -14,7 +14,7 @@ FILES = (
     '.dockerignore', 'Dockerfile', 'config.yaml',
     'backend/__init__.py', 'backend/app.py', 'backend/database.py',
     'backend/demo.py', 'backend/models.py', 'backend/requirements.txt',
-    'backend/income.py', 'backend/categories.py',
+    'backend/income.py', 'backend/categories.py', 'backend/item_details.py',
     'backend/simplefin.py',
     'frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json',
     'frontend/vite.config.js',

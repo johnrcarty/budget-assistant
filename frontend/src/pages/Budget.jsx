@@ -12,7 +12,14 @@ import { money, monthLabel, colors } from "../lib/format.js";
 import { IconButton, Button, Progress } from "../components/ui.jsx";
 import IncomeSection from "../components/IncomeSection.jsx";
 
-function CategoryCard({ category, index, busy, open, deleteItem }) {
+function CategoryCard({
+  category,
+  index,
+  busy,
+  open,
+  openItemDetails,
+  deleteItem,
+}) {
   const items = category.items || [];
   const color = category.color || colors[index % colors.length];
   const archived = category.active === false;
@@ -53,10 +60,25 @@ function CategoryCard({ category, index, busy, open, deleteItem }) {
           </div>
           {items.map((item) => (
             <div className="budget-item" key={item.id}>
-              <div>
+              <button
+                type="button"
+                className="budget-item-open"
+                aria-label={`View ${item.name} item details`}
+                onClick={() =>
+                  openItemDetails({
+                    ...item,
+                    budget_category_id: category.id,
+                    group_name: category.name,
+                    color,
+                  })
+                }
+                disabled={busy}
+              >
                 <span className="item-line" style={{ background: color }} />
-                <strong>{item.name}</strong>
-              </div>
+                <span>
+                  <strong>{item.name}</strong>
+                </span>
+              </button>
               <button
                 type="button"
                 className="editable-money"
@@ -150,6 +172,7 @@ export default function Budget({
   month,
   busy,
   open,
+  openItemDetails,
   deleteItem,
 }) {
   const active = categories.filter((category) => category.active !== false);
@@ -204,6 +227,7 @@ export default function Budget({
             index={index}
             busy={busy}
             open={open}
+            openItemDetails={openItemDetails}
             deleteItem={deleteItem}
           />
         ))}
@@ -235,6 +259,7 @@ export default function Budget({
                   index={index}
                   busy={busy}
                   open={open}
+                  openItemDetails={openItemDetails}
                   deleteItem={deleteItem}
                 />
               ))}

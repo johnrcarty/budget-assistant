@@ -96,6 +96,37 @@ class BudgetCategoryPatch(BaseModel):
     _nonblank_name = field_validator('name')(BudgetItem.nonblank_text.__func__)
 
 
+class ItemDue(BaseModel):
+    due_day: int | Literal['last'] | None
+    existing_bill_id: int | None = Field(default=None, ge=1, strict=True)
+
+    @field_validator('due_day', mode='before')
+    @classmethod
+    def valid_day(cls, value):
+        if value is not None and value != 'last' and (type(value) is not int or not 1 <= value <= 31):
+            raise ValueError('Choose a day between 1 and 31, or last')
+        return value
+
+
+class ItemPayment(BaseModel):
+    paid: bool
+
+
+class ItemTransactionLink(BaseModel):
+    replace_existing: bool = False
+
+
+class ItemTransaction(BaseModel):
+    description: str = Field(min_length=1, max_length=300)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+    date: CalendarDate
+    account_name: str = Field(default='Manual entry', min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    pending: bool = False
+
+    _nonblank_text = field_validator('description', 'account_name')(BudgetItem.nonblank_text.__func__)
+
+
 class BudgetCopy(BaseModel):
     from_month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     to_month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
