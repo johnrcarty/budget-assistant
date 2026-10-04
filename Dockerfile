@@ -6,7 +6,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.11-slim-bookworm
-ARG BUILD_VERSION=0.2.0
+ARG BUILD_VERSION=0.2.1
 ARG BUILD_ARCH=aarch64
 LABEL io.hass.version="${BUILD_VERSION}" \
       io.hass.type="app" \

@@ -641,17 +641,18 @@ export default function App() {
           </div>
         </div>
         <div className="page-content">
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">
-                {scope === "household"
-                  ? "THE BIG PICTURE"
-                  : "YOUR OWN QUIET CORNER"}
-              </p>
-              <h1>
-                {tab === "overview"
-                  ? "Make room for living."
-                  : tab === "budget"
+          {tab === "overview" ? (
+            <h1 className="sr-only">Overview</h1>
+          ) : (
+            <div className="page-heading">
+              <div>
+                <p className="eyebrow">
+                  {scope === "household"
+                    ? "THE BIG PICTURE"
+                    : "YOUR OWN QUIET CORNER"}
+                </p>
+                <h1>
+                  {tab === "budget"
                     ? "Make a plan for what matters."
                     : tab === "bills"
                       ? "One less thing to remember."
@@ -660,11 +661,9 @@ export default function App() {
                         : tab === "accounts"
                           ? "Everything, in its place."
                           : "Make yourself at home."}
-              </h1>
-              <p>
-                {tab === "overview"
-                  ? "A thoughtful look at your money, all in one place."
-                  : tab === "budget"
+                </h1>
+                <p>
+                  {tab === "budget"
                     ? "A plan for the things you need, and the things you love."
                     : tab === "bills"
                       ? "Keep your home running, with a clear view of what’s due."
@@ -673,13 +672,14 @@ export default function App() {
                         : tab === "accounts"
                           ? "Your balances, connected and close to home."
                           : "Your connections, your household, your preferences."}
-              </p>
+                </p>
+              </div>
+              <div className="heading-leaf" aria-hidden="true">
+                <div />
+                <Leaf size={33} strokeWidth={1.1} />
+              </div>
             </div>
-            <div className="heading-leaf" aria-hidden="true">
-              <div />
-              <Leaf size={33} strokeWidth={1.1} />
-            </div>
-          </div>
+          )}
           <div className="view-toolbar">
             <div
               className="scope-toggle"
