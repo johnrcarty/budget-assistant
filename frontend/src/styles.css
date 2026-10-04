@@ -372,47 +372,6 @@ h3 {
   margin-top: auto;
   padding-top: 36px;
 }
-.home-note {
-  border: 1px solid #dedfce;
-  background: #eeeee1;
-  border-radius: 6px;
-  padding: 24px 19px 18px;
-  position: relative;
-  overflow: hidden;
-  margin: 0 4px 27px;
-}
-.home-note > svg {
-  color: #5e7151;
-  margin-bottom: 10px;
-  position: relative;
-}
-.home-note p {
-  font-family: var(--serif);
-  font-size: 20px;
-  line-height: 1.3;
-  margin-bottom: 10px;
-  color: #627051;
-  position: relative;
-}
-.home-note p strong {
-  font-weight: 400;
-  color: #445b3c;
-}
-.home-note > span {
-  font-size: 9px;
-  color: #96967d;
-  position: relative;
-}
-.home-note-sun {
-  position: absolute;
-  width: 85px;
-  height: 85px;
-  border-radius: 50%;
-  right: -23px;
-  top: -26px;
-  background: #d9c483;
-  opacity: 0.35;
-}
 .sidebar-user {
   display: flex;
   align-items: center;

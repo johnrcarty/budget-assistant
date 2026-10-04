@@ -581,16 +581,6 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="home-note">
-            <div className="home-note-sun" />
-            <Leaf size={20} />
-            <p>
-              A little planning.
-              <br />
-              <strong>A lot more living.</strong>
-            </p>
-            <span>Let your money feel at home.</span>
-          </div>
           <div className="sidebar-user">
             <span className="avatar">{user.display_name?.[0] || "Y"}</span>
             <div>
