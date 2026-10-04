@@ -7,13 +7,10 @@ import {
   ArrowLeftRight,
   Landmark,
   Settings,
-  ChevronLeft,
   ChevronRight,
   X,
   RefreshCw,
   Leaf,
-  LockKeyhole,
-  Users,
   LogOut,
   Menu,
   CheckCircle2,
@@ -22,14 +19,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api, getToken, setToken } from "./lib/api.js";
-import {
-  today,
-  thisMonth,
-  monthLabel,
-  stepMonth,
-  cents,
-} from "./lib/format.js";
-import { IconButton, Button, Brand } from "./components/ui.jsx";
+import { today, thisMonth, monthLabel, cents } from "./lib/format.js";
+import { IconButton, Button, Brand, PageHeading } from "./components/ui.jsx";
 import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
@@ -631,101 +622,17 @@ export default function App() {
           </div>
         </div>
         <div className="page-content">
-          {tab === "overview" ? (
-            <h1 className="sr-only">Overview</h1>
-          ) : (
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">
-                  {scope === "household"
-                    ? "THE BIG PICTURE"
-                    : "YOUR OWN QUIET CORNER"}
-                </p>
-                <h1>
-                  {tab === "budget"
-                    ? "Make a plan for what matters."
-                    : tab === "bills"
-                      ? "One less thing to remember."
-                      : tab === "transactions"
-                        ? "The little things add up."
-                        : tab === "accounts"
-                          ? "Everything, in its place."
-                          : "Make yourself at home."}
-                </h1>
-                <p>
-                  {tab === "budget"
-                    ? "A plan for the things you need, and the things you love."
-                    : tab === "bills"
-                      ? "Keep your home running, with a clear view of what’s due."
-                      : tab === "transactions"
-                        ? "A clear trail of what came in and what went out."
-                        : tab === "accounts"
-                          ? "Your balances, connected and close to home."
-                          : "Your connections, your household, your preferences."}
-                </p>
-              </div>
-              <div className="heading-leaf" aria-hidden="true">
-                <div />
-                <Leaf size={33} strokeWidth={1.1} />
-              </div>
-            </div>
-          )}
-          <div className="view-toolbar">
-            <div
-              className="scope-toggle"
-              role="group"
-              aria-label="Budget visibility"
-            >
-              <button
-                className={scope === "household" ? "selected" : ""}
-                onClick={() => changeScope("household")}
-              >
-                <Users size={15} />
-                Household
-              </button>
-              <button
-                className={scope === "personal" ? "selected" : ""}
-                onClick={() => changeScope("personal")}
-              >
-                <LockKeyhole size={14} />
-                My budget
-              </button>
-            </div>
-            {["overview", "budget", "transactions"].includes(tab) && (
-              <div className="month-picker">
-                <IconButton
-                  label="Previous month"
-                  onClick={() => changeMonth(stepMonth(month, -1))}
-                >
-                  <ChevronLeft size={16} />
-                </IconButton>
-                <label>
-                  <CalendarDays size={15} />
-                  <span>{monthLabel(month)}</span>
-                  <input
-                    type="month"
-                    aria-label="Choose month"
-                    value={month}
-                    onChange={(e) =>
-                      e.target.value && changeMonth(e.target.value)
-                    }
-                  />
-                </label>
-                <IconButton
-                  label="Next month"
-                  onClick={() => changeMonth(stepMonth(month, 1))}
-                >
-                  <ChevronRight size={16} />
-                </IconButton>
-              </div>
-            )}
-            {scope === "personal" && (
-              <span className="privacy-note">
-                <LockKeyhole size={12} />
-                Only you can see these details
-              </span>
-            )}
-          </div>
+          <PageHeading
+            title={
+              navItems.find((item) => item.id === tab)?.label ||
+              "BudgetAssistant"
+            }
+            scope={scope}
+            month={month}
+            showMonth={["overview", "budget", "transactions"].includes(tab)}
+            onScopeChange={changeScope}
+            onMonthChange={changeMonth}
+          />
           {loadError && (
             <div className="error-banner" role="alert">
               <AlertCircle size={18} />

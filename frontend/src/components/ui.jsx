@@ -2,13 +2,17 @@ import { useEffect, useRef } from "react";
 import {
   Home,
   ArrowLeftRight,
+  ChevronLeft,
   ChevronRight,
+  CalendarDays,
+  Users,
+  LockKeyhole,
   ArrowUpRight,
   X,
   Leaf,
   LoaderCircle,
 } from "lucide-react";
-import { money, prettyDate } from "../lib/format.js";
+import { money, prettyDate, monthLabel, stepMonth } from "../lib/format.js";
 export function IconButton({
   label,
   children,
@@ -50,6 +54,98 @@ export function Button({
       ) : null}
       {children}
     </button>
+  );
+}
+export function PageHeading({
+  title,
+  scope,
+  month,
+  showMonth,
+  onScopeChange,
+  onMonthChange,
+}) {
+  const fullMonth = monthLabel(month);
+  const shortMonth = new Date(`${month}-15T12:00:00`).toLocaleDateString(
+    "en-US",
+    { month: "short", year: "numeric" },
+  );
+  return (
+    <>
+      <h1 className="sr-only">{title}</h1>
+      <div className="view-toolbar page-controls">
+        <div
+          className="scope-toggle"
+          role="group"
+          aria-label="Budget visibility"
+        >
+          <button
+            type="button"
+            className={scope === "household" ? "selected" : ""}
+            aria-label="Home household budget"
+            aria-pressed={scope === "household"}
+            onClick={() => onScopeChange("household")}
+          >
+            <Users size={15} aria-hidden="true" />
+            <span className="control-wide-label">Household</span>
+            <span className="control-mobile-label" aria-hidden="true">
+              Home
+            </span>
+          </button>
+          <button
+            type="button"
+            className={scope === "personal" ? "selected" : ""}
+            aria-label="My budget, personal"
+            aria-pressed={scope === "personal"}
+            onClick={() => onScopeChange("personal")}
+          >
+            <LockKeyhole size={14} aria-hidden="true" />
+            <span className="control-wide-label">My budget</span>
+            <span className="control-mobile-label" aria-hidden="true">
+              Personal
+            </span>
+          </button>
+        </div>
+        {showMonth && (
+          <div className="month-picker">
+            <IconButton
+              label={`Previous month, ${monthLabel(stepMonth(month, -1))}`}
+              onClick={() => onMonthChange(stepMonth(month, -1))}
+            >
+              <ChevronLeft size={16} />
+            </IconButton>
+            <label>
+              <CalendarDays size={15} aria-hidden="true" />
+              <span className="control-wide-label" aria-hidden="true">
+                {fullMonth}
+              </span>
+              <span className="control-mobile-label" aria-hidden="true">
+                {shortMonth}
+              </span>
+              <input
+                type="month"
+                aria-label={`Choose month, ${fullMonth}`}
+                value={month}
+                onChange={(e) =>
+                  e.target.value && onMonthChange(e.target.value)
+                }
+              />
+            </label>
+            <IconButton
+              label={`Next month, ${monthLabel(stepMonth(month, 1))}`}
+              onClick={() => onMonthChange(stepMonth(month, 1))}
+            >
+              <ChevronRight size={16} />
+            </IconButton>
+          </div>
+        )}
+        {scope === "personal" && (
+          <span className="privacy-note">
+            <LockKeyhole size={12} aria-hidden="true" />
+            Only you can see these details
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 export function Empty({ icon: Icon = Leaf, title, description, action }) {
