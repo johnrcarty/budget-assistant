@@ -1,30 +1,19 @@
 import {
   Plus,
   Pencil,
-  Trash2,
   Leaf,
   Copy,
   Archive,
   ArchiveRestore,
   ChevronDown,
   CreditCard,
-  Settings2,
 } from "lucide-react";
 import { money, monthLabel, prettyDate, colors } from "../lib/format.js";
 import { budgetDueDates, sortBudgetItems } from "../lib/budget.js";
 import { IconButton, Button, Progress } from "../components/ui.jsx";
 import IncomeSection from "../components/IncomeSection.jsx";
 
-function CategoryCard({
-  category,
-  index,
-  busy,
-  open,
-  openItemDetails,
-  openAccountDetails,
-  accounts = [],
-  deleteItem,
-}) {
+function CategoryCard({ category, index, busy, open, openItemDetails }) {
   const items = sortBudgetItems(category.items || []);
   const color = category.color || colors[index % colors.length];
   const archived = category.active === false;
@@ -64,31 +53,31 @@ function CategoryCard({
             total={category.planned_cents}
             color={color}
           />
-          <div className="budget-column-head">
-            <span>ITEM</span>
-            <span>PLANNED</span>
-            <span>SPENT</span>
-            <span>REMAINING</span>
-            <span />
+          <div className="budget-column-head budget-ledger-head">
+            <span>Item</span>
+            <span>Planned</span>
+            <span>Actual</span>
+            <span>Remaining</span>
           </div>
           {items.map((item) => {
             const dueDates = budgetDueDates(item);
             return (
-              <div className="budget-item" key={item.id}>
-                <button
-                  type="button"
-                  className="budget-item-open"
-                  aria-label={`View ${item.name} item details${dueDates.length ? `, due ${dueDates.map(prettyDate).join(", ")}` : ""}`}
-                  onClick={() =>
-                    openItemDetails({
-                      ...item,
-                      budget_category_id: category.id,
-                      group_name: category.name,
-                      color,
-                    })
-                  }
-                  disabled={busy}
-                >
+              <button
+                type="button"
+                className="budget-item budget-row"
+                key={item.id}
+                aria-label={`View ${item.name} item details, planned ${money(item.planned_cents)}, actual ${money(item.spent_cents)}, remaining ${money(item.planned_cents - item.spent_cents)}${dueDates.length ? `, due ${dueDates.map(prettyDate).join(", ")}` : ""}`}
+                onClick={() =>
+                  openItemDetails({
+                    ...item,
+                    budget_category_id: category.id,
+                    group_name: category.name,
+                    color,
+                  })
+                }
+                disabled={busy}
+              >
+                <span className="budget-row-name">
                   <span className="item-line" style={{ background: color }} />
                   <span className="budget-item-name">
                     <strong>{item.name}</strong>
@@ -108,64 +97,32 @@ function CategoryCard({
                       </small>
                     ) : null}
                   </span>
-                </button>
-                {item.managed ? (
-                  <span className="managed-planned">
-                    {money(item.planned_cents)}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="editable-money"
-                    onClick={() =>
-                      open("item", { ...item, budget_category_id: category.id })
-                    }
-                    aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
-                    disabled={busy}
-                  >
-                    {money(item.planned_cents)}
-                    <Pencil size={12} aria-hidden="true" />
-                  </button>
-                )}
-                <span>{money(item.spent_cents)}</span>
+                </span>
+                <span className="budget-row-amount">
+                  <small className="budget-amount-label" aria-hidden="true">
+                    Planned
+                  </small>
+                  <span>{money(item.planned_cents)}</span>
+                </span>
+                <span className="budget-row-amount">
+                  <small className="budget-amount-label" aria-hidden="true">
+                    Actual
+                  </small>
+                  <span>{money(item.spent_cents)}</span>
+                </span>
                 <span
-                  className={
+                  className={`budget-row-amount ${
                     item.planned_cents - item.spent_cents < 0
                       ? "amount-negative"
                       : "amount-positive"
-                  }
+                  }`}
                 >
-                  {money(item.planned_cents - item.spent_cents)}
+                  <small className="budget-amount-label" aria-hidden="true">
+                    Remaining
+                  </small>
+                  <span>{money(item.planned_cents - item.spent_cents)}</span>
                 </span>
-                {item.managed ? (
-                  <IconButton
-                    label={`Configure ${item.name} in Accounts`}
-                    onClick={() =>
-                      openAccountDetails(
-                        accounts.find(
-                          (account) => account.id === item.managed_account_id,
-                        ),
-                      )
-                    }
-                    disabled={
-                      busy ||
-                      !accounts.some(
-                        (account) => account.id === item.managed_account_id,
-                      )
-                    }
-                  >
-                    <Settings2 size={16} />
-                  </IconButton>
-                ) : (
-                  <IconButton
-                    label={`Delete ${item.name}`}
-                    onClick={() => deleteItem("item", item)}
-                    disabled={busy}
-                  >
-                    <Trash2 size={14} />
-                  </IconButton>
-                )}
-              </div>
+              </button>
             );
           })}
         </>
@@ -238,9 +195,6 @@ export default function Budget({
   busy,
   open,
   openItemDetails,
-  openAccountDetails,
-  accounts,
-  deleteItem,
 }) {
   const active = categories.filter(
     (category) => category.active !== false && !category.managed,
@@ -300,9 +254,6 @@ export default function Budget({
             busy={busy}
             open={open}
             openItemDetails={openItemDetails}
-            openAccountDetails={openAccountDetails}
-            accounts={accounts}
-            deleteItem={deleteItem}
           />
         ))}
         {archived.length > 0 && (
@@ -334,9 +285,6 @@ export default function Budget({
                   busy={busy}
                   open={open}
                   openItemDetails={openItemDetails}
-                  openAccountDetails={openAccountDetails}
-                  accounts={accounts}
-                  deleteItem={deleteItem}
                 />
               ))}
             </div>
@@ -350,9 +298,6 @@ export default function Budget({
             busy={busy}
             open={open}
             openItemDetails={openItemDetails}
-            openAccountDetails={openAccountDetails}
-            accounts={accounts}
-            deleteItem={deleteItem}
           />
         ))}
         <button

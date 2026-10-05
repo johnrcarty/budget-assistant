@@ -6173,3 +6173,143 @@ h3 {
     min-width: 44px;
   }
 }
+
+/* A budget item is one drawer target; its three figures are plain text. */
+.budget-group .budget-ledger-head,
+.budget-group .budget-row {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, 0.6fr));
+  gap: 16px;
+}
+.budget-group .budget-ledger-head {
+  font-size: 11px;
+  letter-spacing: 0;
+  color: #62735b;
+}
+.budget-group .budget-ledger-head > span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.budget-group .budget-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  margin: 0;
+  padding: 14px 0;
+  align-items: start;
+  border: 0;
+  border-bottom: 1px solid #e9ebdf;
+  border-radius: 0;
+  background: transparent;
+  color: #303b33;
+  text-align: left;
+  font-size: 14px;
+}
+.budget-group .budget-row:hover {
+  background: #edf2e133;
+}
+.budget-group .budget-row:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: -2px;
+}
+.budget-group .budget-row > span {
+  display: block;
+  min-width: 0;
+  text-align: right;
+}
+.budget-group .budget-row > .budget-row-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+.budget-row-name .item-line {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.budget-row .budget-item-name {
+  display: block;
+  min-width: 0;
+}
+.budget-group .budget-row .budget-item-name > strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.budget-row .budget-item-dates {
+  margin-top: 5px;
+}
+.budget-row-amount > span {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.budget-row-amount.amount-negative {
+  color: #9f563d;
+}
+.budget-amount-label {
+  display: none;
+}
+@media (max-width: 640px) {
+  .budget-group .budget-ledger-head {
+    display: none;
+  }
+  .budget-group .budget-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px 12px;
+    padding: 13px 0;
+    font-size: 13px;
+  }
+  .budget-group .budget-row > .budget-row-name {
+    grid-column: 1 / -1;
+  }
+  .budget-group .budget-row .budget-item-name > strong {
+    font-size: 13px;
+  }
+  .budget-amount-label {
+    display: block;
+    color: #62735b;
+    font-size: 11px;
+    line-height: 1.5;
+    font-weight: 400;
+    margin-bottom: 2px;
+  }
+}
+
+.item-settings-section {
+  scroll-margin-top: 110px;
+}
+.item-settings-form .field {
+  margin-bottom: 12px;
+}
+.item-settings-form .form-grid {
+  gap: 10px;
+}
+.item-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.item-settings-actions .button {
+  min-height: 44px;
+}
+.item-remove-confirmation {
+  margin-top: 14px;
+  padding: 14px;
+  background: #f9eee8;
+  border: 1px solid #e7d3c8;
+  border-radius: 6px;
+}
+.item-remove-confirmation p {
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.item-drawer .item-settings-remove {
+  color: #9b5044;
+}

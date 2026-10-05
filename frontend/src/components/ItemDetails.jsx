@@ -11,11 +11,13 @@ import {
   LoaderCircle,
   AlertCircle,
   Clock3,
+  Trash2,
 } from "lucide-react";
 import { api } from "../lib/api.js";
 import { cents, money, monthLabel, prettyDate, today } from "../lib/format.js";
 import { Button, Field, IconButton } from "./ui.jsx";
 import ItemSpendingChart from "./ItemSpendingChart.jsx";
+import BudgetItemFields, { itemCategoriesFor } from "./BudgetItemFields.jsx";
 
 export default function ItemDetails({
   initialItem,
@@ -24,13 +26,14 @@ export default function ItemDetails({
   user,
   transactions,
   accounts,
+  categories = [],
   onClose,
-  onEditItem,
   onChanged,
   notify,
   onOpenAccount,
 }) {
   const dialog = useRef(null);
+  const settings = useRef(null);
   const mounted = useRef(false);
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +48,7 @@ export default function ItemDetails({
   const [search, setSearch] = useState("");
   const [selectedTransaction, setSelectedTransaction] = useState("");
   const [confirmMove, setConfirmMove] = useState(false);
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const path = `budget/items/${initialItem.id}`;
   const query = `scope=${scope}&month=${month}`;
 
@@ -57,6 +61,12 @@ export default function ItemDetails({
       dialog.current?.close();
       document.body.style.overflow = previousOverflow;
       if (previous?.isConnected) previous.focus();
+      else
+        document
+          .querySelector(
+            ".budget-row:not(:disabled), .group-add:not(:disabled)",
+          )
+          ?.focus();
     };
   }, []);
   useEffect(() => {
@@ -130,6 +140,60 @@ export default function ItemDetails({
     } finally {
       if (mounted.current) setBusy(false);
     }
+  }
+  async function saveItem(event) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    setBusy(true);
+    setError("");
+    setErrorSection("settings");
+    let saved = false;
+    try {
+      await api(`${path}?${query}`, {
+        method: "PATCH",
+        body: {
+          name: values.name,
+          budget_category_id: Number(values.budget_category_id),
+          planned_cents: cents(values.amount),
+        },
+      });
+      saved = true;
+      const result = await api(`${path}/details?${query}`);
+      if (mounted.current) setDetails(result);
+      notify("Budget item updated.");
+      await onChanged();
+    } catch (failure) {
+      if (mounted.current)
+        setError(
+          saved
+            ? "The item was saved, but its details could not be refreshed. Close and reopen it to see the update."
+            : failure.message,
+        );
+      if (saved) await onChanged();
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function removeItem() {
+    setBusy(true);
+    setError("");
+    setErrorSection("settings");
+    try {
+      await api(`${path}?${query}`, { method: "DELETE" });
+      notify("Budget item removed. Linked transactions are kept.");
+      await onChanged();
+      onClose();
+    } catch (failure) {
+      if (mounted.current) setError(failure.message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  function focusSettings() {
+    settings.current?.scrollIntoView({ block: "nearest" });
+    settings.current
+      ?.querySelector('input[name="name"]')
+      ?.focus({ preventScroll: true });
   }
   async function saveDue(event) {
     event.preventDefault();
@@ -290,7 +354,7 @@ export default function ItemDetails({
             onClick={() =>
               managed
                 ? onOpenAccount?.(item.managed_account_id)
-                : onEditItem(item)
+                : focusSettings()
             }
             disabled={busy || !details || (managed && !managedAccountAvailable)}
           >
@@ -330,7 +394,7 @@ export default function ItemDetails({
                 <strong>{money(item.planned_cents)}</strong>
               </div>
               <div>
-                <span>Net spent</span>
+                <span>Actual</span>
                 <strong>{money(item.spent_cents)}</strong>
               </div>
               <div>
@@ -351,6 +415,74 @@ export default function ItemDetails({
                 <Clock3 size={14} />
                 Includes {money(pending)} in pending net spending.
               </p>
+            )}
+            {!managed && (
+              <section
+                ref={settings}
+                className="item-drawer-section item-settings-section"
+                aria-labelledby="item-settings-title"
+              >
+                <div className="drawer-section-heading">
+                  <h3 id="item-settings-title">Item settings</h3>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="item-settings-remove"
+                    icon={Trash2}
+                    disabled={busy || confirmRemoval}
+                    onClick={() => setConfirmRemoval(true)}
+                  >
+                    Remove item
+                  </Button>
+                </div>
+                <form
+                  key={`${item.id}-${item.name}-${item.budget_category_id}-${item.planned_cents}`}
+                  className="item-settings-form"
+                  onSubmit={saveItem}
+                >
+                  <fieldset disabled={busy || confirmRemoval}>
+                    <BudgetItemFields item={item} categories={categories} />
+                    <div className="item-settings-actions">
+                      <Button
+                        type="submit"
+                        busy={busy}
+                        disabled={!itemCategoriesFor(categories, item).length}
+                      >
+                        Save item
+                      </Button>
+                    </div>
+                  </fieldset>
+                </form>
+                {confirmRemoval && (
+                  <div className="item-remove-confirmation">
+                    <p>
+                      Remove “{item.name}” from {monthLabel(month)}? Linked
+                      transactions are kept with no assigned item. Reminders can
+                      continue for other monthly copies.
+                    </p>
+                    <div className="item-settings-actions">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => setConfirmRemoval(false)}
+                      >
+                        Keep item
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        icon={Trash2}
+                        busy={busy}
+                        onClick={removeItem}
+                      >
+                        Remove item
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {operationError("settings")}
+              </section>
             )}
             {managed ? (
               <section

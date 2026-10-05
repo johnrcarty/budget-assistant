@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button, Field, Modal } from "./ui.jsx";
 import { today, stepMonth, cents } from "../lib/format.js";
+import BudgetItemFields, { itemCategoriesFor } from "./BudgetItemFields.jsx";
 export default function BudgetDialog({
   modal,
   user,
@@ -65,21 +66,7 @@ export default function BudgetDialog({
       ? modal.item?.currency
       : "USD") ||
     "USD";
-  const itemCategories = categories
-    .filter(
-      (category) =>
-        category.active !== false ||
-        (modal.item?.id && category.id === modal.item.budget_category_id),
-    )
-    .filter((category) => !category.managed);
-  const currentCategory = categories.find(
-    (category) => category.id === modal.item?.budget_category_id,
-  );
-  const selectedCategory = itemCategories.some(
-    (category) => category.id === modal.item?.budget_category_id,
-  )
-    ? modal.item.budget_category_id
-    : itemCategories[0]?.id || "";
+  const itemCategories = itemCategoriesFor(categories, modal.item);
   function createRule(event) {
     const values = Object.fromEntries(new FormData(event.currentTarget.form));
     const draft = {
@@ -197,63 +184,7 @@ export default function BudgetDialog({
       ) : (
         <form onSubmit={save}>
           {modal.type === "item" && (
-            <>
-              <Field label="Item name">
-                <input
-                  name="name"
-                  required
-                  maxLength={120}
-                  defaultValue={modal.item?.name || ""}
-                  placeholder="Groceries, weekend adventures…"
-                />
-              </Field>
-              <div className="form-grid">
-                <Field
-                  label="Category"
-                  help={
-                    currentCategory?.active === false && modal.item?.id
-                      ? "This category is archived. Keep the item here or move it to an active category."
-                      : !itemCategories.length
-                        ? "Add or reactivate a category before adding an item."
-                        : undefined
-                  }
-                >
-                  <select
-                    name="budget_category_id"
-                    required
-                    defaultValue={selectedCategory}
-                  >
-                    {!itemCategories.length && (
-                      <option value="">No active categories</option>
-                    )}
-                    {itemCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                        {category.active === false ? " (archived)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Planned amount">
-                  <div className="money-input">
-                    <span>$</span>
-                    <input
-                      name="amount"
-                      required
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={
-                        modal.item?.planned_cents !== undefined
-                          ? (modal.item.planned_cents / 100).toFixed(2)
-                          : ""
-                      }
-                      placeholder="0.00"
-                    />
-                  </div>
-                </Field>
-              </div>
-            </>
+            <BudgetItemFields item={modal.item} categories={categories} />
           )}
           {modal.type === "bill" && (
             <>

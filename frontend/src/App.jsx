@@ -942,7 +942,7 @@ export default function App() {
           transactions={transactions}
           accounts={accounts}
           onClose={() => setSelectedItem(null)}
-          onEditItem={(item) => open("item", item)}
+          categories={categories}
           onChanged={reload}
           notify={notify}
           onOpenAccount={(accountId) =>
