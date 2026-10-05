@@ -41,7 +41,9 @@ The Home Assistant automation token exposes **household bill counts and amounts 
 
 ## Budget categories
 
-In Budget, use **Add category** at the bottom of the category list, then **Add item** inside that category. An empty list shows only **Add category**. Categories are stored independently of monthly items, so an empty category remains available after a refresh or in another month.
+Every household and personal budget starts with **Saved** as its first category, including months with no items. The app creates and keeps this category active automatically. Add your own items inside Saved; the category itself cannot be renamed or archived. An existing category named Saved is retained with its items and history.
+
+Use **Add category** at the bottom of the category list for other categories, then **Add item** inside a category. Categories are stored independently of monthly items, so an empty category remains available after a refresh or in another month.
 
 Edit a category to rename it, change its color, or archive it. Archived categories remain in the stored list and can be reactivated. Archiving preserves their budget items, transactions, and planned totals; existing items stay editable, while adding or moving items into an archived category requires reactivation. Copying a month retains the source plan and category associations, including archived categories with existing items.
 

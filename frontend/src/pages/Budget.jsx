@@ -7,6 +7,7 @@ import {
   ArchiveRestore,
   ChevronDown,
   CreditCard,
+  PiggyBank,
 } from "lucide-react";
 import { money, monthLabel, prettyDate, colors } from "../lib/format.js";
 import { budgetDueDates, sortBudgetItems } from "../lib/budget.js";
@@ -16,8 +17,9 @@ import IncomeSection from "../components/IncomeSection.jsx";
 function CategoryCard({ category, index, busy, open, openItemDetails }) {
   const items = sortBudgetItems(category.items || []);
   const color = category.color || colors[index % colors.length];
-  const archived = category.active === false;
-  const managed = category.managed === true;
+  const saved = category.source === "saved";
+  const archived = category.active === false && !saved;
+  const managed = category.managed === true && !saved;
   return (
     <section className={`card budget-group ${archived ? "is-archived" : ""}`}>
       <div className="group-heading">
@@ -27,7 +29,13 @@ function CategoryCard({ category, index, busy, open, openItemDetails }) {
             style={{ background: `${color}18`, color }}
             aria-hidden="true"
           >
-            {managed ? <CreditCard size={19} /> : <Leaf size={19} />}
+            {saved ? (
+              <PiggyBank size={19} />
+            ) : managed ? (
+              <CreditCard size={19} />
+            ) : (
+              <Leaf size={19} />
+            )}
           </span>
           {managed ? (
             <div className="managed-category-title">
@@ -161,24 +169,26 @@ function CategoryCard({ category, index, busy, open, openItemDetails }) {
               Add item
             </button>
           )}
-          <div className="category-actions">
-            <IconButton
-              label={`Edit ${category.name} category`}
-              onClick={() => open("category", category)}
-              disabled={busy}
-            >
-              <Pencil size={16} />
-            </IconButton>
-            {!archived && (
+          {!saved && (
+            <div className="category-actions">
               <IconButton
-                label={`Archive ${category.name} category`}
-                onClick={() => open("category-archive", category)}
+                label={`Edit ${category.name} category`}
+                onClick={() => open("category", category)}
                 disabled={busy}
               >
-                <Archive size={16} />
+                <Pencil size={16} />
               </IconButton>
-            )}
-          </div>
+              {!archived && (
+                <IconButton
+                  label={`Archive ${category.name} category`}
+                  onClick={() => open("category-archive", category)}
+                  disabled={busy}
+                >
+                  <Archive size={16} />
+                </IconButton>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -196,13 +206,22 @@ export default function Budget({
   open,
   openItemDetails,
 }) {
+  const saved = categories.filter((category) => category.source === "saved");
   const active = categories.filter(
-    (category) => category.active !== false && !category.managed,
+    (category) =>
+      category.source !== "saved" &&
+      category.active !== false &&
+      !category.managed,
   );
   const archived = categories.filter(
-    (category) => category.active === false && !category.managed,
+    (category) =>
+      category.source !== "saved" &&
+      category.active === false &&
+      !category.managed,
   );
-  const managed = categories.filter((category) => category.managed);
+  const managed = categories.filter(
+    (category) => category.managed && category.source !== "saved",
+  );
   return (
     <>
       <div className="budget-summary">
@@ -246,6 +265,16 @@ export default function Budget({
         onRestoreSkipped={(source) => open("income-restore", source)}
       />
       <div className="budget-groups">
+        {saved.map((category, index) => (
+          <CategoryCard
+            key={category.id}
+            category={category}
+            index={index}
+            busy={busy}
+            open={open}
+            openItemDetails={openItemDetails}
+          />
+        ))}
         {active.map((category, index) => (
           <CategoryCard
             key={category.id}

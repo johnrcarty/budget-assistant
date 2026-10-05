@@ -152,6 +152,7 @@ def current_user(request: Request):
                                  ('ha_' + hashlib.sha256(ingress_id.encode()).hexdigest()[:24],
                                   display[:80], household_id,
                                   first_user, ingress_id)).lastrowid
+                budget_categories.ensure_user_saved_categories(db, household_id, uid)
                 return dict(user_from_db(db, uid))
             # Missing identity must never fall through to an implicit user.
         if not app.state.local_auth:
@@ -424,6 +425,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                              (payload.household_name.strip(), payload.timezone)).lastrowid
             uid = db.execute('INSERT INTO users(username,display_name,password_hash,household_id,is_admin) VALUES (?,?,?,?,1)',
                              (payload.username, payload.display_name.strip(), password_hash(payload.password), hid)).lastrowid
+            budget_categories.ensure_user_saved_categories(db, hid, uid)
             user = dict(user_from_db(db, uid))
         return issue_login(request, user)
 
@@ -456,6 +458,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             uid = seed_demo(db, default_timezone, today(ZoneInfo(default_timezone)) if today else datetime.now(ZoneInfo(default_timezone)).date())
             user = dict(user_from_db(db, uid))
+            budget_categories.ensure_user_saved_categories(db, user['household_id'], uid)
         return issue_login(request, user)
 
     app.state.dummy_password = password_hash(secrets.token_urlsafe(32))
@@ -1022,6 +1025,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
             try:
                 uid = db.execute('INSERT INTO users(username,display_name,password_hash,household_id) VALUES (?,?,?,?)',
                                  (payload.username, payload.display_name.strip(), password_hash(payload.password), user['household_id'])).lastrowid
+                budget_categories.ensure_user_saved_categories(db, user['household_id'], uid)
             except sqlite3.IntegrityError:
                 raise HTTPException(409, 'That username is already taken')
         return {'id': uid, 'username': payload.username, 'display_name': payload.display_name, 'is_admin': False}

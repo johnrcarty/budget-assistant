@@ -9,14 +9,56 @@ from fastapi import HTTPException
 
 
 DEFAULT_COLOR = '#4f766b'
+SAVED_NAME = 'Saved'
+SAVED_SOURCE = 'saved'
 
 
 def name_key(name):
     return name.strip().casefold()
 
 
+def ensure_saved_category(db, identity):
+    """Reserve one real category; never create monthly placeholder items."""
+    category = db.execute('''SELECT * FROM budget_categories
+                              WHERE household_id=? AND owner_id=? AND scope=? AND name_key=?''',
+                          (*identity, name_key(SAVED_NAME))).fetchone()
+    if category is None:
+        # Early/directly-created rows may have a noncanonical key. Adopt the
+        # existing category rather than replacing its ID or item associations.
+        category = next((row for row in db.execute('''SELECT * FROM budget_categories
+                                                      WHERE household_id=? AND owner_id=? AND scope=? ORDER BY id''', identity)
+                         if name_key(row['name']) == name_key(SAVED_NAME) and row['managed_source'] in (None, SAVED_SOURCE)), None)
+    if category is None:
+        db.execute('''INSERT OR IGNORE INTO budget_categories
+                      (household_id,owner_id,scope,name,name_key,color,active,managed_source)
+                      VALUES (?,?,?,?,?,?,1,?)''',
+                   (*identity, SAVED_NAME, name_key(SAVED_NAME), DEFAULT_COLOR, SAVED_SOURCE))
+        category = db.execute('''SELECT * FROM budget_categories
+                                  WHERE household_id=? AND owner_id=? AND scope=? AND name_key=?''',
+                              (*identity, name_key(SAVED_NAME))).fetchone()
+    if category['managed_source'] not in (None, SAVED_SOURCE):
+        raise HTTPException(409, 'The Saved name is reserved for the built-in category')
+    if (category['name'], category['name_key'], category['active'], category['managed_source']) != (SAVED_NAME, name_key(SAVED_NAME), 1, SAVED_SOURCE):
+        db.execute('''UPDATE budget_categories SET name=?,name_key=?,active=1,managed_source=?
+                      WHERE id=? AND household_id=? AND owner_id=? AND scope=?''',
+                   (SAVED_NAME, name_key(SAVED_NAME), SAVED_SOURCE, category['id'], *identity))
+    return require_category(db, identity, category['id'])
+
+
+def ensure_user_saved_categories(db, household_id, user_id):
+    ensure_saved_category(db, (household_id, 0, 'household'))
+    ensure_saved_category(db, (household_id, user_id, 'personal'))
+
+
 def ensure_categories(db, identity=None):
     """Idempotently link legacy items, including demo/old clients after startup."""
+    # Adopt Saved before backfilling NULL memberships, so a legacy category with
+    # a noncanonical key retains its ID when late rows use the canonical name.
+    identities = [identity] if identity is not None else (
+        [(row['id'], 0, 'household') for row in db.execute('SELECT id FROM households ORDER BY id')]
+        + [(row['household_id'], row['id'], 'personal') for row in db.execute('SELECT id,household_id FROM users ORDER BY id')])
+    for scoped_identity in identities:
+        ensure_saved_category(db, scoped_identity)
     query = 'SELECT * FROM budget_items WHERE budget_category_id IS NULL'
     args = ()
     if identity is not None:
@@ -52,6 +94,8 @@ def metadata(row):
 
 def create_category(db, identity, payload):
     ensure_categories(db, identity)
+    if name_key(payload.name) == name_key(SAVED_NAME):
+        raise HTTPException(409, 'Saved is a built-in category and already exists')
     try:
         category_id = db.execute('''INSERT INTO budget_categories
                                    (household_id,owner_id,scope,name,name_key,color,active)
@@ -65,9 +109,12 @@ def create_category(db, identity, payload):
 def update_category(db, identity, category_id, payload):
     ensure_categories(db, identity)
     category = require_category(db, identity, category_id)
-    if category['managed_source']:
+    if category['managed_source'] and category['managed_source'] != SAVED_SOURCE:
         raise HTTPException(409, 'This category is managed by account payment schedules')
     changes = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if category['managed_source'] == SAVED_SOURCE:
+        if ('name' in changes and changes['name'] != SAVED_NAME) or ('active' in changes and not changes['active']):
+            raise HTTPException(409, 'Saved is a built-in category and must remain active with its original name')
     if 'name' in changes:
         changes['name_key'] = name_key(changes['name'])
     if 'active' in changes:
@@ -101,7 +148,7 @@ def resolve_membership(db, identity, *, category_id=None, group_name=None, color
                                      WHERE household_id=? AND owner_id=? AND scope=? AND name_key=?''',
                                   (*identity, name_key(group_name))).fetchone()
     same_membership = existing is not None and existing['budget_category_id'] == category['id']
-    if category['managed_source'] and not same_membership:
+    if category['managed_source'] and category['managed_source'] != SAVED_SOURCE and not same_membership:
         raise HTTPException(409, 'This category is reserved for managed debt payments')
     if not category['active'] and not same_membership:
         raise HTTPException(409, 'Restore this category before adding or moving items into it')
@@ -132,7 +179,8 @@ def categories_for(db, identity, month, start, end, today=None):
     categories = {row['id']: metadata(row) | {'planned_cents': 0, 'spent_cents': 0,
                                              'historical_item_spent_cents': 0, 'items': []}
                   for row in db.execute('''SELECT * FROM budget_categories
-                                           WHERE household_id=? AND owner_id=? AND scope=? ORDER BY id''', identity)}
+                                           WHERE household_id=? AND owner_id=? AND scope=?
+                                           ORDER BY CASE WHEN managed_source='saved' THEN 0 ELSE 1 END,id''', identity)}
     for item in db.execute('''SELECT i.*,COALESCE((SELECT SUM(-t.amount_cents) FROM transactions t
                               WHERE t.category_id=i.id AND t.household_id=i.household_id AND t.owner_id=i.owner_id
                               AND t.scope=i.scope AND t.date>=? AND t.date<?),0) spent_cents

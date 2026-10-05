@@ -480,7 +480,9 @@ def test_private_due_occurrences_and_detail_history_never_enter_shared_exports(h
     assert client.patch('/api/settings', headers=owner, json={'share_personal_totals': True}).status_code == 200
     response = client.get('/api/dashboard?month=2026-01', headers=member)
     assert response.status_code == 200 and response.json()['shared_personal']['spent_cents'] == 4567
-    assert response.json()['groups'] == []
+    groups = response.json()['groups']
+    assert len(groups) == 1 and groups[0]['source'] == 'saved'
+    assert groups[0]['items'] == [] and groups[0]['planned_cents'] == groups[0]['spent_cents'] == 0
     assert all(value not in response.text for value in ('Secret treatment', 'lineage_id', 'linked_transactions'))
     token = client.post('/api/integrations/ha-token', headers=owner).json()['token']
     export = client.get('/api/ha/bills', headers={'Authorization': 'Bearer ' + token})

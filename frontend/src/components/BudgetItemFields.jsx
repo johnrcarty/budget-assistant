@@ -3,7 +3,7 @@ import { Field } from "./ui.jsx";
 export function itemCategoriesFor(categories, item) {
   return categories.filter(
     (category) =>
-      !category.managed &&
+      (!category.managed || category.source === "saved") &&
       (category.active !== false ||
         (item?.id && category.id === item.budget_category_id)),
   );

@@ -50,6 +50,14 @@ export default function Overview({
   notify,
   displayTransactions,
 }) {
+  const glanceGroups = groups.filter(
+    (group) =>
+      group.source !== "saved" ||
+      (group.items?.length || 0) > 0 ||
+      (group.planned_cents || 0) !== 0 ||
+      (group.spent_cents || 0) !== 0 ||
+      (group.historical_item_spent_cents || 0) !== 0,
+  );
   const flowGroups = [...groups];
   if (dash.shared_personal?.contributors > 0)
     flowGroups.push({
@@ -262,7 +270,7 @@ export default function Overview({
               <ArrowUpRight size={14} />
             </button>
           </div>
-          {groups.slice(0, 5).map((g, i) => (
+          {glanceGroups.slice(0, 5).map((g, i) => (
             <div className="glance-row" key={g.id || g.name}>
               <div className="glance-label">
                 <span
@@ -284,7 +292,7 @@ export default function Overview({
               />
             </div>
           ))}
-          {!groups.length && (
+          {!glanceGroups.length && (
             <Empty
               title="Start with what matters"
               description="Start with a category, then add its budget items."

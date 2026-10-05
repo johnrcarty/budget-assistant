@@ -167,7 +167,7 @@ def test_category_ownership_and_household_membership_protect_reads_and_mutations
     household = category(client, owner)['id']
     private = category(client, owner, 'Private hobby', scope='personal')['id']
     foreign = category(client, outsider, 'Other household')['id']
-    assert {row['id'] for row in categories(client, member)} == {household}
+    assert {row['id'] for row in categories(client, member) if row['source'] != 'saved'} == {household}
     for actor, scope, target in (
         (member, 'personal', private), (member, 'household', private),
         (owner, 'household', private), (outsider, 'household', household),
@@ -187,7 +187,7 @@ def test_category_ownership_and_household_membership_protect_reads_and_mutations
                           params={'scope': scope, 'month': '2026-10', 'owner_id': 1, 'household_id': 1})
         assert rows.status_code == 200 and all(row['id'] != target for row in rows.json())
     assert next(row for row in categories(client, owner) if row['id'] == household)['active'] is True
-    assert categories(client, owner, scope='personal')[0]['name'] == 'Private hobby'
+    assert next(row for row in categories(client, owner, scope='personal') if row['id'] == private)['name'] == 'Private hobby'
 
 
 def test_shared_personal_aggregate_never_exposes_category_metadata_or_ids(home):
@@ -203,12 +203,14 @@ def test_shared_personal_aggregate_never_exposes_category_metadata_or_ids(home):
     assert result['shared_personal']['spent_cents'] == 1234
     assert result['planned_cents'] == 14765
     assert sum(row['planned_cents'] for row in result['groups']) == 6000
-    assert {row['id'] for row in result['groups']} == {public}
+    assert {row['id'] for row in result['groups'] if row['source'] != 'saved'} == {public}
     for path in ('/api/dashboard', '/api/budget/categories', '/api/budget/items'):
         response = client.get(path, headers=member, params={'scope': 'household', 'month': '2026-10'})
         assert response.status_code == 200
         assert all(secret not in response.text for secret in ('Secret instruments', 'Private violin', '#123abc'))
-    assert categories(client, member, scope='personal') == []
+    private_groups = categories(client, member, scope='personal')
+    assert len(private_groups) == 1 and private_groups[0]['source'] == 'saved'
+    assert private_groups[0]['items'] == [] and private_groups[0]['planned_cents'] == private_groups[0]['spent_cents'] == 0
     assert client.patch('/api/settings', headers=owner, json={'share_personal_totals': False}).status_code == 200
     assert dashboard(client, member)['planned_cents'] == 6000
 
@@ -222,7 +224,7 @@ def test_machine_token_cannot_read_or_change_categories(home):
         assert client.get('/api/budget/categories', headers=machine, params={'scope': scope}).status_code == 401
         assert client.post('/api/budget/categories', headers=machine, params={'scope': scope}, json={'name': 'Injected'}).status_code == 401
         assert client.patch(f'/api/budget/categories/{cid}', headers=machine, params={'scope': scope}, json={'active': False}).status_code == 401
-    assert categories(client, owner)[0]['active'] is True
+    assert next(row for row in categories(client, owner) if row['id'] == cid)['active'] is True
 
 
 def test_duplicate_names_are_normalized_scoped_and_include_archived(home):
@@ -339,7 +341,7 @@ def test_month_copy_preserves_archived_ids_empty_categories_and_exact_totals(hom
     assert {row['id'] for row in original}.isdisjoint(row['id'] for row in target)
     assert sorted((row['budget_category_id'], row['planned_cents']) for row in target) == sorted([(active, 10000), (archived, 3000)])
     groups = {row['id']: row for row in categories(client, owner, '2026-11')}
-    assert set(groups) == {active, archived, empty}
+    assert {cid for cid, group in groups.items() if group['source'] != 'saved'} == {active, archived, empty}
     assert groups[archived]['active'] is False and groups[archived]['planned_cents'] == 3000
     assert groups[empty]['items'] == []
     copied_totals = dashboard(client, owner, '2026-11')
