@@ -23,6 +23,8 @@ import { today, thisMonth, monthLabel, cents } from "./lib/format.js";
 import { IconButton, Button, Brand, PageHeading } from "./components/ui.jsx";
 import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
+import AccountDialog from "./components/AccountDialog.jsx";
+import AccountDetails from "./components/AccountDetails.jsx";
 import CategoryDialog from "./components/CategoryDialog.jsx";
 import ItemDetails from "./components/ItemDetails.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
@@ -54,6 +56,7 @@ export default function App() {
     [loadError, setLoadError] = useState(""),
     [modal, setModal] = useState(null),
     [selectedItem, setSelectedItem] = useState(null),
+    [selectedAccount, setSelectedAccount] = useState(null),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState(""),
     [toast, setToast] = useState(null),
@@ -144,6 +147,7 @@ export default function App() {
     setData(null);
     setModal(null);
     setSelectedItem(null);
+    setSelectedAccount(null);
     setScope(next);
   }
   function changeMonth(next) {
@@ -152,6 +156,7 @@ export default function App() {
     setData(null);
     setModal(null);
     setSelectedItem(null);
+    setSelectedAccount(null);
     setMonth(next);
   }
   function notify(text) {
@@ -160,11 +165,19 @@ export default function App() {
   function open(type, item = null) {
     setFormError("");
     setSelectedItem(null);
+    setSelectedAccount(null);
     setModal({ type, item });
   }
   function openItemDetails(item) {
     setModal(null);
+    setSelectedAccount(null);
     setSelectedItem(item);
+  }
+  function openAccountDetails(account) {
+    if (!account) return;
+    setModal(null);
+    setSelectedItem(null);
+    setSelectedAccount(account);
   }
   async function mutate(path, method, body, message, close = true) {
     setBusy(true);
@@ -244,6 +257,13 @@ export default function App() {
         account_name: values.account_name || "Manual entry",
         category_id: values.category_id ? Number(values.category_id) : null,
       };
+      const accountId = values.account_id ? Number(values.account_id) : null;
+      if (
+        !modal.item ||
+        accountId === null ||
+        accountId !== modal.item.account_id
+      )
+        body.account_id = accountId;
       message = modal.item ? "Transaction updated." : "Transaction recorded.";
     }
     if (type === "account") {
@@ -254,9 +274,42 @@ export default function App() {
         name: values.name,
         institution: values.institution,
         kind: values.kind,
-        balance_cents: cents(values.amount),
+        balance_cents:
+          ["loan", "credit"].includes(values.kind) &&
+          modal.item?.balance_cents < 0
+            ? -Math.abs(cents(values.amount))
+            : cents(values.amount),
         currency: values.currency,
+        ...(["loan", "credit"].includes(values.kind)
+          ? {
+              original_balance_cents: values.original_amount
+                ? cents(values.original_amount)
+                : null,
+              apr_basis_points: values.apr
+                ? Math.round(Number(values.apr) * 100)
+                : null,
+              debt_type: values.debt_type || null,
+              opened_date: values.opened_date || null,
+              term_months: values.term_months
+                ? Number(values.term_months)
+                : null,
+              notes: values.notes || null,
+            }
+          : {
+              original_balance_cents: null,
+              apr_basis_points: null,
+              debt_type: null,
+              opened_date: null,
+              term_months: null,
+              notes: null,
+            }),
       };
+      if (
+        modal.item &&
+        body.balance_cents === modal.item.balance_cents &&
+        body.currency === modal.item.currency
+      )
+        delete body.balance_cents;
       message = modal.item ? "Account updated." : "Account added.";
     }
     if (type === "simplefin") {
@@ -295,7 +348,9 @@ export default function App() {
         `${resource}/${id}?${query}`,
         "DELETE",
         undefined,
-        "Removed.",
+        kind === "account"
+          ? "Account archived. Recorded history is kept."
+          : "Removed.",
       );
     } catch {}
   }
@@ -472,6 +527,7 @@ export default function App() {
     setData(null);
     setHaToken(null);
     setSelectedItem(null);
+    setSelectedAccount(null);
   }
   const dash = data?.dashboard || {},
     groups = dash.groups || [],
@@ -520,6 +576,7 @@ export default function App() {
     navigate,
     open,
     openItemDetails,
+    openAccountDetails,
     openBillBudget,
     paid,
     deleteItem,
@@ -532,6 +589,7 @@ export default function App() {
   };
   function navigate(id) {
     setSelectedItem(null);
+    setSelectedAccount(null);
     setTab(id);
     setMobileNav(false);
   }
@@ -679,7 +737,12 @@ export default function App() {
             }
             scope={scope}
             month={month}
-            showMonth={["overview", "budget", "transactions"].includes(tab)}
+            showMonth={[
+              "overview",
+              "budget",
+              "transactions",
+              "accounts",
+            ].includes(tab)}
             onScopeChange={changeScope}
             onMonthChange={changeMonth}
           />
@@ -742,6 +805,28 @@ export default function App() {
           onEditItem={(item) => open("item", item)}
           onChanged={reload}
           notify={notify}
+          onOpenAccount={(accountId) =>
+            openAccountDetails(
+              accounts.find((account) => account.id === accountId),
+            )
+          }
+        />
+      )}
+      {selectedAccount && (
+        <AccountDetails
+          key={`${scope}-${month}-${selectedAccount.id}`}
+          account={
+            accounts.find((account) => account.id === selectedAccount.id) ||
+            selectedAccount
+          }
+          scope={scope}
+          month={month}
+          user={user}
+          bills={bills}
+          onClose={() => setSelectedAccount(null)}
+          onEdit={(account) => open("account", account)}
+          onChanged={reload}
+          notify={notify}
         />
       )}
       {modal?.type.startsWith("income") ? (
@@ -757,6 +842,15 @@ export default function App() {
           onSave={saveIncome}
           onRestore={restoreSkippedIncome}
           onDelete={deleteIncome}
+          onClose={() => setModal(null)}
+        />
+      ) : modal?.type === "account" ? (
+        <AccountDialog
+          key={`account-${modal.item?.id || "new"}`}
+          account={modal.item}
+          busy={busy}
+          error={formError}
+          onSave={save}
           onClose={() => setModal(null)}
         />
       ) : modal?.type.startsWith("category") ? (

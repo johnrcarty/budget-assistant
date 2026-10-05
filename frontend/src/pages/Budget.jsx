@@ -7,8 +7,10 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  CreditCard,
+  Settings2,
 } from "lucide-react";
-import { money, monthLabel, colors } from "../lib/format.js";
+import { money, monthLabel, prettyDate, colors } from "../lib/format.js";
 import { IconButton, Button, Progress } from "../components/ui.jsx";
 import IncomeSection from "../components/IncomeSection.jsx";
 
@@ -18,11 +20,14 @@ function CategoryCard({
   busy,
   open,
   openItemDetails,
+  openAccountDetails,
+  accounts = [],
   deleteItem,
 }) {
   const items = category.items || [];
   const color = category.color || colors[index % colors.length];
   const archived = category.active === false;
+  const managed = category.managed === true;
   return (
     <section className={`card budget-group ${archived ? "is-archived" : ""}`}>
       <div className="group-heading">
@@ -32,9 +37,16 @@ function CategoryCard({
             style={{ background: `${color}18`, color }}
             aria-hidden="true"
           >
-            <Leaf size={19} />
+            {managed ? <CreditCard size={19} /> : <Leaf size={19} />}
           </span>
-          <h2>{category.name}</h2>
+          {managed ? (
+            <div className="managed-category-title">
+              <h2>{category.name}</h2>
+              <span className="managed-category-label">Account-managed</span>
+            </div>
+          ) : (
+            <h2>{category.name}</h2>
+          )}
           <span className="item-count">
             {items.length} item{items.length === 1 ? "" : "s"}
           </span>
@@ -77,20 +89,35 @@ function CategoryCard({
                 <span className="item-line" style={{ background: color }} />
                 <span>
                   <strong>{item.name}</strong>
+                  {item.managed && (
+                    <small className="managed-payment-dates">
+                      {item.payment_dates?.length || 0} payment
+                      {item.payment_dates?.length === 1 ? "" : "s"}
+                      {item.payment_dates?.length
+                        ? ` · ${item.payment_dates.map(prettyDate).join(", ")}`
+                        : " this month"}
+                    </small>
+                  )}
                 </span>
               </button>
-              <button
-                type="button"
-                className="editable-money"
-                onClick={() =>
-                  open("item", { ...item, budget_category_id: category.id })
-                }
-                aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
-                disabled={busy}
-              >
-                {money(item.planned_cents)}
-                <Pencil size={12} aria-hidden="true" />
-              </button>
+              {item.managed ? (
+                <span className="managed-planned">
+                  {money(item.planned_cents)}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="editable-money"
+                  onClick={() =>
+                    open("item", { ...item, budget_category_id: category.id })
+                  }
+                  aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
+                  disabled={busy}
+                >
+                  {money(item.planned_cents)}
+                  <Pencil size={12} aria-hidden="true" />
+                </button>
+              )}
               <span>{money(item.spent_cents)}</span>
               <span
                 className={
@@ -101,13 +128,34 @@ function CategoryCard({
               >
                 {money(item.planned_cents - item.spent_cents)}
               </span>
-              <IconButton
-                label={`Delete ${item.name}`}
-                onClick={() => deleteItem("item", item)}
-                disabled={busy}
-              >
-                <Trash2 size={14} />
-              </IconButton>
+              {item.managed ? (
+                <IconButton
+                  label={`Configure ${item.name} in Accounts`}
+                  onClick={() =>
+                    openAccountDetails(
+                      accounts.find(
+                        (account) => account.id === item.managed_account_id,
+                      ),
+                    )
+                  }
+                  disabled={
+                    busy ||
+                    !accounts.some(
+                      (account) => account.id === item.managed_account_id,
+                    )
+                  }
+                >
+                  <Settings2 size={16} />
+                </IconButton>
+              ) : (
+                <IconButton
+                  label={`Delete ${item.name}`}
+                  onClick={() => deleteItem("item", item)}
+                  disabled={busy}
+                >
+                  <Trash2 size={14} />
+                </IconButton>
+              )}
             </div>
           ))}
         </>
@@ -118,47 +166,54 @@ function CategoryCard({
           on items planned in other months.
         </p>
       )}
-      <div className="category-footer">
-        {archived ? (
-          <Button
-            variant="ghost"
-            icon={ArchiveRestore}
-            onClick={() => open("category-restore", category)}
-            disabled={busy}
-          >
-            Reactivate
-          </Button>
-        ) : (
-          <button
-            type="button"
-            className="group-add"
-            onClick={() => open("item", { budget_category_id: category.id })}
-            aria-label={`Add item to ${category.name}`}
-            disabled={busy}
-          >
-            <Plus size={16} aria-hidden="true" />
-            Add item
-          </button>
-        )}
-        <div className="category-actions">
-          <IconButton
-            label={`Edit ${category.name} category`}
-            onClick={() => open("category", category)}
-            disabled={busy}
-          >
-            <Pencil size={16} />
-          </IconButton>
-          {!archived && (
-            <IconButton
-              label={`Archive ${category.name} category`}
-              onClick={() => open("category-archive", category)}
+      {managed ? (
+        <p className="managed-category-note">
+          Payment amounts and dates come from Accounts and are included once in
+          this plan. Open an item to link transactions or confirm each payment.
+        </p>
+      ) : (
+        <div className="category-footer">
+          {archived ? (
+            <Button
+              variant="ghost"
+              icon={ArchiveRestore}
+              onClick={() => open("category-restore", category)}
               disabled={busy}
             >
-              <Archive size={16} />
-            </IconButton>
+              Reactivate
+            </Button>
+          ) : (
+            <button
+              type="button"
+              className="group-add"
+              onClick={() => open("item", { budget_category_id: category.id })}
+              aria-label={`Add item to ${category.name}`}
+              disabled={busy}
+            >
+              <Plus size={16} aria-hidden="true" />
+              Add item
+            </button>
           )}
+          <div className="category-actions">
+            <IconButton
+              label={`Edit ${category.name} category`}
+              onClick={() => open("category", category)}
+              disabled={busy}
+            >
+              <Pencil size={16} />
+            </IconButton>
+            {!archived && (
+              <IconButton
+                label={`Archive ${category.name} category`}
+                onClick={() => open("category-archive", category)}
+                disabled={busy}
+              >
+                <Archive size={16} />
+              </IconButton>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
@@ -173,10 +228,17 @@ export default function Budget({
   busy,
   open,
   openItemDetails,
+  openAccountDetails,
+  accounts,
   deleteItem,
 }) {
-  const active = categories.filter((category) => category.active !== false);
-  const archived = categories.filter((category) => category.active === false);
+  const active = categories.filter(
+    (category) => category.active !== false && !category.managed,
+  );
+  const archived = categories.filter(
+    (category) => category.active === false && !category.managed,
+  );
+  const managed = categories.filter((category) => category.managed);
   return (
     <>
       <div className="budget-summary">
@@ -228,6 +290,8 @@ export default function Budget({
             busy={busy}
             open={open}
             openItemDetails={openItemDetails}
+            openAccountDetails={openAccountDetails}
+            accounts={accounts}
             deleteItem={deleteItem}
           />
         ))}
@@ -260,12 +324,27 @@ export default function Budget({
                   busy={busy}
                   open={open}
                   openItemDetails={openItemDetails}
+                  openAccountDetails={openAccountDetails}
+                  accounts={accounts}
                   deleteItem={deleteItem}
                 />
               ))}
             </div>
           </details>
         )}
+        {managed.map((category, index) => (
+          <CategoryCard
+            key={category.id}
+            category={category}
+            index={index}
+            busy={busy}
+            open={open}
+            openItemDetails={openItemDetails}
+            openAccountDetails={openAccountDetails}
+            accounts={accounts}
+            deleteItem={deleteItem}
+          />
+        ))}
         <button
           type="button"
           className="category-add"

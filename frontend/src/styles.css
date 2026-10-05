@@ -4648,3 +4648,781 @@ h3 {
   line-height: 1.6;
   margin: 10px 0 0;
 }
+
+/* Compact activity and account-owned debt plans. */
+.compact-transactions .card-heading {
+  align-items: center;
+}
+.compact-transactions .card-heading h2 {
+  margin: 0;
+}
+.transaction-add-mobile {
+  display: none;
+}
+.transaction-search {
+  padding: 0 24px 16px;
+}
+.transaction-search .search-box {
+  max-width: none;
+  min-height: 44px;
+}
+.transaction-search input {
+  min-height: 44px;
+  font-size: 13px;
+}
+.transaction-search p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #62735b;
+}
+.transaction-search p > span {
+  color: #81683a;
+}
+.transaction-date-group h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0;
+  padding: 10px 24px;
+  background: #f3f4e9;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font:
+    600 12px ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #56684b;
+}
+.transaction-date-group h3 > span {
+  font-size: 11px;
+  font-weight: 400;
+}
+.transaction-date-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.compact-transaction-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 16px 3px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.compact-transaction-row:last-child {
+  border-bottom: 0;
+}
+.compact-transaction-row > .icon-button {
+  width: 44px;
+  height: 44px;
+}
+.transaction-open {
+  border: 0;
+  background: transparent;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(48%);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  min-height: 60px;
+  text-align: left;
+  min-width: 0;
+  border-radius: 4px;
+}
+.transaction-open:hover {
+  background: #f7f7ee;
+}
+.transaction-copy {
+  min-width: 0;
+}
+.transaction-copy > strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transaction-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #62735b;
+  margin-top: 3px;
+}
+.transaction-metadata > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transaction-metadata > span + span::before {
+  content: "·";
+  margin-right: 7px;
+  color: #768368;
+}
+.transaction-metadata .needs-purpose {
+  color: #81683a;
+}
+.transaction-metadata .transaction-pending {
+  color: #8b5d47;
+}
+.transaction-amount {
+  font-size: 15px;
+  line-height: 1.3;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.account-form fieldset,
+.account-schedule-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.account-debt-fields {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+.account-debt-fields h3 {
+  font: 500 20px var(--serif);
+  margin-bottom: 15px;
+}
+.account-debt-fields h3 > span {
+  font:
+    400 12px ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #62735b;
+  margin-left: 8px;
+}
+.account-form-note {
+  color: #62735b;
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 10px 0;
+}
+.account-name-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  display: block;
+  min-height: 44px;
+  width: 100%;
+  color: inherit;
+}
+.account-name-button h2 {
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.account-name-button:hover h2 {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.account-card-top {
+  margin-bottom: 18px;
+  gap: 8px;
+}
+.account-card .account-tools > .icon-button {
+  height: 44px;
+  width: 44px;
+}
+.account-card .account-balance {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.account-owed-label {
+  display: block;
+  color: #8b5d47;
+  font-size: 12px;
+  margin-top: 3px;
+}
+.account-debt-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #62735b;
+  margin-top: 14px;
+}
+.account-debt-summary strong {
+  color: #40593b;
+  font-weight: 500;
+}
+.account-card-bottom {
+  align-items: center;
+  min-height: 44px;
+}
+.account-card-bottom .text-button {
+  min-height: 44px;
+}
+.accounts-history-card {
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+.accounts-history-card > .card-heading {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.accounts-history-card h2 {
+  margin: 0;
+}
+.account-chart-controls {
+  display: flex;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.account-chart-controls > label {
+  min-width: 0;
+}
+.account-chart-controls > label:last-child {
+  flex: 1;
+}
+.account-chart-controls select {
+  min-height: 44px;
+  font-size: 12px;
+  max-width: 260px;
+  padding: 10px 30px 10px 10px;
+  width: 100%;
+}
+.accounts-history-card > .balance-history-chart {
+  padding: 0 24px 24px;
+}
+.balance-chart-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.balance-chart-heading h3 {
+  font: 500 19px var(--serif);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.balance-chart-heading strong {
+  font-size: 17px;
+  color: #40593b;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.balance-chart-caption,
+.balance-coverage,
+.balance-chart-empty {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #62735b;
+  margin: 8px 0;
+}
+.balance-coverage {
+  font-weight: 500;
+}
+.balance-chart-plot {
+  height: 178px;
+  margin-top: 18px;
+  width: 100%;
+}
+.balance-chart-plot svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.balance-chart-grid {
+  stroke: #e0e4d7;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.balance-chart-zero {
+  stroke: #9caa90;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+.balance-chart-line {
+  stroke: #52705a;
+  stroke-width: 2;
+  fill: none;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.balance-chart-point {
+  fill: #52705a;
+  stroke: var(--card);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.balance-chart-point.partial {
+  fill: var(--card);
+  stroke: #52705a;
+  stroke-width: 2;
+}
+.balance-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #62735b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.balance-chart-axis span {
+  overflow-wrap: anywhere;
+}
+.balance-chart-values {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+}
+.balance-chart-values summary {
+  min-height: 44px;
+  padding: 13px 0;
+  font-size: 12px;
+  cursor: pointer;
+  color: #40593b;
+}
+.balance-chart-values summary:focus-visible {
+  outline: 2px solid #52705a;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.balance-observations {
+  max-height: 280px;
+  overflow: auto;
+}
+.balance-observations table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.balance-observations th,
+.balance-observations td {
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.balance-observations th:first-child {
+  text-align: left;
+}
+.balance-observations thead th {
+  color: #62735b;
+  font-size: 11px;
+  font-weight: 600;
+}
+.balance-observations small {
+  display: block;
+  color: #62735b;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.account-history-loading,
+.account-history-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  font-size: 13px;
+  color: #62735b;
+}
+.account-drawer .item-drawer-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+}
+.account-drawer .item-drawer-header-actions .icon-button {
+  width: 44px;
+  height: 44px;
+}
+.account-detail-balance {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-detail-balance > span {
+  display: block;
+  font-size: 12px;
+  color: #62735b;
+  margin-bottom: 9px;
+}
+.account-detail-balance > strong {
+  font: 400 38px var(--serif);
+  overflow-wrap: anywhere;
+  color: #40593b;
+}
+.account-detail-balance p {
+  margin: 7px 0 0;
+  font-size: 12px;
+  color: #62735b;
+}
+.account-terms,
+.account-payment-plan,
+.account-detail-history {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-detail-history {
+  border: 0;
+}
+.account-terms dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 16px 0;
+}
+.account-terms dt {
+  font-size: 12px;
+  color: #62735b;
+  margin-bottom: 6px;
+}
+.account-terms dd {
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.account-principal-note {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #62735b;
+  margin: 15px 0 0;
+}
+.account-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 14px;
+  background: #f4f5eb;
+  border-radius: 5px;
+  margin-top: 16px;
+}
+.account-terms .text-button,
+.account-payment-plan .button {
+  min-height: 44px;
+}
+.account-schedule-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 16px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #62735b;
+}
+.account-schedule-summary strong {
+  color: #40593b;
+  font-size: 16px;
+}
+.account-schedule-summary small {
+  font-size: 12px;
+}
+.account-schedule-form {
+  margin-top: 18px;
+}
+.account-schedule-form .checkbox-field {
+  min-height: 44px;
+  color: #62735b;
+  line-height: 1.55;
+  padding: 8px 0;
+}
+.account-schedule-form .checkbox-field input {
+  flex-shrink: 0;
+}
+.account-month-payments {
+  margin-top: 16px;
+}
+.account-month-payments h4 {
+  font-size: 12px;
+  margin-bottom: 10px;
+  color: #62735b;
+}
+.account-month-payments > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-history-currency {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: #62735b;
+  font-size: 12px;
+}
+.account-history-currency select {
+  width: auto;
+  min-height: 44px;
+}
+.managed-category-label {
+  border: 1px solid #dbcab3;
+  border-radius: 4px;
+  color: #875c42;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.managed-payment-dates {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #62735b;
+  line-height: 1.5;
+  font-weight: 400;
+}
+.managed-planned {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.managed-category-note {
+  font-size: 12px;
+  color: #62735b;
+  line-height: 1.65;
+  border-top: 1px solid var(--border);
+  padding: 16px 24px;
+  margin: 0;
+}
+.managed-item-payments > .drawer-muted {
+  margin: 12px 0;
+}
+.managed-payment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.managed-payment-row small {
+  display: block;
+  margin-top: 5px;
+  color: #62735b;
+  font-size: 12px;
+}
+.managed-payment-row .button {
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .compact-transactions .card-heading {
+    flex-direction: row;
+    padding: 16px;
+    gap: 8px;
+  }
+  .compact-transactions .card-heading h2 {
+    font-size: 23px;
+  }
+  .compact-transactions .header-actions {
+    flex-wrap: nowrap;
+    width: auto;
+    gap: 5px;
+  }
+  .compact-transactions .header-actions .button {
+    min-height: 44px;
+    padding: 10px;
+    font-size: 12px;
+  }
+  .compact-transactions .header-actions svg {
+    width: 14px;
+  }
+  .transaction-add-wide {
+    display: none;
+  }
+  .transaction-add-mobile {
+    display: inline;
+  }
+  .transaction-search {
+    padding: 0 16px 12px;
+  }
+  .transaction-search p {
+    font-size: 11px;
+    gap: 5px 12px;
+  }
+  .transaction-date-group h3 {
+    padding: 9px 16px;
+  }
+  .compact-transaction-row {
+    padding: 2px 8px 2px 16px;
+    gap: 2px;
+  }
+  .transaction-open {
+    gap: 8px;
+    min-height: 64px;
+    padding: 9px 0;
+  }
+  .transaction-copy > strong {
+    font-size: 13px;
+  }
+  .transaction-metadata {
+    font-size: 11px;
+    gap: 2px 5px;
+  }
+  .transaction-metadata > span + span::before {
+    margin-right: 5px;
+  }
+  .transaction-amount {
+    font-size: 13px;
+  }
+  .accounts-history-card > .card-heading {
+    padding: 18px 16px 12px;
+  }
+  .account-chart-controls {
+    width: 100%;
+  }
+  .account-chart-controls select {
+    max-width: none;
+  }
+  .accounts-history-card > .balance-history-chart {
+    padding: 0 16px 18px;
+  }
+  .balance-chart-heading {
+    align-items: flex-start;
+  }
+  .balance-chart-heading h3 {
+    font-size: 18px;
+  }
+  .balance-chart-heading strong {
+    font-size: 15px;
+  }
+  .balance-chart-plot {
+    height: 160px;
+  }
+  .account-card {
+    padding: 18px;
+  }
+  .account-card .account-tools {
+    gap: 0;
+  }
+  .account-card-top {
+    margin-bottom: 15px;
+  }
+  .account-detail-balance > strong {
+    font-size: 34px;
+  }
+  .account-terms,
+  .account-payment-plan,
+  .account-detail-history {
+    padding: 20px 0;
+  }
+  .account-terms .drawer-section-heading,
+  .account-payment-plan .drawer-section-heading {
+    flex-wrap: wrap;
+  }
+  .account-schedule-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .managed-category-label {
+    margin-left: 0;
+  }
+  .managed-payment-dates {
+    font-size: 11px;
+  }
+  .managed-category-note {
+    padding: 14px 18px;
+  }
+  .managed-payment-row {
+    gap: 8px;
+  }
+  .managed-payment-row .button {
+    font-size: 12px;
+    padding: 10px;
+  }
+}
+.upcoming-payment-plan,
+.account-upcoming-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: #f5efdf;
+  border: 1px solid #e4d9bd;
+  border-radius: 5px;
+  padding: 12px;
+  margin: 14px 0 0;
+  color: #81683a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.account-upcoming-summary {
+  padding: 9px 11px;
+}
+.account-upcoming-summary strong,
+.upcoming-payment-plan strong {
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .compact-transactions .transaction-sync {
+    min-width: 44px;
+    width: 44px;
+    padding: 10px;
+  }
+  .transaction-sync-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .compact-transactions .card-heading h2 {
+    flex: 1;
+    min-width: 0;
+    font-size: 22px;
+  }
+}
+@media (max-width: 360px) {
+  .compact-transactions .card-heading h2 {
+    font-size: 20px;
+  }
+}
+.managed-category-title {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.managed-category-title .managed-category-label {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  font-size: 11px;
+}
+.managed-category-note {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.account-form .money-input input {
+  min-width: 0;
+}
+.account-form .money-input > span {
+  flex-shrink: 0;
+}
+.account-form .money-input > span:last-child {
+  padding: 0 14px 0 5px;
+  color: #62735b;
+}

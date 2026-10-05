@@ -193,28 +193,47 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
                 for e in payload.get("errlist", []) if isinstance(e, dict)]
     warnings += [safe_warning(e) for e in payload.get("errors", [])]
     accounts = transactions = 0
+    from . import accounts as account_history
     owner = 0 if scope == "household" else user_id
     try:
         with get_db(db_path) as db:
             user = db.execute("SELECT u.household_id,h.timezone FROM users u JOIN households h ON h.id=u.household_id WHERE u.id=?", (user_id,)).fetchone()
             hid = user["household_id"]
             local_zone = ZoneInfo(user["timezone"])
+            account_history.ensure_observations(db, (hid, owner, scope))
             for account in payload["accounts"]:
                 conn = str(account.get("conn_id", account.get("org", {}).get("id", account.get("org", {}).get("domain", "legacy"))))
                 aid = str(account["id"])
                 key = external_key(conn, aid)
-                currency = str(account.get("currency", "USD")).upper()
+                currency = str(account.get("currency", "USD"))
+                if len(currency) == 3 and currency.isalpha():
+                    currency = currency.upper()
                 name = str(account.get("name", "Bank account"))[:180]
                 institution = str(account.get("conn_name", account.get("org", {}).get("name", "SimpleFIN")))[:180]
-                db.execute("""INSERT INTO accounts(household_id,owner_id,scope,name,institution,kind,balance_cents,currency,source,simplefin_id)
-                    VALUES(?,?,?,?,?,'checking',?,?,'simplefin',?)
-                    ON CONFLICT(household_id,owner_id,scope,simplefin_id) DO UPDATE SET
-                    balance_cents=CASE WHEN accounts.kind IN ('credit','loan') THEN ABS(excluded.balance_cents)
-                    ELSE excluded.balance_cents END,currency=excluded.currency""",
-                           (hid, owner, scope, name, institution, cents(account["balance"]), currency, key))
-                account_row = db.execute("SELECT id,name FROM accounts WHERE household_id=? AND owner_id=? AND scope=? AND simplefin_id=?",
+                existing = db.execute("SELECT * FROM accounts WHERE household_id=? AND owner_id=? AND scope=? AND simplefin_id=?",
+                                      (hid, owner, scope, key)).fetchone()
+                if existing is not None and existing["archived"]:
+                    continue
+                db.execute("""INSERT INTO accounts(household_id,owner_id,scope,name,institution,kind,balance_cents,currency,source,simplefin_id,created_at)
+                    VALUES(?,?,?,?,?,'checking',?,?,'simplefin',?,?)
+                    ON CONFLICT(household_id,owner_id,scope,simplefin_id) DO NOTHING""",
+                           (hid, owner, scope, name, institution, cents(account["balance"]), currency, key, account_history.now_string()))
+                account_row = db.execute("SELECT * FROM accounts WHERE household_id=? AND owner_id=? AND scope=? AND simplefin_id=?",
                                          (hid, owner, scope, key)).fetchone()
+                balance = cents(account["balance"])
+                if account_row["kind"] in ("credit", "loan"):
+                    balance = abs(balance)
+                provider_as_of = account_history.provider_timestamp(account.get("balance-date"))
+                accepted = account_history.import_balance(db, account_row, balance, currency, provider_as_of)
+                if not accepted:
+                    warnings.append("An older balance or changed payment-account currency was ignored; transactions were retained.")
+                account_row = db.execute("SELECT * FROM accounts WHERE id=?", (account_row["id"],)).fetchone()
+                if db.execute("SELECT 1 FROM account_valuation_events WHERE account_id=?", (account_row["id"],)).fetchone() is None:
+                    db.execute("INSERT INTO account_valuation_events(account_id,observed_at,kind) VALUES (?,?,?)", (account_row["id"], account_history.now_string(), account_row["kind"]))
                 accounts += 1
+                if account_row['currency'] != currency:
+                    warnings.append('Transactions for an account with a changed currency were skipped until its currency is reviewed.')
+                    continue
                 if currency != "USD":
                     warnings.append(f"{currency} transactions were skipped: budgets currently use USD.")
                     continue

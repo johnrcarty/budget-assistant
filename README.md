@@ -100,6 +100,18 @@ Accounts can be renamed and classified after import. Categorization and account 
 
 See the [SimpleFIN protocol](https://www.simplefin.org/protocol.html) and [Bridge developer guide](https://beta-bridge.simplefin.org/info/developers).
 
+## Accounts, debts, and balance history
+
+The transaction inbox shows checking, savings, and credit-card activity in a compact date-grouped list. Investment, mortgage, and other account transactions remain stored for their existing associations and totals. Account classifications can be corrected in Accounts and survive bank refreshes. Manual entries without an account remain visible.
+
+All account types contribute to balance tracking. Each account retains recorded balance observations, and net worth uses assets minus the absolute balances of credit and loan accounts. Currencies have separate histories and are never added together. Tracking starts with the balances already present when this version is installed; it does not reconstruct earlier balances from transactions. Bank measurement dates are retained separately from import times. An initial cached balance with an unknown bank date stays in the observation record but yields to an accepted dated bank balance in the chart. Incomplete account coverage is marked instead of treating unknown balances as zero. Account updates and bank refreshes record new observations, while editing a name or debt terms does not invent a balance change.
+
+Debt accounts can store their type, original balance, APR, opening date, term, notes, and an optional payment schedule. Enter the amount per payment, choose weekly, every two weeks, twice monthly, or monthly, and choose the anchor date or calendar days. Scheduling follows calendar dates without holiday or weekend adjustments. USD payment schedules generate a **Managed debt** section in Budget, with the actual payments falling in that month, including three-payment biweekly months. Configure these plans through the debt account; the generated budget items cannot be renamed, moved, deleted, or copied as ordinary category items.
+
+Scheduled debt payments also appear in Bills and the existing household unpaid reminders. Confirm each payment separately; linking a transaction does not automatically mark a payment paid. Schedule edits start next month by default; you may choose the current or a future month. Earlier paid and overdue occurrences remain recorded, and incompatible current-month cadence changes are blocked when they would duplicate retained payments. Transaction links and item history remain available from the managed budget item. When setting up a schedule for a debt already entered as a manual budget item or bill, remove the duplicate manual plan explicitly.
+
+Removing an account archives it so its earlier balance observations and transaction associations remain available to history. Archived bank accounts stay hidden on subsequent imports. Personal account balances, debt terms, payment schedules, and history remain private to their owner; sharing personal budget totals exposes only the existing monthly aggregates.
+
 ## Verify
 
 ```bash

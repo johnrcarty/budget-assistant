@@ -46,7 +46,8 @@ def require_category(db, identity, category_id):
 
 
 def metadata(row):
-    return {key: row[key] for key in ('id', 'name', 'color')} | {'active': bool(row['active'])}
+    source = row['managed_source'] if 'managed_source' in row.keys() else None
+    return {key: row[key] for key in ('id', 'name', 'color')} | {'active': bool(row['active']), 'managed': source is not None, 'source': source or 'manual'}
 
 
 def create_category(db, identity, payload):
@@ -63,7 +64,9 @@ def create_category(db, identity, payload):
 
 def update_category(db, identity, category_id, payload):
     ensure_categories(db, identity)
-    require_category(db, identity, category_id)
+    category = require_category(db, identity, category_id)
+    if category['managed_source']:
+        raise HTTPException(409, 'This category is managed by account payment schedules')
     changes = payload.model_dump(exclude_unset=True, exclude_none=True)
     if 'name' in changes:
         changes['name_key'] = name_key(changes['name'])
@@ -98,6 +101,8 @@ def resolve_membership(db, identity, *, category_id=None, group_name=None, color
                                      WHERE household_id=? AND owner_id=? AND scope=? AND name_key=?''',
                                   (*identity, name_key(group_name))).fetchone()
     same_membership = existing is not None and existing['budget_category_id'] == category['id']
+    if category['managed_source'] and not same_membership:
+        raise HTTPException(409, 'This category is reserved for managed debt payments')
     if not category['active'] and not same_membership:
         raise HTTPException(409, 'Restore this category before adding or moving items into it')
     return category
@@ -106,6 +111,11 @@ def resolve_membership(db, identity, *, category_id=None, group_name=None, color
 def item_payload(row, category=None):
     payload = {key: row[key] for key in ('id', 'name', 'group_name', 'color', 'planned_cents', 'budget_category_id', 'lineage_id')}
     payload.update(snapshot_group_name=row['group_name'], snapshot_color=row['color'])
+    managed_account_id = row['managed_account_id'] if 'managed_account_id' in row.keys() else None
+    payload.update(managed=managed_account_id is not None, managed_account_id=managed_account_id,
+                   source='debt_payment' if managed_account_id is not None else 'manual')
+    if 'payment_dates' in row.keys():
+        payload['payment_dates'] = row['payment_dates']
     # Keep old clients' display fields in sync with current category metadata,
     # while retaining the original labels both in storage and explicit fields.
     if category is not None:
@@ -129,7 +139,10 @@ def categories_for(db, identity, month, start, end):
                               ORDER BY i.id''', (start, end, *identity, month)):
         category = categories.get(item['budget_category_id'])
         if category is not None:
-            category['items'].append(item_payload(item, category) | {'spent_cents': item['spent_cents']})
+            entry = item_payload(item, category) | {'spent_cents': item['spent_cents']}
+            if entry['managed']:
+                entry['payment_dates'] = [bill['due_date'] for bill in db.execute('SELECT due_date FROM bills WHERE budget_item_id=? ORDER BY due_date,id', (item['id'],))]
+            category['items'].append(entry)
             category['planned_cents'] += item['planned_cents']
     # Transaction.category_id still refers to a budget ITEM. A bank transaction
     # imported this month may retain last month's item ID; count that spending

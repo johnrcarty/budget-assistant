@@ -104,7 +104,11 @@ export default function Bills({
                               ? "Monthly"
                               : "One time"}
                             {b.autopay ? " · Autopay" : ""}
-                            {b.source === "budget_item" ? " · Budget item" : ""}
+                            {b.source === "debt_payment"
+                              ? " · Account payment"
+                              : b.source === "budget_item"
+                                ? " · Budget item"
+                                : ""}
                           </small>
                         </div>
                       </div>
@@ -137,7 +141,7 @@ export default function Bills({
                         >
                           {b.paid ? "Undo" : "Mark paid"}
                         </Button>
-                        {b.source === "budget_item" ? (
+                        {["budget_item", "debt_payment"].includes(b.source) ? (
                           <Button
                             variant="ghost"
                             onClick={() => openBillBudget(b)}

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS budget_categories (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
     owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
     name TEXT NOT NULL, name_key TEXT NOT NULL,
-    color TEXT NOT NULL DEFAULT '#4f766b', active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    color TEXT NOT NULL DEFAULT '#4f766b', active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), managed_source TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(household_id,owner_id,scope,name_key)
 );
@@ -71,7 +71,26 @@ CREATE TABLE IF NOT EXISTS accounts (
     name TEXT NOT NULL, institution TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'checking',
     balance_cents INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD',
     source TEXT NOT NULL DEFAULT 'manual', simplefin_id TEXT,
+    original_balance_cents INTEGER, apr_basis_points INTEGER, debt_type TEXT,
+    opened_date TEXT, term_months INTEGER, notes TEXT,
+    archived INTEGER NOT NULL DEFAULT 0, archived_at TEXT, created_at TEXT,
+    balance_as_of TEXT, debt_lineage_id INTEGER REFERENCES budget_item_lineages(id),
     UNIQUE(household_id,owner_id,scope,simplefin_id)
+);
+CREATE TABLE IF NOT EXISTS account_balance_observations (
+    id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
+    observed_at TEXT NOT NULL, provider_as_of TEXT, effective_at TEXT NOT NULL,
+    balance_cents INTEGER NOT NULL, currency TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS account_valuation_events (
+    id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
+    observed_at TEXT NOT NULL, kind TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS debt_payment_versions (
+    id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
+    amount_cents INTEGER NOT NULL, cadence TEXT NOT NULL, anchor_date TEXT NOT NULL,
+    day1 TEXT NOT NULL DEFAULT '15', day2 TEXT NOT NULL DEFAULT 'last', active INTEGER NOT NULL DEFAULT 1,
+    effective_from TEXT NOT NULL, effective_to TEXT
 );
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
@@ -171,6 +190,9 @@ def initialize(path: str | Path) -> None:
         if 'lineage_id' not in item_columns:
             db.execute('ALTER TABLE budget_items ADD COLUMN lineage_id INTEGER REFERENCES budget_item_lineages(id)')
         db.execute('CREATE INDEX IF NOT EXISTS idx_item_category ON budget_items(budget_category_id,month)')
+        category_columns = {row['name'] for row in db.execute('PRAGMA table_info(budget_categories)')}
+        if 'managed_source' not in category_columns:
+            db.execute('ALTER TABLE budget_categories ADD COLUMN managed_source TEXT')
         from .categories import ensure_categories
         ensure_categories(db)
         from .item_details import ensure_lineages
@@ -181,6 +203,28 @@ def initialize(path: str | Path) -> None:
             if name not in bill_columns:
                 db.execute(f'ALTER TABLE bills ADD COLUMN {name} {definition}')
         db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_bill_item_month ON bills(budget_item_lineage_id,item_month) WHERE budget_item_lineage_id IS NOT NULL')
+        account_columns = {row['name'] for row in db.execute('PRAGMA table_info(accounts)')}
+        for name, definition in (('original_balance_cents', 'INTEGER'), ('apr_basis_points', 'INTEGER'),
+                                 ('debt_type', 'TEXT'), ('opened_date', 'TEXT'), ('term_months', 'INTEGER'),
+                                 ('notes', 'TEXT'), ('archived', 'INTEGER NOT NULL DEFAULT 0'),
+                                 ('archived_at', 'TEXT'), ('created_at', 'TEXT'), ('balance_as_of', 'TEXT'),
+                                 ('debt_lineage_id', 'INTEGER REFERENCES budget_item_lineages(id)')):
+            if name not in account_columns:
+                db.execute(f'ALTER TABLE accounts ADD COLUMN {name} {definition}')
+        if 'managed_account_id' not in item_columns:
+            db.execute('ALTER TABLE budget_items ADD COLUMN managed_account_id INTEGER REFERENCES accounts(id)')
+        for name, definition in (('debt_account_id', 'INTEGER REFERENCES accounts(id)'),
+                                 ('debt_version_id', 'INTEGER REFERENCES debt_payment_versions(id)'),
+                                 ('debt_occurrence_key', 'TEXT'), ('budget_item_id', 'INTEGER REFERENCES budget_items(id)')):
+            if name not in bill_columns:
+                db.execute(f'ALTER TABLE bills ADD COLUMN {name} {definition}')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_debt_item_month ON budget_items(managed_account_id,month) WHERE managed_account_id IS NOT NULL')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_debt_bill_occurrence ON bills(debt_account_id,debt_occurrence_key) WHERE debt_account_id IS NOT NULL')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_balance_observations_account ON account_balance_observations(account_id,effective_at,id)')
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_account_baseline ON account_balance_observations(account_id) WHERE source='baseline'")
+        db.execute('CREATE INDEX IF NOT EXISTS idx_debt_versions_account ON debt_payment_versions(account_id,effective_from)')
+        from .accounts import ensure_observations
+        ensure_observations(db)
         columns = {row['name'] for row in db.execute('PRAGMA table_info(transactions)')}
         if 'amount_override_cents' not in columns:
             db.execute('ALTER TABLE transactions ADD COLUMN amount_override_cents INTEGER')

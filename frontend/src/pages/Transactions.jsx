@@ -1,52 +1,40 @@
-import {
-  ArrowLeftRight,
-  ArrowUpRight,
-  Plus,
-  X,
-  Search,
-  Pencil,
-  Trash2,
-  RefreshCw,
-} from "lucide-react";
-import { money, prettyDate } from "../lib/format.js";
+import { Plus, X, Search, Trash2, RefreshCw } from "lucide-react";
+import { money } from "../lib/format.js";
 import { IconButton, Button, Empty } from "../components/ui.jsx";
+
+function dateLabel(date) {
+  return new Date(`${date.slice(0, 10)}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export default function Transactions({
-  scope,
-  dash,
-  groups,
-  transactions,
-  bills,
-  accounts,
   settings,
-  month,
-  user,
-  data,
-  remaining,
-  billSummary,
-  unpaid,
   busy,
   filter,
   setFilter,
-  flowSpent,
-  setFlowSpent,
-  haToken,
-  navigate,
   open,
-  paid,
   deleteItem,
   sync,
-  share,
-  generateToken,
-  notify,
   displayTransactions,
 }) {
+  const dates = new Map();
+  [...displayTransactions]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+    .forEach((transaction) => {
+      const date = transaction.date.slice(0, 10);
+      if (!dates.has(date)) dates.set(date, []);
+      dates.get(date).push(transaction);
+    });
+  const uncategorized = displayTransactions.filter(
+    (transaction) => !transaction.category_id && transaction.amount_cents < 0,
+  ).length;
   return (
-    <section className="card transactions-card">
+    <section className="card transactions-card compact-transactions">
       <div className="card-heading">
-        <div>
-          <p className="eyebrow">EVERY LITTLE MOMENT</p>
-          <h2>Your transactions</h2>
-        </div>
+        <h2>Transactions</h2>
         <div className="header-actions">
           <Button
             variant="secondary"
@@ -54,20 +42,27 @@ export default function Transactions({
             busy={busy}
             onClick={sync}
             disabled={!settings.simplefin_connected}
+            aria-label="Sync transactions"
+            className="transaction-sync"
           >
-            Sync
+            <span className="transaction-sync-label">Sync</span>
           </Button>
-          <Button icon={Plus} onClick={() => open("transaction")}>
-            Add transaction
+          <Button
+            icon={Plus}
+            aria-label="Add transaction"
+            onClick={() => open("transaction")}
+          >
+            <span className="transaction-add-wide">Add transaction</span>
+            <span className="transaction-add-mobile">Add</span>
           </Button>
         </div>
       </div>
-      <div className="table-toolbar">
+      <div className="transaction-search">
         <label className="search-box">
-          <Search size={17} />
+          <Search size={17} aria-hidden="true" />
           <input
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(event) => setFilter(event.target.value)}
             placeholder="Search transactions…"
             aria-label="Search transactions"
           />
@@ -77,89 +72,78 @@ export default function Transactions({
             </IconButton>
           )}
         </label>
-        <span className="muted small">
-          {displayTransactions.length} transactions ·{" "}
-          {
-            transactions.filter((t) => !t.category_id && t.amount_cents < 0)
-              .length
-          }{" "}
-          to categorize
-        </span>
+        <p>
+          Checking, savings & credit · Manual entries
+          {uncategorized > 0 && <span>{uncategorized} to categorize</span>}
+        </p>
       </div>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Transaction</th>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Purpose</th>
-              <th className="align-right">Amount</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {displayTransactions.map((t) => (
-              <tr key={t.id}>
-                <td>
-                  <div className="table-name">
-                    <span
-                      className={`table-icon ${t.amount_cents > 0 ? "income" : ""}`}
-                    >
-                      {t.amount_cents > 0 ? (
-                        <ArrowUpRight size={17} />
-                      ) : (
-                        <ArrowLeftRight size={17} />
-                      )}
-                    </span>
-                    <div>
-                      <button
-                        className="row-name-button"
-                        onClick={() => open("transaction", t)}
-                      >
-                        {t.description}
-                      </button>
-                      {t.pending && <small>Pending</small>}
-                    </div>
-                  </div>
-                </td>
-                <td className="nowrap">{prettyDate(t.date)}</td>
-                <td>{t.account_name || "Manual"}</td>
-                <td>
+      <div className="transaction-dates">
+        {[...dates.entries()].map(([date, entries]) => (
+          <section className="transaction-date-group" key={date}>
+            <h3>
+              <time dateTime={date}>{dateLabel(date)}</time>
+              <span>{entries.length}</span>
+            </h3>
+            <ul>
+              {entries.map((transaction) => (
+                <li className="compact-transaction-row" key={transaction.id}>
                   <button
-                    className={`category-chip ${!t.category_id ? "uncategorized" : ""}`}
-                    onClick={() => open("transaction", t)}
+                    type="button"
+                    className="transaction-open"
+                    onClick={() => open("transaction", transaction)}
+                    disabled={busy}
+                    aria-label={`Edit ${transaction.description}, ${money(transaction.amount_cents, transaction.currency || "USD")}, ${dateLabel(date)}${transaction.pending ? ", pending" : ""}`}
                   >
-                    {t.category_name || "Choose a purpose"}
-                    <Pencil size={11} />
+                    <span className="transaction-copy">
+                      <strong>{transaction.description}</strong>
+                      <span className="transaction-metadata">
+                        <span>
+                          {transaction.account_name || "Manual entry"}
+                        </span>
+                        <span
+                          className={
+                            !transaction.category_id ? "needs-purpose" : ""
+                          }
+                        >
+                          {transaction.category_name || "Uncategorized"}
+                        </span>
+                        {transaction.pending && (
+                          <span className="transaction-pending">Pending</span>
+                        )}
+                      </span>
+                    </span>
+                    <strong
+                      className={`transaction-amount ${transaction.amount_cents > 0 ? "amount-positive" : ""}`}
+                    >
+                      {transaction.amount_cents > 0 ? "+" : ""}
+                      {money(
+                        transaction.amount_cents,
+                        transaction.currency || "USD",
+                      )}
+                    </strong>
                   </button>
-                </td>
-                <td
-                  className={`align-right strong nowrap ${t.amount_cents > 0 ? "amount-positive" : ""}`}
-                >
-                  {t.amount_cents > 0 ? "+" : ""}
-                  {money(t.amount_cents)}
-                </td>
-                <td>
                   <IconButton
-                    label={`Delete ${t.description}`}
-                    onClick={() => deleteItem("transaction", t)}
+                    label={`Delete ${transaction.description}, ${dateLabel(date)}`}
+                    onClick={() => deleteItem("transaction", transaction)}
+                    disabled={busy}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={15} />
                   </IconButton>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
       {!displayTransactions.length && (
         <Empty
-          title={filter ? "Nothing here just yet." : "Your story starts here."}
+          title={
+            filter ? "No matching transactions." : "No transactions here yet."
+          }
           description={
             filter
               ? "Try another description, account, or purpose."
-              : "Add a transaction or connect your accounts through SimpleFIN."
+              : "Checking, savings, credit and manual entries appear here. Other account data stays in Accounts."
           }
           action={
             !filter && (

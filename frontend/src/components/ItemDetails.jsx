@@ -28,6 +28,7 @@ export default function ItemDetails({
   onEditItem,
   onChanged,
   notify,
+  onOpenAccount,
 }) {
   const dialog = useRef(null);
   const mounted = useRef(false);
@@ -105,6 +106,25 @@ export default function ItemDetails({
       notify(message);
       await onChanged();
       return result;
+    } catch (failure) {
+      if (mounted.current) setError(failure.message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function markOccurrence(payment) {
+    setBusy(true);
+    setError("");
+    setErrorSection("payment");
+    try {
+      await api(`bills/${payment.id}?${query}`, {
+        method: "PATCH",
+        body: { paid: !payment.paid },
+      });
+      const result = await api(`${path}/details?${query}`);
+      if (mounted.current) setDetails(result);
+      notify(payment.paid ? "Payment marked unpaid." : "Payment marked paid.");
+      await onChanged();
     } catch (failure) {
       if (mounted.current) setError(failure.message);
     } finally {
@@ -192,6 +212,11 @@ export default function ItemDetails({
     );
   const item = details?.item || initialItem;
   const due = details?.due;
+  const managed = item.managed === true;
+  const occurrences = details?.payment_occurrences || [];
+  const managedAccountAvailable = accounts.some(
+    (account) => account.id === item.managed_account_id,
+  );
   const linked = details?.linked_transactions || [];
   const linkedIds = new Set(linked.map((transaction) => transaction.id));
   const candidates = transactions.filter(
@@ -257,9 +282,17 @@ export default function ItemDetails({
         </div>
         <div className="item-drawer-actions">
           <IconButton
-            label={`Edit ${item.name} item`}
-            onClick={() => onEditItem(item)}
-            disabled={busy || !details}
+            label={
+              managed
+                ? `Configure ${item.name} in Accounts`
+                : `Edit ${item.name} item`
+            }
+            onClick={() =>
+              managed
+                ? onOpenAccount?.(item.managed_account_id)
+                : onEditItem(item)
+            }
+            disabled={busy || !details || (managed && !managedAccountAvailable)}
           >
             <Pencil size={18} />
           </IconButton>
@@ -319,108 +352,167 @@ export default function ItemDetails({
                 Includes {money(pending)} in pending net spending.
               </p>
             )}
-            <section
-              className="item-drawer-section"
-              aria-labelledby="item-payment-title"
-            >
-              <div className="drawer-section-heading">
-                <h3 id="item-payment-title">This month’s payment</h3>
-              </div>
-              <div className="item-payment-status">
-                <div>
-                  <strong>{due.paid ? "Paid" : "Not marked paid"}</strong>
-                  <p className="drawer-muted">
-                    {due.due_date
-                      ? `${due.bucket === "past_due" && !due.paid ? "Past due · " : "Due "}${prettyDate(due.due_date)} · ${money(due.amount_cents)}`
-                      : "No due date set"}
-                  </p>
-                </div>
-                <Button
-                  variant={due.paid ? "secondary" : ""}
-                  icon={due.paid ? RefreshCw : Check}
-                  busy={busy}
-                  aria-label={`${due.paid ? "Mark unpaid" : "Mark paid"}: ${item.name}, ${monthLabel(month)}`}
-                  onClick={() =>
-                    write(
-                      "payment",
-                      "PATCH",
-                      { paid: !due.paid },
-                      due.paid
-                        ? "Item marked unpaid for this month."
-                        : "Item marked paid for this month.",
-                    )
-                  }
-                >
-                  {due.paid ? "Mark unpaid" : "Mark paid"}
-                </Button>
-              </div>
-              <p className="drawer-muted item-due-help">
-                You confirm paid status. Linking a transaction does not change
-                it.
-              </p>
-              {operationError("payment")}
-            </section>
-            <section
-              className="item-drawer-section"
-              aria-labelledby="item-schedule-title"
-            >
-              <div className="drawer-section-heading">
-                <h3 id="item-schedule-title">Monthly due date</h3>
-                <CalendarDays size={17} aria-hidden="true" />
-              </div>
-              <form onSubmit={saveDue}>
-                {canAdopt && (
-                  <Field
-                    label="Existing bill reminder"
-                    help="Use a bill already tracked here to avoid a second reminder."
+            {managed ? (
+              <section
+                className="item-drawer-section managed-item-payments"
+                aria-labelledby="managed-payments-title"
+              >
+                <div className="drawer-section-heading">
+                  <h3 id="managed-payments-title">Scheduled debt payments</h3>
+                  <Button
+                    variant="ghost"
+                    onClick={() => onOpenAccount?.(item.managed_account_id)}
+                    disabled={busy || !managedAccountAvailable}
                   >
-                    <select
-                      value={existingBill}
-                      onChange={(event) => chooseBill(event.target.value)}
-                      disabled={busy}
-                    >
-                      <option value="">Create a reminder for this item</option>
-                      {details.available_bills.map((bill) => (
-                        <option key={bill.id} value={bill.id}>
-                          {bill.name} · {prettyDate(bill.due_date)} ·{" "}
-                          {money(bill.amount_cents)}
-                          {bill.paid ? " · Paid" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                )}
-                <div className="item-schedule-form">
-                  <Field label="Due day (optional)">
-                    <select
-                      value={dueDay}
-                      onChange={(event) => {
-                        setDueDay(event.target.value);
-                        if (!event.target.value) setExistingBill("");
-                      }}
-                      disabled={busy}
-                    >
-                      <option value="">No due date</option>
-                      {Array.from({ length: 31 }, (_, index) => (
-                        <option key={index + 1} value={index + 1}>
-                          {index + 1}
-                        </option>
-                      ))}
-                      <option value="last">Last day of the month</option>
-                    </select>
-                  </Field>
-                  <Button type="submit" variant="secondary" busy={busy}>
-                    Save
+                    Configure account
                   </Button>
                 </div>
-                <p className="drawer-muted item-due-help">
-                  Applies from {monthLabel(month)} forward. Short months use
-                  their last day; prior months’ unpaid reminders and paid
-                  history are kept.
+                <p className="drawer-muted">
+                  This plan is controlled by its account. Confirm each dated
+                  payment separately; linking transactions does not mark it
+                  paid.
                 </p>
-                {operationError("due")}
-              </form>
-            </section>
+                {occurrences.length ? (
+                  occurrences.map((payment) => (
+                    <div className="managed-payment-row" key={payment.id}>
+                      <div>
+                        <strong>{prettyDate(payment.due_date)}</strong>
+                        <small>
+                          {payment.paid
+                            ? "Paid"
+                            : payment.bucket === "past_due"
+                              ? "Past due"
+                              : "Unpaid"}
+                        </small>
+                      </div>
+                      <span>{money(payment.amount_cents)}</span>
+                      <Button
+                        variant={payment.paid ? "secondary" : ""}
+                        icon={payment.paid ? RefreshCw : Check}
+                        busy={busy}
+                        aria-label={`${payment.paid ? "Mark unpaid" : "Mark paid"}: ${item.name}, ${prettyDate(payment.due_date)}`}
+                        onClick={() => markOccurrence(payment)}
+                      >
+                        {payment.paid ? "Undo" : "Mark paid"}
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="drawer-muted">
+                    No payment dates in this month.
+                  </p>
+                )}
+                {operationError("payment")}
+              </section>
+            ) : (
+              <>
+                {" "}
+                <section
+                  className="item-drawer-section"
+                  aria-labelledby="item-payment-title"
+                >
+                  <div className="drawer-section-heading">
+                    <h3 id="item-payment-title">This month’s payment</h3>
+                  </div>
+                  <div className="item-payment-status">
+                    <div>
+                      <strong>{due.paid ? "Paid" : "Not marked paid"}</strong>
+                      <p className="drawer-muted">
+                        {due.due_date
+                          ? `${due.bucket === "past_due" && !due.paid ? "Past due · " : "Due "}${prettyDate(due.due_date)} · ${money(due.amount_cents)}`
+                          : "No due date set"}
+                      </p>
+                    </div>
+                    <Button
+                      variant={due.paid ? "secondary" : ""}
+                      icon={due.paid ? RefreshCw : Check}
+                      busy={busy}
+                      aria-label={`${due.paid ? "Mark unpaid" : "Mark paid"}: ${item.name}, ${monthLabel(month)}`}
+                      onClick={() =>
+                        write(
+                          "payment",
+                          "PATCH",
+                          { paid: !due.paid },
+                          due.paid
+                            ? "Item marked unpaid for this month."
+                            : "Item marked paid for this month.",
+                        )
+                      }
+                    >
+                      {due.paid ? "Mark unpaid" : "Mark paid"}
+                    </Button>
+                  </div>
+                  <p className="drawer-muted item-due-help">
+                    You confirm paid status. Linking a transaction does not
+                    change it.
+                  </p>
+                  {operationError("payment")}
+                </section>
+                <section
+                  className="item-drawer-section"
+                  aria-labelledby="item-schedule-title"
+                >
+                  <div className="drawer-section-heading">
+                    <h3 id="item-schedule-title">Monthly due date</h3>
+                    <CalendarDays size={17} aria-hidden="true" />
+                  </div>
+                  <form onSubmit={saveDue}>
+                    {canAdopt && (
+                      <Field
+                        label="Existing bill reminder"
+                        help="Use a bill already tracked here to avoid a second reminder."
+                      >
+                        <select
+                          value={existingBill}
+                          onChange={(event) => chooseBill(event.target.value)}
+                          disabled={busy}
+                        >
+                          <option value="">
+                            Create a reminder for this item
+                          </option>
+                          {details.available_bills.map((bill) => (
+                            <option key={bill.id} value={bill.id}>
+                              {bill.name} · {prettyDate(bill.due_date)} ·{" "}
+                              {money(bill.amount_cents)}
+                              {bill.paid ? " · Paid" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    )}
+                    <div className="item-schedule-form">
+                      <Field label="Due day (optional)">
+                        <select
+                          value={dueDay}
+                          onChange={(event) => {
+                            setDueDay(event.target.value);
+                            if (!event.target.value) setExistingBill("");
+                          }}
+                          disabled={busy}
+                        >
+                          <option value="">No due date</option>
+                          {Array.from({ length: 31 }, (_, index) => (
+                            <option key={index + 1} value={index + 1}>
+                              {index + 1}
+                            </option>
+                          ))}
+                          <option value="last">Last day of the month</option>
+                        </select>
+                      </Field>
+                      <Button type="submit" variant="secondary" busy={busy}>
+                        Save
+                      </Button>
+                    </div>
+                    <p className="drawer-muted item-due-help">
+                      Applies from {monthLabel(month)} forward. Short months use
+                      their last day; prior months’ unpaid reminders and paid
+                      history are kept.
+                    </p>
+                    {operationError("due")}
+                  </form>
+                </section>
+              </>
+            )}
             <section
               className="item-drawer-section"
               aria-labelledby="item-transactions-title"

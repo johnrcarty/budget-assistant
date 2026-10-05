@@ -211,6 +211,7 @@ class Transaction(BaseModel):
     amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
     date: CalendarDate
     account_name: str = Field(default='Manual entry', min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
     category_id: int | None = None
     pending: bool = False
 
@@ -220,6 +221,7 @@ class TransactionPatch(BaseModel):
     amount_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
     date: CalendarDate | None = None
     account_name: str | None = Field(default=None, min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
     category_id: int | None = None
     pending: bool | None = None
 
@@ -230,6 +232,12 @@ class Account(BaseModel):
     kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'other'] = 'checking'
     balance_cents: int = Field(default=0, ge=-(10**14), le=10**14, strict=True)
     currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
+    original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    apr_basis_points: int | None = Field(default=None, ge=0, le=100000, strict=True)
+    debt_type: Literal['mortgage', 'auto', 'student', 'personal', 'credit_card', 'line_of_credit', 'other'] | None = None
+    opened_date: CalendarDate | None = None
+    term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 class AccountPatch(BaseModel):
@@ -238,6 +246,30 @@ class AccountPatch(BaseModel):
     kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'other'] | None = None
     balance_cents: int | None = Field(default=None, ge=-(10**14), le=10**14, strict=True)
     currency: str | None = Field(default=None, pattern=r'^[A-Z]{3}$')
+    original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    apr_basis_points: int | None = Field(default=None, ge=0, le=100000, strict=True)
+    debt_type: Literal['mortgage', 'auto', 'student', 'personal', 'credit_card', 'line_of_credit', 'other'] | None = None
+    opened_date: CalendarDate | None = None
+    term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class DebtPaymentSchedule(BaseModel):
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+    cadence: Literal['weekly', 'biweekly', 'semimonthly', 'monthly']
+    anchor_date: CalendarDate
+    day1: int | Literal['last'] = 15
+    day2: int | Literal['last'] = 'last'
+    active: bool = True
+    effective_from: CalendarDate | None = None
+
+    _valid_day = field_validator('day1', 'day2')(IncomeSource.valid_day.__func__)
+
+    @model_validator(mode='after')
+    def different_days(self):
+        if self.cadence == 'semimonthly' and self.day1 == self.day2:
+            raise ValueError('Choose two distinct payment days')
+        return self
 
 
 class Settings(BaseModel):

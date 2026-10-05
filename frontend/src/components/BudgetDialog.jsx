@@ -1,4 +1,12 @@
-import { Check, Trash2, AlertCircle, Link2, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import {
+  Check,
+  Trash2,
+  Archive,
+  AlertCircle,
+  Link2,
+  ExternalLink,
+} from "lucide-react";
 import { Button, Field, Modal } from "./ui.jsx";
 import { today, stepMonth } from "../lib/format.js";
 export default function BudgetDialog({
@@ -16,11 +24,38 @@ export default function BudgetDialog({
   confirmDelete,
   onClose,
 }) {
-  const itemCategories = categories.filter(
-    (category) =>
-      category.active !== false ||
-      (modal.item?.id && category.id === modal.item.budget_category_id),
+  const [transactionAccount, setTransactionAccount] = useState(
+    modal.item?.account_id ? String(modal.item.account_id) : "",
   );
+  const retainedTransactionAccount =
+    modal.item?.account_id &&
+    !accounts.some((account) => account.id === modal.item.account_id)
+      ? {
+          id: modal.item.account_id,
+          name: modal.item.account_name || "Existing account",
+          kind: modal.item.account_kind,
+          currency: modal.item.currency || "USD",
+          active: modal.item.account_active,
+        }
+      : null;
+  const selectedTransactionAccount =
+    accounts.find((account) => account.id === Number(transactionAccount)) ||
+    (retainedTransactionAccount?.id === Number(transactionAccount)
+      ? retainedTransactionAccount
+      : null);
+  const transactionCurrency =
+    selectedTransactionAccount?.currency ||
+    (transactionAccount === String(modal.item?.account_id)
+      ? modal.item?.currency
+      : "USD") ||
+    "USD";
+  const itemCategories = categories
+    .filter(
+      (category) =>
+        category.active !== false ||
+        (modal.item?.id && category.id === modal.item.budget_category_id),
+    )
+    .filter((category) => !category.managed);
   const currentCategory = categories.find(
     (category) => category.id === modal.item?.budget_category_id,
   );
@@ -42,7 +77,10 @@ export default function BudgetDialog({
           simplefin: "Connect SimpleFIN",
           member: "Welcome someone home",
           copy: "Bring a good plan along",
-          delete: "Remove this item?",
+          delete:
+            modal.item?.kind === "account"
+              ? "Archive this account?"
+              : "Remove this item?",
         }[modal.type]
       }
       description={
@@ -57,19 +95,25 @@ export default function BudgetDialog({
             "Members share the household and get their own private budget.",
           copy: "Copy your expense plan and undated monthly income. Scheduled paydays are calculated for the new month; dated one-time income is not copied. Income already entered for the new month stays as it is.",
           delete:
-            modal.item?.kind === "item"
-              ? `“${modal.item?.name || "This item"}” will be removed from this month’s plan. Linked transactions are kept. Reminders can continue while other copies of this item remain; remove its due schedule first if you want to stop future reminders.`
-              : modal.item?.kind === "bill" &&
-                  modal.item?.recurrence === "monthly"
-                ? `This “${modal.item?.name}” bill will be removed and future unpaid reminders canceled. Other past or paid occurrences will be kept.`
-                : `“${modal.item?.name || "this item"}” will be removed from this budget.`,
+            modal.item?.kind === "account"
+              ? `“${modal.item?.name}” will be archived. Its balance history and imported transactions are kept, and future imports for this account stay hidden. Future unpaid debt reminders stop; paid history and earlier unpaid debt are kept.`
+              : modal.item?.kind === "item"
+                ? `“${modal.item?.name || "This item"}” will be removed from this month’s plan. Linked transactions are kept. Reminders can continue while other copies of this item remain; remove its due schedule first if you want to stop future reminders.`
+                : modal.item?.kind === "bill" &&
+                    modal.item?.recurrence === "monthly"
+                  ? `This “${modal.item?.name}” bill will be removed and future unpaid reminders canceled. Other past or paid occurrences will be kept.`
+                  : `“${modal.item?.name || "this item"}” will be removed from this budget.`,
         }[modal.type]
       }
       onClose={() => !busy && onClose()}
     >
       {modal.type === "delete" ? (
         <>
-          <p className="muted">This action cannot be undone.</p>
+          <p className="muted">
+            {modal.item?.kind === "account"
+              ? "Archived accounts stay part of recorded history."
+              : "This action cannot be undone."}
+          </p>
           {formError && (
             <p className="inline-error" role="alert">
               {formError}
@@ -82,10 +126,12 @@ export default function BudgetDialog({
             <Button
               variant="danger"
               busy={busy}
-              icon={Trash2}
+              icon={modal.item?.kind === "account" ? Archive : Trash2}
               onClick={confirmDelete}
             >
-              Remove item
+              {modal.item?.kind === "account"
+                ? "Archive account"
+                : "Remove item"}
             </Button>
           </div>
         </>
@@ -225,10 +271,15 @@ export default function BudgetDialog({
                 />
               </Field>
               <div className="form-grid">
-                <Field label="Amount">
+                <Field label={`Amount (${transactionCurrency})`}>
                   <div className="money-input">
-                    <span>$</span>
+                    <span>
+                      {transactionCurrency === "USD"
+                        ? "$"
+                        : transactionCurrency}
+                    </span>
                     <input
+                      key={transactionCurrency}
                       name="amount"
                       required
                       type="number"
@@ -236,7 +287,8 @@ export default function BudgetDialog({
                       step="0.01"
                       placeholder="0.00"
                       defaultValue={
-                        modal.item?.amount_cents !== undefined
+                        modal.item?.amount_cents !== undefined &&
+                        transactionCurrency === (modal.item.currency || "USD")
                           ? (Math.abs(modal.item.amount_cents) / 100).toFixed(2)
                           : ""
                       }
@@ -265,19 +317,64 @@ export default function BudgetDialog({
                   />
                 </Field>
                 <Field label="Account">
-                  <input
-                    name="account_name"
-                    defaultValue={modal.item?.account_name || ""}
-                    list="account-names"
-                    placeholder="Cash or account name"
-                  />
-                  <datalist id="account-names">
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.name} />
-                    ))}
-                  </datalist>
+                  <select
+                    name="account_id"
+                    value={transactionAccount}
+                    onChange={(event) =>
+                      setTransactionAccount(event.target.value)
+                    }
+                  >
+                    <option value="">Manual entry</option>
+                    {retainedTransactionAccount && (
+                      <option value={retainedTransactionAccount.id}>
+                        {retainedTransactionAccount.name} ·{" "}
+                        {retainedTransactionAccount.active === false
+                          ? "Archived account"
+                          : "Existing account"}{" "}
+                        · {retainedTransactionAccount.currency}
+                      </option>
+                    )}
+                    {accounts
+                      .filter(
+                        (account) =>
+                          account.id === modal.item?.account_id ||
+                          (account.active !== false &&
+                            (account.currency || "USD") === "USD" &&
+                            ["checking", "savings", "credit"].includes(
+                              account.kind,
+                            )),
+                      )
+                      .map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                          {account.institution
+                            ? ` · ${account.institution}`
+                            : ""}{" "}
+                          · {account.kind}
+                          {account.currency !== "USD"
+                            ? ` · ${account.currency}`
+                            : ""}
+                        </option>
+                      ))}
+                  </select>
                 </Field>
               </div>
+              <input
+                type="hidden"
+                name="account_name"
+                value={
+                  selectedTransactionAccount?.name ||
+                  (!transactionAccount && !modal.item?.account_id
+                    ? modal.item?.account_name || "Manual entry"
+                    : "Manual entry")
+                }
+              />
+              {transactionCurrency !== "USD" && (
+                <p className="muted small">
+                  This bank record stays in {transactionCurrency}. No currency
+                  conversion is applied.
+                </p>
+              )}
               <Field label="Purpose">
                 <select
                   name="category_id"
@@ -294,70 +391,6 @@ export default function BudgetDialog({
                     </optgroup>
                   ))}
                 </select>
-              </Field>
-            </>
-          )}
-          {modal.type === "account" && (
-            <>
-              <Field label="Account name">
-                <input
-                  required
-                  name="name"
-                  placeholder="Household checking"
-                  defaultValue={modal.item?.name || ""}
-                />
-              </Field>
-              <div className="form-grid">
-                <Field label="Institution">
-                  <input
-                    name="institution"
-                    placeholder="Your bank"
-                    defaultValue={modal.item?.institution || ""}
-                  />
-                </Field>
-                <Field label="Type">
-                  <select
-                    name="kind"
-                    defaultValue={modal.item?.kind || "checking"}
-                  >
-                    <option value="checking">Checking</option>
-                    <option value="savings">Savings</option>
-                    <option value="credit">Credit card</option>
-                    <option value="investment">Investment</option>
-                    <option value="loan">Loan</option>
-                    <option value="property">Property</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-              </div>
-              <Field
-                label="Current balance"
-                help="Credit and loan balances are counted as money owed. Imported balances refresh on sync."
-              >
-                <div className="money-input">
-                  <span>$</span>
-                  <input
-                    required
-                    type="number"
-                    step="0.01"
-                    name="amount"
-                    placeholder="0.00"
-                    defaultValue={
-                      modal.item?.balance_cents !== undefined
-                        ? (modal.item.balance_cents / 100).toFixed(2)
-                        : ""
-                    }
-                  />
-                </div>
-              </Field>
-              <Field label="Currency">
-                <input
-                  name="currency"
-                  pattern="[A-Z]{3}"
-                  maxLength={3}
-                  required
-                  defaultValue={modal.item?.currency || "USD"}
-                />
               </Field>
             </>
           )}

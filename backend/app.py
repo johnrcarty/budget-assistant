@@ -32,7 +32,8 @@ from .database import connect, initialize
 from . import income as income_plans
 from . import categories as budget_categories
 from . import item_details
-from .models import (Account, AccountPatch, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
+from . import accounts as account_plans
+from .models import (Account, AccountPatch, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
                      BudgetCopy, BudgetItem, BudgetPatch,
                      Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch,
                      ItemDue, ItemPayment, ItemTransaction, ItemTransactionLink,
@@ -188,8 +189,9 @@ def require_scope_item(db, table, item_id, identity):
     return row
 
 
-def budget_totals(db, identity, month):
+def budget_totals(db, identity, month, today=None):
     start, end = month_bounds(month)
+    account_plans.materialize_debts(db, identity, today or datetime.now().date(), month)
     income_cents = income_plans.total(db, identity, month)
     planned = db.execute('SELECT COALESCE(SUM(planned_cents),0) n FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?',
                          (*identity, month)).fetchone()['n']
@@ -223,7 +225,8 @@ def bill_summary(db, identity, today):
 def bill_payload(row, today):
     return {key: row[key] for key in ('id', 'name', 'amount_cents', 'due_date', 'recurrence')} | {
         'paid': bool(row['paid']), 'autopay': bool(row['autopay']),
-        'source': 'budget_item' if row['budget_item_lineage_id'] is not None else 'manual',
+        'source': 'debt_payment' if row['debt_account_id'] is not None else ('budget_item' if row['budget_item_lineage_id'] is not None else 'manual'),
+        'debt_account_id': row['debt_account_id'], 'budget_item_id': row['budget_item_id'],
         'budget_item_lineage_id': row['budget_item_lineage_id'], 'item_month': row['item_month'],
         'bucket': 'paid' if row['paid'] else bill_bucket(row['due_date'], today)}
 
@@ -247,6 +250,7 @@ def next_month_occurrence(db, row):
 
 def materialize_bills(db, identity, today):
     """An unpaid earlier occurrence never prevents the next month's reminder."""
+    account_plans.materialize_debts(db, identity, today)
     item_details.materialize_bills(db, identity, today)
     try:
         horizon = today + timedelta(days=14)
@@ -277,21 +281,32 @@ def materialize_bills(db, identity, today):
 
 def transaction_payload(row):
     return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'account_name', 'category_id', 'category_name')} | {
-        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD'}
+        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD',
+        'account_id': row['account_id'], 'account_kind': row['account_kind'] if 'account_kind' in row.keys() else None,
+        'account_active': not bool(row['account_archived']) if 'account_archived' in row.keys() and row['account_archived'] is not None else None}
 
 
 def transactions_for(db, identity, month, limit=None):
     start, end = month_bounds(month)
-    sql = '''SELECT t.*,i.name category_name,COALESCE(a.currency,'USD') currency FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id
+    sql = '''SELECT t.*,i.name category_name,COALESCE(a.currency,'USD') currency,a.kind account_kind,a.archived account_archived FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id
              AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
              LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope
              WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND t.date>=? AND t.date<?
+             AND (t.account_id IS NULL OR a.kind IN ('checking','savings','credit'))
              ORDER BY t.date DESC,t.id DESC'''
     parameters = (*identity, start, end)
     if limit is not None:
         sql += ' LIMIT ?'
         parameters += (limit,)
     return [transaction_payload(row) for row in db.execute(sql, parameters)]
+
+
+def transaction_by_id(db, transaction_id):
+    return transaction_payload(db.execute('''SELECT t.*,i.name category_name,COALESCE(a.currency,'USD') currency,
+        a.kind account_kind,a.archived account_archived FROM transactions t
+        LEFT JOIN budget_items i ON i.id=t.category_id AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
+        LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope
+        WHERE t.id=?''', (transaction_id,)).fetchone())
 
 
 def validate_category(db, category_id, identity, transaction_date):
@@ -458,11 +473,11 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         start, end = month_bounds(current_month)
         identity = scope_identity(user, scope)
         with connect(db_path) as db:
-            totals = budget_totals(db, identity, current_month)
+            totals = budget_totals(db, identity, current_month, local_today(request, user))
             shared = {'income_cents': 0, 'planned_cents': 0, 'spent_cents': 0, 'contributors': 0}
             if scope == 'household':
                 for contributor in db.execute('SELECT id FROM users WHERE household_id=? AND share_personal_totals=1', (user['household_id'],)).fetchall():
-                    personal = budget_totals(db, (user['household_id'], contributor['id'], 'personal'), current_month)
+                    personal = budget_totals(db, (user['household_id'], contributor['id'], 'personal'), current_month, local_today(request, user))
                     for key in personal:
                         shared[key] += personal[key]
                     shared['contributors'] += 1
@@ -480,7 +495,9 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         current_month = month or local_today(request, user).strftime('%Y-%m')
         start, end = month_bounds(current_month)
         with connect(db_path) as db:
-            return budget_categories.categories_for(db, scope_identity(user, scope), current_month, start, end)
+            identity = scope_identity(user, scope)
+            account_plans.materialize_debts(db, identity, local_today(request, user), current_month)
+            return budget_categories.categories_for(db, identity, current_month, start, end)
 
     @app.post('/api/budget/categories', status_code=201)
     def add_budget_category(payload: BudgetCategory, scope: Literal['household', 'personal'] = 'household',
@@ -502,12 +519,17 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         month_bounds(current_month)
         with connect(db_path) as db:
             identity = scope_identity(user, scope)
+            account_plans.materialize_debts(db, identity, local_today(request, user), current_month)
             item_details.ensure_lineages(db, identity)
-            return [budget_categories.item_payload(row) for row in db.execute('''SELECT i.*,c.name current_group_name,c.color current_color
+            result = [budget_categories.item_payload(row) for row in db.execute('''SELECT i.*,c.name current_group_name,c.color current_color
                                   FROM budget_items i LEFT JOIN budget_categories c ON c.id=i.budget_category_id
                                   AND c.household_id=i.household_id AND c.owner_id=i.owner_id AND c.scope=i.scope
                                   WHERE i.household_id=? AND i.owner_id=? AND i.scope=? AND i.month=? ORDER BY i.id''',
                                                                                (*identity, current_month))]
+            for item in result:
+                if item['managed']:
+                    item['payment_dates'] = [row['due_date'] for row in db.execute('SELECT due_date FROM bills WHERE budget_item_id=? ORDER BY due_date,id', (item['id'],))]
+            return result
 
     @app.post('/api/budget/items', status_code=201)
     def add_budget_item(payload: BudgetItem, request: Request, scope: Literal['household', 'personal'] = 'household',
@@ -530,6 +552,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             identity = scope_identity(user, scope)
             item = item_details.require_item(db, identity, item_id)
+            account_plans.require_managed_mutable(item)
             updates = payload.model_dump(exclude_unset=True, exclude_none=True)
             if 'budget_category_id' in updates or 'group_name' in updates:
                 category = budget_categories.resolve_membership(db, identity, category_id=updates.get('budget_category_id'),
@@ -550,6 +573,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             identity = scope_identity(user, scope)
             original = item_details.require_item(db, identity, item_id)
+            account_plans.require_managed_mutable(original)
             db.execute('DELETE FROM budget_items WHERE id=?', (item_id,))
             item_details.after_item_delete(db, identity, original['lineage_id'], local_today(request, user))
         return Response(status_code=204)
@@ -610,7 +634,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             db.execute('BEGIN IMMEDIATE')
             item_details.ensure_lineages(db, identity)
-            if db.execute('SELECT 1 FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.to_month)).fetchone():
+            if db.execute('SELECT 1 FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=? AND managed_account_id IS NULL', (*identity, payload.to_month)).fetchone():
                 raise HTTPException(409, 'The destination month already has a budget')
             source = db.execute('SELECT 1 FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.from_month)).fetchone()
             income_plans.ensure_month(db, identity, payload.from_month)
@@ -619,11 +643,12 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                 raise HTTPException(404, 'The source month has no budget to copy')
             db.execute('''INSERT INTO budget_items(household_id,owner_id,scope,month,name,group_name,color,planned_cents,budget_category_id,lineage_id)
                           SELECT household_id,owner_id,scope,?,name,group_name,color,planned_cents,budget_category_id,lineage_id FROM budget_items
-                          WHERE household_id=? AND owner_id=? AND scope=? AND month=?''', (payload.to_month, *identity, payload.from_month))
+                          WHERE household_id=? AND owner_id=? AND scope=? AND month=? AND managed_account_id IS NULL''', (payload.to_month, *identity, payload.from_month))
             income_plans.copy_monthly_lines(db, identity, payload.from_month, payload.to_month)
             db.execute('INSERT OR IGNORE INTO budget_months(household_id,owner_id,scope,month,income_cents) VALUES (?,?,?,?,0)',
                        (*identity, payload.to_month))
-            for row in db.execute('SELECT lineage_id FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, payload.to_month)).fetchall():
+            account_plans.materialize_debts(db, identity, local_today(request, user), payload.to_month)
+            for row in db.execute('SELECT lineage_id FROM budget_items WHERE household_id=? AND owner_id=? AND scope=? AND month=? AND managed_account_id IS NULL', (*identity, payload.to_month)).fetchall():
                 item_details.refresh_unpaid(db, identity, row['lineage_id'], local_today(request, user), payload.to_month)
         return {'month': payload.to_month, 'copied': True}
 
@@ -731,7 +756,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                 identity = scope_identity(user, scope)
                 original = require_scope_item(db, 'bills', bill_id, identity)
                 updates = payload.model_dump(exclude_unset=True, exclude_none=True)
-                if original['budget_item_lineage_id'] is not None and any(key not in ('paid', 'autopay') for key in updates):
+                if (original['budget_item_lineage_id'] is not None or original['debt_account_id'] is not None) and any(key not in ('paid', 'autopay') for key in updates):
                     raise HTTPException(409, 'Edit this recurring reminder from its budget item')
                 if 'due_date' in updates:
                     if updates['due_date'].isoformat() != original['due_date'] or not original['recurrence_day']:
@@ -775,8 +800,8 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             identity = scope_identity(user, scope)
             original = require_scope_item(db, 'bills', bill_id, identity)
-            if original['budget_item_lineage_id'] is not None:
-                raise HTTPException(409, 'Remove this recurring due date from its budget item')
+            if original['budget_item_lineage_id'] is not None or original['debt_account_id'] is not None:
+                raise HTTPException(409, 'Remove this recurring due date from its budget item or account schedule')
             if original['recurrence_key']:
                 db.execute('''DELETE FROM bills WHERE household_id=? AND owner_id=? AND scope=?
                               AND recurrence_key=? AND paid=0 AND due_date>?''',
@@ -796,10 +821,11 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         identity = scope_identity(user, scope)
         with connect(db_path) as db:
             validate_category(db, payload.category_id, identity, payload.date)
-            uid = db.execute('INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,category_id,pending) VALUES (?,?,?,?,?,?,?,?,?)',
-                             (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), payload.account_name, payload.category_id, payload.pending)).lastrowid
-            row = db.execute('SELECT t.*,i.name category_name FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id WHERE t.id=?', (uid,)).fetchone()
-            return transaction_payload(row)
+            account_id, account_name = account_plans.transaction_account(db, identity, payload.account_id, payload.account_name,
+                                                                        resolve_name='account_id' not in payload.model_fields_set)
+            uid = db.execute('INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,category_id,pending) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                             (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), account_name, account_id, payload.category_id, payload.pending)).lastrowid
+            return transaction_by_id(db, uid)
 
     @app.patch('/api/transactions/{transaction_id}')
     def update_transaction(transaction_id: int, payload: TransactionPatch, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
@@ -807,17 +833,33 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             original = require_scope_item(db, 'transactions', transaction_id, identity)
             updates = payload.model_dump(exclude_unset=True)
-            # category_id=null clears a category; all other nulls are rejected.
-            if any(value is None and key != 'category_id' for key, value in updates.items()):
-                raise HTTPException(422, 'Only category_id can be cleared')
+            if any(value is None and key not in ('category_id', 'account_id') for key, value in updates.items()):
+                raise HTTPException(422, 'Only category_id and account_id can be cleared')
+            if 'account_id' in updates:
+                account_id, account_name = account_plans.transaction_account(db, identity, updates['account_id'], updates.get('account_name', 'Manual entry'), resolve_name=False)
+                updates.update(account_id=account_id, account_name=account_name)
+            elif original['account_id'] is not None:
+                # An ordinary description/category edit preserves the bank FK.
+                account = account_plans.require_account(db, identity, original['account_id'], include_archived=True)
+                if 'account_name' in updates:
+                    updates['account_name'] = account['name']
+            elif 'account_name' in updates:
+                account_id, account_name = account_plans.transaction_account(db, identity, None, updates['account_name'])
+                updates.update(account_id=account_id, account_name=account_name)
             validate_category(db, updates.get('category_id', original['category_id']), identity, updates.get('date', original['date']))
+            if updates.get('category_id') is not None and updates['category_id'] != original['category_id']:
+                account_id = updates.get('account_id', original['account_id'])
+                if account_id is not None:
+                    account = account_plans.require_account(db, identity, account_id, include_archived=True)
+                    if account['currency'] != 'USD':
+                        raise HTTPException(422, 'Only USD transactions can be assigned to this budget')
             if 'date' in updates:
                 updates['date'] = updates['date'].isoformat()
             if 'amount_cents' in updates and original['external_id']:
                 updates['amount_override_cents'] = updates['amount_cents']
             if updates:
                 db.execute('UPDATE transactions SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), transaction_id))
-            return transaction_payload(db.execute('SELECT t.*,i.name category_name FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id WHERE t.id=?', (transaction_id,)).fetchone())
+            return transaction_by_id(db, transaction_id)
 
     @app.delete('/api/transactions/{transaction_id}', status_code=204)
     def delete_transaction(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
@@ -830,31 +872,43 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         return Response(status_code=204)
 
     @app.get('/api/accounts')
-    def accounts(scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+    def accounts(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
         with connect(db_path) as db:
-            return [dict(row) for row in db.execute('SELECT id,name,institution,kind,balance_cents,currency,source FROM accounts WHERE household_id=? AND owner_id=? AND scope=? ORDER BY id', scope_identity(user, scope))]
+            return account_plans.account_list(db, scope_identity(user, scope), current_month)
+
+    @app.get('/api/accounts/net-worth/history')
+    def net_worth_history(scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return account_plans.net_worth_history(db, scope_identity(user, scope))
+
+    @app.get('/api/accounts/{account_id}/history')
+    def account_history(account_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return account_plans.account_history(db, scope_identity(user, scope), account_id)
 
     @app.post('/api/accounts', status_code=201)
-    def add_account(payload: Account, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+    def add_account(payload: Account, request: Request, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
-            uid = db.execute('INSERT INTO accounts(household_id,owner_id,scope,name,institution,kind,balance_cents,currency,source) VALUES (?,?,?,?,?,?,?,?,?)',
-                             (*scope_identity(user, scope), payload.name.strip(), payload.institution, payload.kind, payload.balance_cents, payload.currency, 'manual')).lastrowid
-        return {'id': uid, 'source': 'manual'} | payload.model_dump()
+            return account_plans.create_account(db, scope_identity(user, scope), payload, local_today(request, user).strftime('%Y-%m'))
 
     @app.patch('/api/accounts/{account_id}')
-    def update_account(account_id: int, payload: AccountPatch, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+    def update_account(account_id: int, payload: AccountPatch, request: Request, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
-            require_scope_item(db, 'accounts', account_id, scope_identity(user, scope))
-            updates = payload.model_dump(exclude_unset=True, exclude_none=True)
-            if updates:
-                db.execute('UPDATE accounts SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), account_id))
-            return dict(db.execute('SELECT id,name,institution,kind,balance_cents,currency,source FROM accounts WHERE id=?', (account_id,)).fetchone())
+            return account_plans.update_account(db, scope_identity(user, scope), account_id, payload, local_today(request, user).strftime('%Y-%m'), local_today(request, user))
+
+    @app.put('/api/accounts/{account_id}/payment-schedule')
+    def account_payment_schedule(account_id: int, payload: DebtPaymentSchedule, request: Request,
+                                 scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(current_month)
+        with connect(db_path) as db:
+            return account_plans.set_schedule(db, scope_identity(user, scope), account_id, payload, local_today(request, user), current_month)
 
     @app.delete('/api/accounts/{account_id}', status_code=204)
-    def delete_account(account_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+    def delete_account(account_id: int, request: Request, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
-            require_scope_item(db, 'accounts', account_id, scope_identity(user, scope))
-            db.execute('DELETE FROM accounts WHERE id=?', (account_id,))
+            account_plans.archive_account(db, scope_identity(user, scope), account_id, local_today(request, user))
         return Response(status_code=204)
 
     @app.get('/api/settings')

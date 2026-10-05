@@ -172,6 +172,8 @@ def adopt_bill(db, identity, item, bill_id):
     bill = db.execute('SELECT * FROM bills WHERE id=? AND household_id=? AND owner_id=? AND scope=?', (bill_id, *identity)).fetchone()
     if bill is None:
         raise HTTPException(404, 'Bill not found')
+    if bill['debt_account_id'] is not None:
+        raise HTTPException(409, 'This reminder is managed by its account payment schedule')
     if bill['budget_item_lineage_id'] == item['lineage_id']:
         return
     if bill['budget_item_lineage_id'] is not None or db.execute('SELECT 1 FROM bills WHERE budget_item_lineage_id=? LIMIT 1', (item['lineage_id'],)).fetchone():
@@ -196,6 +198,8 @@ def adopt_bill(db, identity, item, bill_id):
 def set_due(db, identity, item_id, payload, today):
     db.execute('BEGIN IMMEDIATE')
     item = require_item(db, identity, item_id)
+    from .accounts import require_managed_mutable
+    require_managed_mutable(item)
     if payload.existing_bill_id is not None:
         if payload.due_day is None:
             raise HTTPException(422, 'Choose a recurring due day when attaching a bill')
@@ -214,6 +218,8 @@ def set_payment(db, identity, item_id, paid, today):
     if not db.in_transaction:
         db.execute('BEGIN IMMEDIATE')
     item = require_item(db, identity, item_id)
+    from .accounts import require_managed_mutable
+    require_managed_mutable(item)
     materialize_bills(db, identity, today, item['month'], item['lineage_id'])
     bill = month_bill(db, identity, item['lineage_id'], item['month'])
     if bill is not None:
@@ -300,6 +306,10 @@ def transaction_payload(row):
 
 def details(db, identity, item_id, today):
     item = require_item(db, identity, item_id)
+    if item['managed_account_id'] is not None:
+        from .accounts import materialize_debts
+        materialize_debts(db, identity, today, item['month'])
+        item = require_item(db, identity, item_id)
     category = categories.require_category(db, identity, item['budget_category_id'])
     materialize_bills(db, identity, today, item['month'], item['lineage_id'])
     bill = month_bill(db, identity, item['lineage_id'], item['month'])
@@ -336,7 +346,19 @@ def details(db, identity, item_id, today):
                         'pending_cents': totals['pending_cents'], 'has_plan': bool(plan['count'])})
     available = [{key: row[key] for key in ('id', 'name', 'amount_cents', 'due_date', 'recurrence')} | {'paid': bool(row['paid'])}
                  for row in db.execute('''SELECT * FROM bills WHERE household_id=? AND owner_id=? AND scope=?
-                                         AND budget_item_lineage_id IS NULL AND substr(due_date,1,7)=? ORDER BY due_date,id''', (*identity, item['month']))]
-    return {'item': categories.item_payload(item, category) | {'month': item['month'], 'lineage_id': item['lineage_id'], 'spent_cents': spent, 'pending_cents': pending},
+                                         AND budget_item_lineage_id IS NULL AND debt_account_id IS NULL AND substr(due_date,1,7)=? ORDER BY due_date,id''', (*identity, item['month']))]
+    payments = []
+    if item['managed_account_id'] is not None:
+        from .app import bill_payload
+        payments = [bill_payload(row, today) for row in db.execute('SELECT * FROM bills WHERE budget_item_id=? ORDER BY due_date,id', (item_id,))]
+        due.update(due_day=None, effective_from=None, bill_id=None, due_date=None,
+                   paid=bool(payments) and all(row['paid'] for row in payments),
+                   can_adopt_existing_bill=False, amount_cents=item['planned_cents'])
+        available = []
+    item_data = categories.item_payload(item, category) | {'month': item['month'], 'lineage_id': item['lineage_id'], 'spent_cents': spent, 'pending_cents': pending}
+    if item['managed_account_id'] is not None:
+        item_data['payment_dates'] = [row['due_date'] for row in payments]
+    return {'item': item_data,
             'month': item['month'], 'category': categories.metadata(category), 'due': due,
-            'linked_transactions': linked, 'history': history, 'available_bills': available}
+            'linked_transactions': linked, 'history': history, 'available_bills': available,
+            'payment_occurrences': payments}
