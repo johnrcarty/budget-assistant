@@ -11,6 +11,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { money, monthLabel, prettyDate, colors } from "../lib/format.js";
+import { budgetDueDates, sortBudgetItems } from "../lib/budget.js";
 import { IconButton, Button, Progress } from "../components/ui.jsx";
 import IncomeSection from "../components/IncomeSection.jsx";
 
@@ -24,7 +25,7 @@ function CategoryCard({
   accounts = [],
   deleteItem,
 }) {
-  const items = category.items || [];
+  const items = sortBudgetItems(category.items || []);
   const color = category.color || colors[index % colors.length];
   const archived = category.active === false;
   const managed = category.managed === true;
@@ -70,94 +71,103 @@ function CategoryCard({
             <span>REMAINING</span>
             <span />
           </div>
-          {items.map((item) => (
-            <div className="budget-item" key={item.id}>
-              <button
-                type="button"
-                className="budget-item-open"
-                aria-label={`View ${item.name} item details`}
-                onClick={() =>
-                  openItemDetails({
-                    ...item,
-                    budget_category_id: category.id,
-                    group_name: category.name,
-                    color,
-                  })
-                }
-                disabled={busy}
-              >
-                <span className="item-line" style={{ background: color }} />
-                <span>
-                  <strong>{item.name}</strong>
-                  {item.managed && (
-                    <small className="managed-payment-dates">
-                      {item.payment_dates?.length || 0} payment
-                      {item.payment_dates?.length === 1 ? "" : "s"}
-                      {item.payment_dates?.length
-                        ? ` · ${item.payment_dates.map(prettyDate).join(", ")}`
-                        : " this month"}
-                    </small>
-                  )}
-                </span>
-              </button>
-              {item.managed ? (
-                <span className="managed-planned">
-                  {money(item.planned_cents)}
-                </span>
-              ) : (
+          {items.map((item) => {
+            const dueDates = budgetDueDates(item);
+            return (
+              <div className="budget-item" key={item.id}>
                 <button
                   type="button"
-                  className="editable-money"
+                  className="budget-item-open"
+                  aria-label={`View ${item.name} item details${dueDates.length ? `, due ${dueDates.map(prettyDate).join(", ")}` : ""}`}
                   onClick={() =>
-                    open("item", { ...item, budget_category_id: category.id })
+                    openItemDetails({
+                      ...item,
+                      budget_category_id: category.id,
+                      group_name: category.name,
+                      color,
+                    })
                   }
-                  aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
                   disabled={busy}
                 >
-                  {money(item.planned_cents)}
-                  <Pencil size={12} aria-hidden="true" />
+                  <span className="item-line" style={{ background: color }} />
+                  <span className="budget-item-name">
+                    <strong>{item.name}</strong>
+                    {dueDates.length > 0 ? (
+                      <small className="budget-item-dates">
+                        Due{" "}
+                        {dueDates.map((date, index) => (
+                          <span key={`${date}-${index}`}>
+                            {index > 0 ? ", " : ""}
+                            <time dateTime={date}>{prettyDate(date)}</time>
+                          </span>
+                        ))}
+                      </small>
+                    ) : item.managed ? (
+                      <small className="budget-item-dates">
+                        No payments this month
+                      </small>
+                    ) : null}
+                  </span>
                 </button>
-              )}
-              <span>{money(item.spent_cents)}</span>
-              <span
-                className={
-                  item.planned_cents - item.spent_cents < 0
-                    ? "amount-negative"
-                    : "amount-positive"
-                }
-              >
-                {money(item.planned_cents - item.spent_cents)}
-              </span>
-              {item.managed ? (
-                <IconButton
-                  label={`Configure ${item.name} in Accounts`}
-                  onClick={() =>
-                    openAccountDetails(
-                      accounts.find(
+                {item.managed ? (
+                  <span className="managed-planned">
+                    {money(item.planned_cents)}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="editable-money"
+                    onClick={() =>
+                      open("item", { ...item, budget_category_id: category.id })
+                    }
+                    aria-label={`Edit ${item.name} item, ${money(item.planned_cents)} planned`}
+                    disabled={busy}
+                  >
+                    {money(item.planned_cents)}
+                    <Pencil size={12} aria-hidden="true" />
+                  </button>
+                )}
+                <span>{money(item.spent_cents)}</span>
+                <span
+                  className={
+                    item.planned_cents - item.spent_cents < 0
+                      ? "amount-negative"
+                      : "amount-positive"
+                  }
+                >
+                  {money(item.planned_cents - item.spent_cents)}
+                </span>
+                {item.managed ? (
+                  <IconButton
+                    label={`Configure ${item.name} in Accounts`}
+                    onClick={() =>
+                      openAccountDetails(
+                        accounts.find(
+                          (account) => account.id === item.managed_account_id,
+                        ),
+                      )
+                    }
+                    disabled={
+                      busy ||
+                      !accounts.some(
                         (account) => account.id === item.managed_account_id,
-                      ),
-                    )
-                  }
-                  disabled={
-                    busy ||
-                    !accounts.some(
-                      (account) => account.id === item.managed_account_id,
-                    )
-                  }
-                >
-                  <Settings2 size={16} />
-                </IconButton>
-              ) : (
-                <IconButton
-                  label={`Delete ${item.name}`}
-                  onClick={() => deleteItem("item", item)}
-                  disabled={busy}
-                >
-                  <Trash2 size={14} />
-                </IconButton>
-              )}
-            </div>
-          ))}
+                      )
+                    }
+                  >
+                    <Settings2 size={16} />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    label={`Delete ${item.name}`}
+                    onClick={() => deleteItem("item", item)}
+                    disabled={busy}
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
       {(category.historical_item_spent_cents || 0) !== 0 && (

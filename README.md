@@ -100,7 +100,19 @@ Accounts can be renamed and classified after import. Categorization and account 
 
 See the [SimpleFIN protocol](https://www.simplefin.org/protocol.html) and [Bridge developer guide](https://beta-bridge.simplefin.org/info/developers).
 
+## Automatic transaction categorization
+
+Open **Rules** in Transactions to add a description rule, or use **Create rule** while adding or editing a transaction. Match text with **Contains this text** or **Exact description**, choose the budget item, and optionally restrict the rule to one account or money direction. Matching ignores letter case. Active rules run in priority order; move specific rules above broader ones.
+
+Rules run when eligible transactions sync and when you record a transaction with **Use rules automatically**. They follow the budget item's identity into copied months and use the item in the transaction's own month. If that month's item is missing or its category is archived, the transaction stays uncategorized. Rules do not create budget items or mark bills paid.
+
+Saving a rule does not change existing transactions immediately. Use **Preview** for the selected month, review the proposed assignments and skipped matches, then apply them. If the rules or transactions change after previewing, refresh the preview before applying. Rule changes, disabling, and deletion preserve earlier assignments.
+
+Manual category choices are kept, including choosing **Uncategorized** deliberately. Older uncategorized records have no recorded manual choice and remain eligible for rules. Use **Use rules instead** on an uncategorized transaction to release a manual choice. Changing other transaction details preserves its categorization. Rules belong to the selected Home or Personal scope; personal rules and matches remain private even when personal totals are shared.
+
 ## Accounts, debts, and balance history
+
+Accounts use compact rows grouped into Assets and Debts, with separate totals for each currency. Tap a row for its details and balance history. Mobile row actions reveal editing and archiving, and the overall balance history sits below the account list in an expandable section.
 
 The transaction inbox shows checking, savings, and credit-card activity in a compact date-grouped list. Investment, mortgage, and other account transactions remain stored for their existing associations and totals. Account classifications can be corrected in Accounts and survive bank refreshes. Manual entries without an account remain visible.
 
@@ -123,4 +135,4 @@ Tests use temporary databases, including authentication, personal access, aggreg
 
 ## Scope of this rebuild
 
-The first version covers budgets, household membership, private personal scopes, optional aggregate sharing, a cash-flow Sankey, bill tracking, account management, transaction categorization, scheduled SimpleFIN imports, standalone authentication, and ingress preparation. Original debt-payoff simulation, annual income forecasting, CSV import, advanced categorization rules, and live-data migration are separate follow-up work. No existing data has been copied into the new app.
+The rebuild covers budgets, household membership, private personal scopes, optional aggregate sharing, a cash-flow Sankey, bill tracking, account management, reusable transaction categorization rules, scheduled SimpleFIN imports, standalone authentication, and ingress preparation. Original debt-payoff simulation, annual income forecasting, CSV import, and live-data migration are separate follow-up work. No existing data has been copied into the new app.

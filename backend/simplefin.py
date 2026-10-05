@@ -194,6 +194,7 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
     warnings += [safe_warning(e) for e in payload.get("errors", [])]
     accounts = transactions = 0
     from . import accounts as account_history
+    from . import categorization
     owner = 0 if scope == "household" else user_id
     try:
         with get_db(db_path) as db:
@@ -201,6 +202,9 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
             hid = user["household_id"]
             local_zone = ZoneInfo(user["timezone"])
             account_history.ensure_observations(db, (hid, owner, scope))
+            rule_identity = (hid, owner, scope)
+            categorization_rules = categorization.active_rules(db, rule_identity)
+            categorization_targets = {}
             for account in payload["accounts"]:
                 conn = str(account.get("conn_id", account.get("org", {}).get("id", account.get("org", {}).get("domain", "legacy"))))
                 aid = str(account["id"])
@@ -255,6 +259,9 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
                                (hid, owner, scope, str(transaction.get("description", "Transaction"))[:300],
                                 cents(transaction["amount"]), when, account_row["name"], account_row["id"],
                                 int(bool(transaction.get("pending", False))), ext))
+                    imported = db.execute('SELECT id FROM transactions WHERE household_id=? AND owner_id=? AND scope=? AND external_id=?', (*rule_identity, ext)).fetchone()
+                    categorization.apply_automatic(db, rule_identity, imported['id'], reconcile=True,
+                                                    rules=categorization_rules, cache=categorization_targets)
                     transactions += 1
         return {"imported_accounts": accounts, "imported_transactions": transactions,
                 "warnings": list(dict.fromkeys(warnings))[:30]}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Landmark,
   Plus,
@@ -7,49 +7,105 @@ import {
   RefreshCw,
   ArrowRight,
   Link2,
-  CreditCard,
+  Ellipsis,
+  ChevronDown,
   ShieldCheck,
   AlertCircle,
   LoaderCircle,
 } from "lucide-react";
 import { money } from "../lib/format.js";
-import {
-  isDebt,
-  netBalance,
-  debtLabels,
-  scheduleLabel,
-} from "../lib/accounts.js";
+import { isDebt, netBalance, debtLabels } from "../lib/accounts.js";
 import { api } from "../lib/api.js";
 import { IconButton, Button, Empty } from "../components/ui.jsx";
 import AccountHistoryChart from "../components/AccountHistoryChart.jsx";
 
-function AccountCard({ account, busy, open, openAccountDetails, deleteItem }) {
+const accountKinds = {
+  checking: "Checking",
+  savings: "Savings",
+  credit: "Credit card",
+  loan: "Loan",
+  investment: "Investment",
+  property: "Property",
+  other: "Other account",
+};
+const currencyOrder = (first, second) =>
+  first === second
+    ? 0
+    : first === "USD"
+      ? -1
+      : second === "USD"
+        ? 1
+        : first.localeCompare(second);
+
+function AccountRow({
+  account,
+  busy,
+  open,
+  openAccountDetails,
+  deleteItem,
+  expanded,
+  onExpand,
+}) {
+  const actions = useRef(null);
   const debt = isDebt(account);
   const archived = account.active === false;
+  const type =
+    debtLabels[account.debt_type] || accountKinds[account.kind] || "Account";
+  const balance = money(
+    debt ? Math.abs(account.balance_cents) : account.balance_cents,
+    account.currency || "USD",
+  );
+  function chooseAction(action) {
+    onExpand(null);
+    actions.current?.focus();
+    action();
+  }
   return (
-    <section
-      className={`card account-card ${archived ? "archived-account" : ""}`}
+    <li
+      className={`account-list-row ${archived ? "is-archived" : ""}`}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && expanded) {
+          event.preventDefault();
+          onExpand(null);
+          actions.current?.focus();
+        }
+      }}
     >
-      <div className="account-card-top">
-        <span className="account-icon" aria-hidden="true">
-          {debt ? <CreditCard size={24} /> : <Landmark size={24} />}
-        </span>
-        <div className="account-tools">
-          <span
-            className={`pill ${account.source === "simplefin" ? "green" : "neutral"}`}
-          >
-            {archived
-              ? "Archived"
-              : account.source === "simplefin"
-                ? "Connected"
-                : "Manual"}
+      <div className="account-row-main">
+        <button
+          type="button"
+          className="account-row-open"
+          onClick={() => openAccountDetails(account)}
+          disabled={busy}
+          aria-label={`View ${account.name}, ${type}, ${balance}${debt ? " owed" : ""}, ${account.currency || "USD"}${archived ? ", archived" : ""}, account details and balance history`}
+        >
+          <span className="account-row-copy">
+            <strong>{account.name}</strong>
+            <small>
+              {type}
+              {account.institution && (
+                <span className="account-row-institution">
+                  {" "}
+                  · {account.institution}
+                </span>
+              )}
+              {archived ? " · Archived" : ""}
+            </small>
           </span>
+          <span
+            className={`account-row-balance ${debt || account.balance_cents < 0 ? "amount-negative" : ""}`}
+          >
+            <strong>{balance}</strong>
+            {debt && <small>owed</small>}
+          </span>
+        </button>
+        <div className="account-row-desktop-tools">
           <IconButton
             label={`Edit ${account.name}`}
             onClick={() => open("account", account)}
             disabled={busy}
           >
-            <Pencil size={16} />
+            <Pencil size={16} aria-hidden="true" />
           </IconButton>
           {!archived && (
             <IconButton
@@ -57,74 +113,98 @@ function AccountCard({ account, busy, open, openAccountDetails, deleteItem }) {
               onClick={() => deleteItem("account", account)}
               disabled={busy}
             >
-              <Archive size={16} />
+              <Archive size={16} aria-hidden="true" />
             </IconButton>
           )}
         </div>
-      </div>
-      <p className="eyebrow">{account.institution || "YOUR ACCOUNT"}</p>
-      <button
-        className="account-name-button"
-        type="button"
-        onClick={() => openAccountDetails(account)}
-        aria-label={`View ${account.name} account details and balance history`}
-      >
-        <h2>{account.name}</h2>
-      </button>
-      <strong
-        className={`account-balance ${debt || account.balance_cents < 0 ? "amount-negative" : ""}`}
-      >
-        {money(
-          debt ? Math.abs(account.balance_cents) : account.balance_cents,
-          account.currency || "USD",
-        )}
-      </strong>
-      {debt && <span className="account-owed-label">owed</span>}
-      {debt && (
-        <div className="account-debt-summary">
-          <span>
-            {account.apr_basis_points == null
-              ? "APR not entered"
-              : `${(account.apr_basis_points / 100).toFixed(2)}% APR`}
-          </span>
-          <span>{scheduleLabel(account.payment_schedule)}</span>
-          {account.payment_schedule?.active && (
-            <strong>
-              {money(account.payment_schedule.amount_cents)} per payment
-            </strong>
-          )}
-        </div>
-      )}
-      {debt && account.upcoming_payment_schedule && (
-        <div className="account-upcoming-summary">
-          <strong>
-            {account.upcoming_payment_schedule.active ? "Starts" : "Stops"}{" "}
-            {new Date(
-              `${account.upcoming_payment_schedule.effective_from.slice(0, 7)}-15T12:00:00`,
-            ).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
-          </strong>
-          {account.upcoming_payment_schedule.active && (
-            <span>
-              {money(account.upcoming_payment_schedule.amount_cents)} ·{" "}
-              {scheduleLabel(account.upcoming_payment_schedule)}
-            </span>
-          )}
-        </div>
-      )}
-      <div className="account-card-bottom">
-        <span>
-          {debtLabels[account.debt_type] ||
-            account.kind?.replace("_", " ") ||
-            "Account"}
-        </span>
         <button
           type="button"
-          className="text-button"
-          onClick={() => openAccountDetails(account)}
+          ref={actions}
+          className="icon-button account-row-more"
+          aria-label={`Actions for ${account.name}`}
+          aria-expanded={expanded}
+          aria-controls={`account-actions-${account.id}`}
+          onClick={() => onExpand(expanded ? null : account.id)}
+          disabled={busy}
         >
-          Details <ArrowRight size={14} />
+          <Ellipsis size={21} aria-hidden="true" />
         </button>
       </div>
+      <div
+        id={`account-actions-${account.id}`}
+        className="account-row-mobile-tools"
+        hidden={!expanded}
+      >
+        <Button
+          type="button"
+          variant="secondary"
+          icon={Pencil}
+          onClick={() => chooseAction(() => open("account", account))}
+          disabled={busy}
+        >
+          Edit account
+        </Button>
+        {!archived && (
+          <Button
+            type="button"
+            variant="secondary"
+            icon={Archive}
+            onClick={() => chooseAction(() => deleteItem("account", account))}
+            disabled={busy}
+          >
+            Archive
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function AccountGroup({
+  title,
+  accounts,
+  currency,
+  showTotal = true,
+  ...rowProps
+}) {
+  if (!accounts.length) return null;
+  const total = accounts.reduce(
+    (sum, account) =>
+      sum +
+      (isDebt(account)
+        ? Math.abs(account.balance_cents)
+        : account.balance_cents),
+    0,
+  );
+  return (
+    <section className="account-list-group">
+      <div className="account-group-heading">
+        <h3>
+          {title}
+          <span>{accounts.length}</span>
+        </h3>
+        {showTotal && (
+          <strong className={title === "Debts" ? "amount-negative" : ""}>
+            {money(total, currency)}
+          </strong>
+        )}
+      </div>
+      <ul>
+        {[...accounts]
+          .sort(
+            (a, b) =>
+              a.name.localeCompare(b.name, "en", { sensitivity: "base" }) ||
+              a.id - b.id,
+          )
+          .map((account) => (
+            <AccountRow
+              key={account.id}
+              account={account}
+              {...rowProps}
+              expanded={rowProps.actionAccount === account.id}
+            />
+          ))}
+      </ul>
     </section>
   );
 }
@@ -150,23 +230,52 @@ export default function Accounts({
   const [metric, setMetric] = useState("net_worth_cents");
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [actionAccount, setActionAccount] = useState(null);
   const active = accounts.filter((account) => account.active !== false);
+  const archived = accounts.filter((account) => account.active === false);
+  const activeCurrencies = [
+    ...new Set(active.map((account) => account.currency || "USD")),
+  ].sort(currencyOrder);
   const currencies = [
     ...new Set([
       ...accounts.map((account) => account.currency || "USD"),
       ...(history?.series || []).map((series) => series.currency),
     ]),
-  ].sort();
-  const scopedAccounts = active.filter(
-    (account) => (account.currency || "USD") === currency,
-  );
-  const total = scopedAccounts.reduce(
-    (sum, account) => sum + netBalance(account),
-    0,
-  );
+  ].sort(currencyOrder);
   const selectedAccount = metric.startsWith("account:")
     ? accounts.find((account) => account.id === Number(metric.slice(8)))
     : null;
+  useEffect(() => {
+    setActionAccount(null);
+  }, [scope, accounts]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    let focusedRow = null;
+    function rememberActions(event) {
+      if (event.target === document.body) return;
+      focusedRow =
+        event.target
+          .closest(".account-row-more, .account-row-mobile-tools")
+          ?.closest(".account-list-row") || null;
+    }
+    function desktopLayout() {
+      if (media.matches) return;
+      setActionAccount(null);
+      if (
+        focusedRow?.isConnected &&
+        (document.activeElement === document.body ||
+          focusedRow.contains(document.activeElement))
+      )
+        focusedRow.querySelector(".account-row-open")?.focus();
+      focusedRow = null;
+    }
+    document.addEventListener("focusin", rememberActions);
+    media.addEventListener("change", desktopLayout);
+    return () => {
+      document.removeEventListener("focusin", rememberActions);
+      media.removeEventListener("change", desktopLayout);
+    };
+  }, []);
   useEffect(() => {
     const abort = new AbortController();
     setLoading(true);
@@ -218,16 +327,8 @@ export default function Accounts({
       }[metric];
   return (
     <>
-      <div className="accounts-intro">
-        <div className="net-worth">
-          <p className="eyebrow">NET WORTH · {currency}</p>
-          <h2>{money(total, currency)}</h2>
-          <span>
-            {scopedAccounts.length} active account
-            {scopedAccounts.length === 1 ? "" : "s"}
-            {currencies.length > 1 ? " · Currencies kept separate" : ""}
-          </span>
-        </div>
+      <div className="accounts-list-toolbar">
+        <h2>Accounts</h2>
         <div className="header-actions">
           <Button
             variant="secondary"
@@ -235,17 +336,107 @@ export default function Accounts({
             busy={busy}
             onClick={sync}
             disabled={!settings.simplefin_connected}
+            aria-label="Sync accounts"
+            className="accounts-list-sync"
           >
-            Sync accounts
+            <span>Sync</span>
           </Button>
-          <Button onClick={() => open("account")} icon={Plus}>
-            Add account
+          <Button
+            onClick={() => open("account")}
+            icon={Plus}
+            aria-label="Add account"
+            disabled={busy}
+          >
+            Add
           </Button>
         </div>
       </div>
-      <section className="card accounts-history-card">
-        <div className="card-heading">
-          <h2>Balance history</h2>
+      <div className="compact-account-lists">
+        {activeCurrencies.map((unit) => {
+          const current = active.filter(
+            (account) => (account.currency || "USD") === unit,
+          );
+          return (
+            <section className="card account-currency-card" key={unit}>
+              <div className="account-currency-heading">
+                <h2>
+                  {unit}
+                  <span>
+                    {current.length} account{current.length === 1 ? "" : "s"}
+                  </span>
+                </h2>
+                <div>
+                  <span>Net worth</span>
+                  <strong>
+                    {money(
+                      current.reduce(
+                        (sum, account) => sum + netBalance(account),
+                        0,
+                      ),
+                      unit,
+                    )}
+                  </strong>
+                </div>
+              </div>
+              <AccountGroup
+                title="Assets"
+                accounts={current.filter((account) => !isDebt(account))}
+                currency={unit}
+                busy={busy}
+                open={open}
+                openAccountDetails={openAccountDetails}
+                deleteItem={deleteItem}
+                actionAccount={actionAccount}
+                onExpand={setActionAccount}
+              />
+              <AccountGroup
+                title="Debts"
+                accounts={current.filter(isDebt)}
+                currency={unit}
+                busy={busy}
+                open={open}
+                openAccountDetails={openAccountDetails}
+                deleteItem={deleteItem}
+                actionAccount={actionAccount}
+                onExpand={setActionAccount}
+              />
+            </section>
+          );
+        })}
+      </div>
+      {archived.length > 0 && (
+        <details className="card archived-account-list">
+          <summary>
+            Archived accounts <span>{archived.length}</span>
+            <ChevronDown size={18} aria-hidden="true" />
+          </summary>
+          {[...new Set(archived.map((account) => account.currency || "USD"))]
+            .sort(currencyOrder)
+            .map((unit) => (
+              <AccountGroup
+                key={unit}
+                title={unit}
+                accounts={archived.filter(
+                  (account) => (account.currency || "USD") === unit,
+                )}
+                currency={unit}
+                showTotal={false}
+                busy={busy}
+                open={open}
+                openAccountDetails={openAccountDetails}
+                deleteItem={deleteItem}
+                actionAccount={actionAccount}
+                onExpand={setActionAccount}
+              />
+            ))}
+        </details>
+      )}
+      <details className="card accounts-history-card account-history-disclosure">
+        <summary>
+          <span>Balance history</span>
+          <ChevronDown size={19} aria-hidden="true" />
+        </summary>
+        <div className="account-history-controls-row">
           <div className="account-chart-controls">
             <label>
               <span className="sr-only">History currency</span>
@@ -315,19 +506,7 @@ export default function Accounts({
             netWorth={!selectedAccount}
           />
         )}
-      </section>
-      <div className="account-grid">
-        {active.map((account) => (
-          <AccountCard
-            key={account.id}
-            account={account}
-            busy={busy}
-            open={open}
-            openAccountDetails={openAccountDetails}
-            deleteItem={deleteItem}
-          />
-        ))}
-      </div>
+      </details>
       {!accounts.length && (
         <section className="card">
           <Empty

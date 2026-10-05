@@ -6,9 +6,10 @@ import {
   AlertCircle,
   Link2,
   ExternalLink,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button, Field, Modal } from "./ui.jsx";
-import { today, stepMonth } from "../lib/format.js";
+import { today, stepMonth, cents } from "../lib/format.js";
 export default function BudgetDialog({
   modal,
   user,
@@ -22,10 +23,25 @@ export default function BudgetDialog({
   formError,
   save,
   confirmDelete,
+  onCreateRule,
+  onUseRules,
   onClose,
 }) {
   const [transactionAccount, setTransactionAccount] = useState(
-    modal.item?.account_id ? String(modal.item.account_id) : "",
+    modal.item?._draft?.account_id ??
+      (modal.item?.account_id ? String(modal.item.account_id) : ""),
+  );
+  const [transactionCategory, setTransactionCategory] = useState(
+    modal.item?._category_mode ??
+      (modal.item?.category_id
+        ? String(modal.item.category_id)
+        : modal.item?.manual_category_lock ||
+            modal.item?.category_source === "manual"
+          ? ""
+          : "automatic"),
+  );
+  const [categoryTouched, setCategoryTouched] = useState(
+    modal.item?._category_touched || false,
   );
   const retainedTransactionAccount =
     modal.item?.account_id &&
@@ -64,13 +80,56 @@ export default function BudgetDialog({
   )
     ? modal.item.budget_category_id
     : itemCategories[0]?.id || "";
+  function createRule(event) {
+    const values = Object.fromEntries(new FormData(event.currentTarget.form));
+    const draft = {
+      description: values.description,
+      amount: values.amount,
+      direction: values.direction,
+      date: values.date,
+      account_id: values.account_id,
+      currency: transactionCurrency,
+    };
+    onCreateRule({
+      ...modal.item,
+      description: values.description,
+      amount_cents:
+        cents(values.amount) * (values.direction === "income" ? 1 : -1),
+      date: values.date,
+      account_id: values.account_id ? Number(values.account_id) : null,
+      account_name: values.account_name,
+      currency: transactionCurrency,
+      category_id:
+        transactionCategory && transactionCategory !== "automatic"
+          ? Number(transactionCategory)
+          : null,
+      _category_mode: transactionCategory,
+      _category_touched: categoryTouched,
+      _draft: draft,
+      _return_item: {
+        ...modal.item,
+        _draft: draft,
+        _category_mode: transactionCategory,
+        _category_touched: categoryTouched,
+      },
+    });
+  }
+  async function useRules() {
+    try {
+      const result = await onUseRules(modal.item);
+      setTransactionCategory(
+        result.category_id ? String(result.category_id) : "automatic",
+      );
+      setCategoryTouched(false);
+    } catch {}
+  }
   return (
     <Modal
       title={
         {
           item: modal.item?.id ? "Edit item" : "Add item",
           bill: modal.item ? "Edit a bill" : "One less thing to remember",
-          transaction: modal.item
+          transaction: modal.item?.id
             ? "Edit transaction"
             : "Record a little moment",
           account: modal.item ? "Edit your account" : "Bring an account home",
@@ -267,7 +326,11 @@ export default function BudgetDialog({
                   required
                   name="description"
                   placeholder="Where did it go, or come from?"
-                  defaultValue={modal.item?.description || ""}
+                  defaultValue={
+                    modal.item?._draft?.description ??
+                    modal.item?.description ??
+                    ""
+                  }
                 />
               </Field>
               <div className="form-grid">
@@ -287,10 +350,19 @@ export default function BudgetDialog({
                       step="0.01"
                       placeholder="0.00"
                       defaultValue={
-                        modal.item?.amount_cents !== undefined &&
-                        transactionCurrency === (modal.item.currency || "USD")
-                          ? (Math.abs(modal.item.amount_cents) / 100).toFixed(2)
-                          : ""
+                        modal.item?._draft?.amount !== undefined &&
+                        transactionCurrency ===
+                          (modal.item._draft.currency ||
+                            modal.item.currency ||
+                            "USD")
+                          ? modal.item._draft.amount
+                          : modal.item?.amount_cents !== undefined &&
+                              transactionCurrency ===
+                                (modal.item.currency || "USD")
+                            ? (Math.abs(modal.item.amount_cents) / 100).toFixed(
+                                2,
+                              )
+                            : ""
                       }
                     />
                   </div>
@@ -299,7 +371,8 @@ export default function BudgetDialog({
                   <select
                     name="direction"
                     defaultValue={
-                      modal.item?.amount_cents > 0 ? "income" : "expense"
+                      modal.item?._draft?.direction ??
+                      (modal.item?.amount_cents > 0 ? "income" : "expense")
                     }
                   >
                     <option value="expense">Money out</option>
@@ -313,7 +386,11 @@ export default function BudgetDialog({
                     type="date"
                     required
                     name="date"
-                    defaultValue={modal.item?.date || today(user.timezone)}
+                    defaultValue={
+                      modal.item?._draft?.date ??
+                      modal.item?.date ??
+                      today(user.timezone)
+                    }
                   />
                 </Field>
                 <Field label="Account">
@@ -375,12 +452,24 @@ export default function BudgetDialog({
                   conversion is applied.
                 </p>
               )}
-              <Field label="Purpose">
+              <Field
+                label="Purpose"
+                help="Manual choices, including Uncategorized, are protected from rules."
+              >
                 <select
                   name="category_id"
-                  defaultValue={modal.item?.category_id || ""}
+                  value={transactionCategory}
+                  onChange={(event) => {
+                    setTransactionCategory(event.target.value);
+                    setCategoryTouched(true);
+                  }}
                 >
-                  <option value="">Uncategorized</option>
+                  {(!modal.item?.id ||
+                    (!modal.item?.category_id &&
+                      !modal.item?.manual_category_lock)) && (
+                    <option value="automatic">Use rules automatically</option>
+                  )}
+                  <option value="">Uncategorized (manual)</option>
                   {groups.map((g) => (
                     <optgroup label={g.name} key={g.name}>
                       {g.items.map((item) => (
@@ -392,6 +481,39 @@ export default function BudgetDialog({
                   ))}
                 </select>
               </Field>
+              <input
+                type="hidden"
+                name="category_touched"
+                value={String(categoryTouched)}
+              />
+              {modal.item?.manual_category_lock && !modal.item?.category_id && (
+                <div className="transaction-manual-choice">
+                  <p>
+                    Kept uncategorized by a manual choice. Rules use the saved
+                    transaction details.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={useRules}
+                    disabled={busy}
+                  >
+                    Use rules instead
+                  </Button>
+                </div>
+              )}
+              {onCreateRule && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon={SlidersHorizontal}
+                  onClick={createRule}
+                  disabled={busy}
+                  className="transaction-create-rule"
+                >
+                  Create rule from this transaction
+                </Button>
+              )}
             </>
           )}
           {modal.type === "simplefin" && (
@@ -494,7 +616,9 @@ export default function BudgetDialog({
                   ? "Copy budget"
                   : modal.type === "member"
                     ? "Add member"
-                    : "Save changes"}
+                    : modal.type === "transaction" && !modal.item?.id
+                      ? "Add transaction"
+                      : "Save changes"}
             </Button>
           </div>
         </form>

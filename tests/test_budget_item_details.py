@@ -151,6 +151,93 @@ def test_recurring_calendar_anchor_clamps_without_drift_or_month_duplicates(home
     assert len({details(client, owner, item_id)['due']['bill_id'] for item_id in ids}) == 3
 
 
+def listed_items(client, headers, month, scope='household'):
+    """Exercise the three public representations of a selected month's plan."""
+    result = []
+    for path in ('budget/items', 'budget/categories', 'dashboard'):
+        response = client.get('/api/' + path, headers=headers, params={'scope': scope, 'month': month})
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        if path == 'budget/items':
+            rows = payload
+        else:
+            groups = payload['groups'] if path == 'dashboard' else payload
+            rows = [item for group in groups for item in group['items']]
+        result.append({row['id']: row for row in rows})
+    return result
+
+
+@pytest.mark.parametrize('year,expected', [(2026, '2026-02-28'), (2028, '2028-02-29')])
+def test_item_lists_use_selected_month_actual_due_date_and_keep_paid_clamp(home, year, expected):
+    app, client, owner, _, _ = home
+    january_month, february_month = f'{year}-01', f'{year}-02'
+    app.state.today = lambda zone: date(year, 1, 15)
+    january = budget_item(client, owner, month=january_month)
+    set_due(client, owner, january, 31)
+    february = copy_item(client, owner, january_month, february_month)
+    undated = budget_item(client, owner, month=february_month, name='No reminder')
+    for rows in listed_items(client, owner, february_month):
+        assert rows[february]['due_date'] == expected
+        assert rows[undated]['due_date'] is None
+    for rows in listed_items(client, owner, january_month):
+        assert rows[january]['due_date'] == f'{year}-01-31'
+    mark_paid(client, owner, february)
+    app.state.today = lambda zone: date(year, 2, 15)
+    assert set_due(client, owner, february, 10)['due']['due_day'] == 10
+    with connect(app.state.db_path) as db:
+        before = [tuple(row) for row in db.execute('SELECT id,due_date,paid,amount_cents FROM bills ORDER BY id')]
+    for _ in range(2):
+        for rows in listed_items(client, owner, february_month):
+            # The existing paid fact wins over the edited recurrence rule.
+            assert rows[february]['due_date'] == expected
+            assert rows[undated]['due_date'] is None
+    lineage_id = details(client, owner, february)['item']['lineage_id']
+    with connect(app.state.db_path) as db:
+        assert [tuple(row) for row in db.execute('SELECT id,due_date,paid,amount_cents FROM bills ORDER BY id')] == before
+        assert db.execute('SELECT COUNT(*) FROM bills WHERE budget_item_lineage_id=? AND item_month=?',
+                          (lineage_id, february_month)).fetchone()[0] == 1
+
+
+def test_item_lists_keep_all_managed_payment_dates_and_show_earliest_actual_date(home):
+    app, client, owner, _, _ = home
+    app.state.today = lambda zone: date(2026, 10, 4)
+    response = client.post('/api/accounts', headers=owner, json={
+        'name': 'Fixture loan', 'kind': 'loan', 'balance_cents': 90000,
+    })
+    assert response.status_code == 201
+    aid = response.json()['id']
+    assert client.put(f'/api/accounts/{aid}/payment-schedule', headers=owner, json={
+        'amount_cents': 5000, 'cadence': 'biweekly', 'anchor_date': '2026-10-02',
+        'active': True, 'effective_from': '2026-10-01',
+    }).status_code == 200
+    first = next(row for row in bills(client, owner) if row['debt_account_id'] == aid)
+    assert client.patch(f"/api/bills/{first['id']}", headers=owner, json={'paid': True}).status_code == 200
+    for rows in listed_items(client, owner, '2026-10'):
+        managed = [row for row in rows.values() if row.get('managed_account_id') == aid]
+        assert len(managed) == 1
+        assert managed[0]['due_date'] == '2026-10-02'
+        assert managed[0]['payment_dates'] == ['2026-10-02', '2026-10-16', '2026-10-30']
+        assert managed[0]['planned_cents'] == 15000
+
+
+def test_item_list_due_dates_remain_private_even_when_personal_totals_are_shared(home):
+    _, client, owner, member, outsider = home
+    private = budget_item(client, owner, scope='personal', name='Private dated fixture')
+    set_due(client, owner, private, 27, scope='personal')
+    own = budget_item(client, member, scope='personal', name='Member dated fixture')
+    set_due(client, member, own, 18, scope='personal')
+    assert client.patch('/api/settings', headers=owner, json={'share_personal_totals': True}).status_code == 200
+    for rows in listed_items(client, owner, '2026-01', scope='personal'):
+        assert set(rows) == {private} and rows[private]['due_date'] == '2026-01-27'
+    for rows in listed_items(client, member, '2026-01', scope='personal'):
+        assert set(rows) == {own} and rows[own]['due_date'] == '2026-01-18'
+    for actor in (owner, member, outsider):
+        assert all(not rows for rows in listed_items(client, actor, '2026-01'))
+    shared = client.get('/api/dashboard?month=2026-01', headers=member)
+    assert shared.json()['shared_personal']['planned_cents'] == 10000
+    assert 'Private dated fixture' not in shared.text and '2026-01-27' not in shared.text
+
+
 def test_paid_bill_is_authoritative_and_paid_history_and_old_debt_survive_due_edits(home):
     app, client, owner, _, _ = home
     january = budget_item(client, owner)

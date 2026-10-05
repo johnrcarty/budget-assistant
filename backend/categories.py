@@ -125,9 +125,10 @@ def item_payload(row, category=None):
     return payload
 
 
-def categories_for(db, identity, month, start, end):
-    from .item_details import ensure_lineages
+def categories_for(db, identity, month, start, end, today=None):
+    from .item_details import ensure_lineages, list_due_dates
     ensure_lineages(db, identity)
+    due_dates = list_due_dates(db, identity, month, today)
     categories = {row['id']: metadata(row) | {'planned_cents': 0, 'spent_cents': 0,
                                              'historical_item_spent_cents': 0, 'items': []}
                   for row in db.execute('''SELECT * FROM budget_categories
@@ -139,9 +140,10 @@ def categories_for(db, identity, month, start, end):
                               ORDER BY i.id''', (start, end, *identity, month)):
         category = categories.get(item['budget_category_id'])
         if category is not None:
-            entry = item_payload(item, category) | {'spent_cents': item['spent_cents']}
+            entry = item_payload(item, category) | {'spent_cents': item['spent_cents'], 'due_date': due_dates.get(item['lineage_id'])}
             if entry['managed']:
                 entry['payment_dates'] = [bill['due_date'] for bill in db.execute('SELECT due_date FROM bills WHERE budget_item_id=? ORDER BY due_date,id', (item['id'],))]
+                entry['due_date'] = entry['payment_dates'][0] if entry['payment_dates'] else None
             category['items'].append(entry)
             category['planned_cents'] += item['planned_cents']
     # Transaction.category_id still refers to a budget ITEM. A bank transaction

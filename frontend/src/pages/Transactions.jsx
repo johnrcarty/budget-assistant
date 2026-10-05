@@ -1,4 +1,11 @@
-import { Plus, X, Search, Trash2, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  X,
+  Search,
+  Trash2,
+  RefreshCw,
+  SlidersHorizontal,
+} from "lucide-react";
 import { money } from "../lib/format.js";
 import { IconButton, Button, Empty } from "../components/ui.jsx";
 
@@ -19,6 +26,7 @@ export default function Transactions({
   deleteItem,
   sync,
   displayTransactions,
+  openRules,
 }) {
   const dates = new Map();
   [...displayTransactions]
@@ -58,20 +66,30 @@ export default function Transactions({
         </div>
       </div>
       <div className="transaction-search">
-        <label className="search-box">
-          <Search size={17} aria-hidden="true" />
-          <input
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Search transactions…"
-            aria-label="Search transactions"
-          />
-          {filter && (
-            <IconButton label="Clear search" onClick={() => setFilter("")}>
-              <X size={15} />
-            </IconButton>
-          )}
-        </label>
+        <div className="transaction-search-line">
+          <label className="search-box">
+            <Search size={17} aria-hidden="true" />
+            <input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Search transactions…"
+              aria-label="Search transactions"
+            />
+            {filter && (
+              <IconButton label="Clear search" onClick={() => setFilter("")}>
+                <X size={15} />
+              </IconButton>
+            )}
+          </label>
+          <Button
+            variant="secondary"
+            icon={SlidersHorizontal}
+            onClick={() => openRules()}
+            disabled={busy}
+          >
+            Rules
+          </Button>
+        </div>
         <p>
           Checking, savings & credit · Manual entries
           {uncategorized > 0 && <span>{uncategorized} to categorize</span>}
@@ -105,7 +123,19 @@ export default function Transactions({
                             !transaction.category_id ? "needs-purpose" : ""
                           }
                         >
-                          {transaction.category_name || "Uncategorized"}
+                          {transaction.category_name ||
+                            (transaction.manual_category_lock
+                              ? "Kept uncategorized"
+                              : "Uncategorized")}
+                        </span>
+                        <span
+                          className={`transaction-provenance ${transaction.category_source === "automatic" ? "is-automatic" : ""}`}
+                        >
+                          {transaction.category_source === "automatic"
+                            ? "Automatic"
+                            : transaction.category_source === "manual"
+                              ? "Manual"
+                              : "Unmatched"}
                         </span>
                         {transaction.pending && (
                           <span className="transaction-pending">Pending</span>

@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Leaf,
   LogOut,
-  Menu,
   CheckCircle2,
   AlertCircle,
   LoaderCircle,
@@ -28,6 +27,8 @@ import AccountDetails from "./components/AccountDetails.jsx";
 import CategoryDialog from "./components/CategoryDialog.jsx";
 import ItemDetails from "./components/ItemDetails.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
+import MobileNav, { mobilePageIds } from "./components/MobileNav.jsx";
+import CategorizationRules from "./components/CategorizationRules.jsx";
 import Overview from "./pages/Overview.jsx";
 import Budget from "./pages/Budget.jsx";
 import Bills from "./pages/Bills.jsx";
@@ -50,6 +51,12 @@ export default function App() {
     [scope, setScope] = useState("household"),
     [month, setMonth] = useState(thisMonth),
     [mobileNav, setMobileNav] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia("(max-width: 640px)").matches,
+  );
+  const sidebarRef = useRef(null);
+  const mobileNavTrigger = useRef(null);
+  const mobileMenuOpen = isMobile && mobileNav;
   const reloadSequence = useRef(0);
   const [data, setData] = useState(null),
     [loading, setLoading] = useState(false),
@@ -57,6 +64,7 @@ export default function App() {
     [modal, setModal] = useState(null),
     [selectedItem, setSelectedItem] = useState(null),
     [selectedAccount, setSelectedAccount] = useState(null),
+    [rulesContext, setRulesContext] = useState(null),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState(""),
     [toast, setToast] = useState(null),
@@ -87,6 +95,59 @@ export default function App() {
   useEffect(() => {
     boot();
   }, []);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    function updateLayout() {
+      setIsMobile(media.matches);
+      if (!media.matches) setMobileNav(false);
+    }
+    media.addEventListener("change", updateLayout);
+    return () => media.removeEventListener("change", updateLayout);
+  }, []);
+  useEffect(() => {
+    if (!mobileMenuOpen || !sidebarRef.current) return;
+    const panel = sidebarRef.current;
+    const previousFocus = mobileNavTrigger.current || document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panel.querySelector(".sidebar-close")?.focus();
+    function containFocus(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileNav(false);
+      }
+      if (event.key !== "Tab") return;
+      const controls = [
+        ...panel.querySelectorAll("button:not(:disabled)"),
+      ].filter((element) => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!panel.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    document.addEventListener("keydown", containFocus);
+    return () => {
+      document.removeEventListener("keydown", containFocus);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected && previousFocus.getClientRects().length)
+        previousFocus.focus();
+      else if (!window.matchMedia("(max-width: 640px)").matches) {
+        const activePage = panel.querySelector(
+          '.nav-link[aria-current="page"]',
+        );
+        if (activePage?.isConnected && activePage.getClientRects().length)
+          activePage.focus();
+      }
+    };
+  }, [mobileMenuOpen]);
   async function reload() {
     if (query !== activeQuery.current) return;
     const sequence = ++reloadSequence.current;
@@ -148,6 +209,7 @@ export default function App() {
     setModal(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setRulesContext(null);
     setScope(next);
   }
   function changeMonth(next) {
@@ -157,6 +219,7 @@ export default function App() {
     setModal(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setRulesContext(null);
     setMonth(next);
   }
   function notify(text) {
@@ -166,7 +229,40 @@ export default function App() {
     setFormError("");
     setSelectedItem(null);
     setSelectedAccount(null);
+    setRulesContext(null);
     setModal({ type, item });
+  }
+  function openRules(transaction = null) {
+    setFormError("");
+    setSelectedItem(null);
+    setSelectedAccount(null);
+    setModal(null);
+    setRulesContext({
+      transaction,
+      returnModal: transaction
+        ? { type: "transaction", item: transaction._return_item || transaction }
+        : null,
+    });
+  }
+  function closeRules() {
+    const returnModal = rulesContext?.returnModal;
+    setRulesContext(null);
+    if (returnModal) setModal(returnModal);
+  }
+  async function useTransactionRules(transaction) {
+    const result = await mutate(
+      `transactions/${transaction.id}/categorization/reset?${query}`,
+      "POST",
+      undefined,
+      "Transaction returned to categorization rules.",
+      false,
+    );
+    setModal((current) =>
+      current?.type === "transaction" && current.item?.id === result.id
+        ? { ...current, item: result }
+        : current,
+    );
+    return result;
   }
   function openItemDetails(item) {
     setModal(null);
@@ -246,8 +342,8 @@ export default function App() {
       message = modal.item ? "Bill updated." : "Bill added to your home.";
     }
     if (type === "transaction") {
-      path = `transactions${modal.item ? `/${modal.item.id}` : ""}?${query}`;
-      method = modal.item ? "PATCH" : "POST";
+      path = `transactions${modal.item?.id ? `/${modal.item.id}` : ""}?${query}`;
+      method = modal.item?.id ? "PATCH" : "POST";
       body = {
         scope,
         description: values.description,
@@ -255,16 +351,24 @@ export default function App() {
           cents(values.amount) * (values.direction === "income" ? 1 : -1),
         date: values.date,
         account_name: values.account_name || "Manual entry",
-        category_id: values.category_id ? Number(values.category_id) : null,
       };
+      if (
+        values.category_id !== "automatic" &&
+        (!modal.item?.id || values.category_touched === "true")
+      )
+        body.category_id = values.category_id
+          ? Number(values.category_id)
+          : null;
       const accountId = values.account_id ? Number(values.account_id) : null;
       if (
-        !modal.item ||
+        !modal.item?.id ||
         accountId === null ||
         accountId !== modal.item.account_id
       )
         body.account_id = accountId;
-      message = modal.item ? "Transaction updated." : "Transaction recorded.";
+      message = modal.item?.id
+        ? "Transaction updated."
+        : "Transaction recorded.";
     }
     if (type === "account") {
       path = `accounts${modal.item ? `/${modal.item.id}` : ""}?${query}`;
@@ -522,12 +626,14 @@ export default function App() {
   }
   function signOut() {
     reloadSequence.current++;
+    setMobileNav(false);
     setToken(null);
     setUser(null);
     setData(null);
     setHaToken(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setRulesContext(null);
   }
   const dash = data?.dashboard || {},
     groups = dash.groups || [],
@@ -578,6 +684,7 @@ export default function App() {
     openItemDetails,
     openAccountDetails,
     openBillBudget,
+    openRules,
     paid,
     deleteItem,
     sync,
@@ -590,8 +697,10 @@ export default function App() {
   function navigate(id) {
     setSelectedItem(null);
     setSelectedAccount(null);
+    setRulesContext(null);
     setTab(id);
     setMobileNav(false);
+    if (isMobile && id !== tab) window.scrollTo(0, 0);
   }
   function openBillBudget(bill) {
     if (bill.item_month) changeMonth(bill.item_month);
@@ -644,8 +753,26 @@ export default function App() {
     );
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
-        <Brand />
+      <aside
+        ref={sidebarRef}
+        id="app-sidebar"
+        className={`sidebar ${mobileMenuOpen ? "open" : ""}`}
+        role={mobileMenuOpen ? "dialog" : undefined}
+        aria-label={mobileMenuOpen ? "More navigation" : undefined}
+        aria-modal={mobileMenuOpen ? true : undefined}
+        aria-hidden={isMobile && !mobileMenuOpen ? true : undefined}
+        inert={isMobile && !mobileMenuOpen ? "" : undefined}
+      >
+        <div className="sidebar-brand">
+          <Brand />
+          <IconButton
+            label="Close navigation"
+            className="sidebar-close"
+            onClick={() => setMobileNav(false)}
+          >
+            <X size={21} aria-hidden="true" />
+          </IconButton>
+        </div>
         <div className="household-label">
           <span className="household-icon">
             <Home size={18} />
@@ -660,12 +787,13 @@ export default function App() {
         <nav aria-label="Main navigation">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button
-              className={`nav-link ${tab === id ? "active" : ""}`}
+              type="button"
+              className={`nav-link ${tab === id ? "active" : ""} ${mobilePageIds.includes(id) ? "mobile-primary-link" : ""}`}
               key={id}
               onClick={() => navigate(id)}
               aria-current={tab === id ? "page" : undefined}
             >
-              <Icon size={19} strokeWidth={1.7} />
+              <Icon size={19} strokeWidth={1.7} aria-hidden="true" />
               <span>{label}</span>
               {id === "bills" &&
                 (billSummary.past_due?.count || billSummary.today?.count) >
@@ -698,22 +826,20 @@ export default function App() {
           </div>
         </div>
       </aside>
-      {mobileNav && (
+      {mobileMenuOpen && (
         <div
           className="mobile-nav-backdrop"
           onClick={() => setMobileNav(false)}
+          aria-hidden="true"
         />
       )}
-      <main className="main-content">
+      <main
+        className="main-content"
+        inert={mobileMenuOpen ? "" : undefined}
+        aria-hidden={mobileMenuOpen ? true : undefined}
+      >
         <div className="topbar">
           <div className="breadcrumbs">
-            <IconButton
-              label="Open navigation"
-              onClick={() => setMobileNav(!mobileNav)}
-              className="mobile-menu"
-            >
-              <Menu size={21} />
-            </IconButton>
             <Home size={14} />
             <span>{user.household_name || "Our home"}</span>
             <ChevronRight size={12} />
@@ -780,8 +906,22 @@ export default function App() {
           </footer>
         </div>
       </main>
+      <MobileNav
+        items={navItems}
+        currentPage={tab}
+        onNavigate={navigate}
+        moreOpen={mobileMenuOpen}
+        onOpenMore={(event) => {
+          mobileNavTrigger.current = event.currentTarget;
+          setMobileNav(true);
+        }}
+      />
       {toast && (
-        <div className="toast" role="status">
+        <div
+          className="toast"
+          role="status"
+          inert={mobileMenuOpen ? "" : undefined}
+        >
           <CheckCircle2 size={18} />
           <span>{toast}</span>
           <IconButton
@@ -825,6 +965,19 @@ export default function App() {
           bills={bills}
           onClose={() => setSelectedAccount(null)}
           onEdit={(account) => open("account", account)}
+          onChanged={reload}
+          notify={notify}
+        />
+      )}
+      {rulesContext && (
+        <CategorizationRules
+          key={`${scope}-${month}-${rulesContext.transaction?.id || "manage"}`}
+          scope={scope}
+          month={month}
+          categories={categories}
+          accounts={accounts}
+          initialTransaction={rulesContext.transaction}
+          onClose={closeRules}
           onChanged={reload}
           notify={notify}
         />
@@ -879,6 +1032,8 @@ export default function App() {
             formError={formError}
             save={save}
             confirmDelete={confirmDelete}
+            onCreateRule={openRules}
+            onUseRules={useTransactionRules}
             onClose={() => setModal(null)}
           />
         )

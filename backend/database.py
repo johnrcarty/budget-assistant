@@ -101,8 +101,28 @@ CREATE TABLE IF NOT EXISTS transactions (
     category_id INTEGER REFERENCES budget_items(id) ON DELETE SET NULL,
     pending INTEGER NOT NULL DEFAULT 0, external_id TEXT,
     amount_override_cents INTEGER,
+    category_source TEXT NOT NULL DEFAULT 'unmatched',
+    categorization_rule_id INTEGER REFERENCES categorization_rules(id) ON DELETE SET NULL,
     UNIQUE(household_id,owner_id,scope,external_id)
 );
+CREATE TABLE IF NOT EXISTS categorization_rules (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
+    owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
+    name TEXT NOT NULL, merchant_text TEXT NOT NULL, match_type TEXT NOT NULL CHECK(match_type IN ('contains','exact')),
+    direction TEXT NOT NULL DEFAULT 'outflow' CHECK(direction IN ('outflow','inflow','any')),
+    account_id INTEGER REFERENCES accounts(id),
+    budget_item_lineage_id INTEGER NOT NULL REFERENCES budget_item_lineages(id),
+    active INTEGER NOT NULL DEFAULT 1, priority INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS categorization_previews (
+    token_hash TEXT PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
+    owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
+    month TEXT NOT NULL, fingerprint TEXT NOT NULL, expires_at TEXT NOT NULL,
+    consumed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_categorization_rule_scope ON categorization_rules(household_id,owner_id,scope,priority,id);
+CREATE INDEX IF NOT EXISTS idx_categorization_preview_scope ON categorization_previews(household_id,owner_id,scope,expires_at);
 CREATE TABLE IF NOT EXISTS transaction_exclusions (
     household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
     scope TEXT NOT NULL CHECK(scope IN ('household','personal')), external_id TEXT NOT NULL,
@@ -228,6 +248,13 @@ def initialize(path: str | Path) -> None:
         columns = {row['name'] for row in db.execute('PRAGMA table_info(transactions)')}
         if 'amount_override_cents' not in columns:
             db.execute('ALTER TABLE transactions ADD COLUMN amount_override_cents INTEGER')
+        if 'category_source' not in columns:
+            db.execute("ALTER TABLE transactions ADD COLUMN category_source TEXT NOT NULL DEFAULT 'unmatched'")
+            # Earlier releases did not record provenance or explicit clears.
+            # Preserve every existing assignment as a manual decision.
+            db.execute("UPDATE transactions SET category_source='manual' WHERE category_id IS NOT NULL")
+        if 'categorization_rule_id' not in columns:
+            db.execute('ALTER TABLE transactions ADD COLUMN categorization_rule_id INTEGER REFERENCES categorization_rules(id) ON DELETE SET NULL')
         exclusion_columns = {row['name'] for row in db.execute('PRAGMA table_info(income_exclusions)')}
         for name, definition in (('version_id', 'INTEGER REFERENCES income_source_versions(id)'), ('scheduled_date', 'TEXT')):
             if name not in exclusion_columns:

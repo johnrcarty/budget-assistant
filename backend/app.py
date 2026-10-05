@@ -33,12 +33,15 @@ from . import income as income_plans
 from . import categories as budget_categories
 from . import item_details
 from . import accounts as account_plans
+from . import categorization
 from .models import (Account, AccountPatch, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
                      BudgetCopy, BudgetItem, BudgetPatch,
                      Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch,
                      ItemDue, ItemPayment, ItemTransaction, ItemTransactionLink,
                      Login, Member, Settings, Setup, SimpleFINConnect,
                      SimpleFINSync, Transaction, TransactionPatch)
+from .models import (CategorizationApply, CategorizationPreview, CategorizationRule,
+                     CategorizationRuleOrder, CategorizationRulePatch)
 
 
 def utc_now():
@@ -283,7 +286,7 @@ def transaction_payload(row):
     return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'account_name', 'category_id', 'category_name')} | {
         'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD',
         'account_id': row['account_id'], 'account_kind': row['account_kind'] if 'account_kind' in row.keys() else None,
-        'account_active': not bool(row['account_archived']) if 'account_archived' in row.keys() and row['account_archived'] is not None else None}
+        'account_active': not bool(row['account_archived']) if 'account_archived' in row.keys() and row['account_archived'] is not None else None} | categorization.provenance(row)
 
 
 def transactions_for(db, identity, month, limit=None):
@@ -481,7 +484,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                     for key in personal:
                         shared[key] += personal[key]
                     shared['contributors'] += 1
-            groups = budget_categories.categories_for(db, identity, current_month, start, end)
+            groups = budget_categories.categories_for(db, identity, current_month, start, end, local_today(request, user))
             combined = {key: totals[key] + shared[key] for key in totals}
             return combined | {'remaining_cents': combined['planned_cents'] - combined['spent_cents'],
                                'unassigned_cents': combined['income_cents'] - combined['planned_cents'],
@@ -497,7 +500,7 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             identity = scope_identity(user, scope)
             account_plans.materialize_debts(db, identity, local_today(request, user), current_month)
-            return budget_categories.categories_for(db, identity, current_month, start, end)
+            return budget_categories.categories_for(db, identity, current_month, start, end, local_today(request, user))
 
     @app.post('/api/budget/categories', status_code=201)
     def add_budget_category(payload: BudgetCategory, scope: Literal['household', 'personal'] = 'household',
@@ -521,14 +524,17 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
             identity = scope_identity(user, scope)
             account_plans.materialize_debts(db, identity, local_today(request, user), current_month)
             item_details.ensure_lineages(db, identity)
+            due_dates = item_details.list_due_dates(db, identity, current_month, local_today(request, user))
             result = [budget_categories.item_payload(row) for row in db.execute('''SELECT i.*,c.name current_group_name,c.color current_color
                                   FROM budget_items i LEFT JOIN budget_categories c ON c.id=i.budget_category_id
                                   AND c.household_id=i.household_id AND c.owner_id=i.owner_id AND c.scope=i.scope
                                   WHERE i.household_id=? AND i.owner_id=? AND i.scope=? AND i.month=? ORDER BY i.id''',
                                                                                (*identity, current_month))]
             for item in result:
+                item['due_date'] = due_dates.get(item['lineage_id'])
                 if item['managed']:
                     item['payment_dates'] = [row['due_date'] for row in db.execute('SELECT due_date FROM bills WHERE budget_item_id=? ORDER BY due_date,id', (item['id'],))]
+                    item['due_date'] = item['payment_dates'][0] if item['payment_dates'] else None
             return result
 
     @app.post('/api/budget/items', status_code=201)
@@ -825,6 +831,10 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                                                                         resolve_name='account_id' not in payload.model_fields_set)
             uid = db.execute('INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,category_id,pending) VALUES (?,?,?,?,?,?,?,?,?,?)',
                              (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), account_name, account_id, payload.category_id, payload.pending)).lastrowid
+            if 'category_id' in payload.model_fields_set:
+                db.execute("UPDATE transactions SET category_source='manual' WHERE id=?", (uid,))
+            else:
+                categorization.apply_automatic(db, identity, uid)
             return transaction_by_id(db, uid)
 
     @app.patch('/api/transactions/{transaction_id}')
@@ -846,7 +856,9 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
             elif 'account_name' in updates:
                 account_id, account_name = account_plans.transaction_account(db, identity, None, updates['account_name'])
                 updates.update(account_id=account_id, account_name=account_name)
-            validate_category(db, updates.get('category_id', original['category_id']), identity, updates.get('date', original['date']))
+            automatic_date_repair = 'date' in updates and 'category_id' not in updates and original['category_source'] == 'automatic'
+            if not automatic_date_repair:
+                validate_category(db, updates.get('category_id', original['category_id']), identity, updates.get('date', original['date']))
             if updates.get('category_id') is not None and updates['category_id'] != original['category_id']:
                 account_id = updates.get('account_id', original['account_id'])
                 if account_id is not None:
@@ -857,9 +869,64 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                 updates['date'] = updates['date'].isoformat()
             if 'amount_cents' in updates and original['external_id']:
                 updates['amount_override_cents'] = updates['amount_cents']
+            if 'category_id' in updates:
+                updates.update(category_source='manual', categorization_rule_id=None)
             if updates:
                 db.execute('UPDATE transactions SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), transaction_id))
+            if 'date' in updates and 'category_id' not in updates:
+                categorization.apply_automatic(db, identity, transaction_id, reconcile=True)
             return transaction_by_id(db, transaction_id)
+
+    @app.post('/api/transactions/{transaction_id}/categorization/reset')
+    def reset_transaction_categorization(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            categorization.reset_manual_clear(db, scope_identity(user, scope), transaction_id)
+            return transaction_by_id(db, transaction_id)
+
+    @app.get('/api/categorization/rules')
+    def categorization_rules(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        with connect(db_path) as db:
+            return categorization.list_rules(db, scope_identity(user, scope), month or local_today(request, user).strftime('%Y-%m'))
+
+    @app.post('/api/categorization/rules', status_code=201)
+    def add_categorization_rule(payload: CategorizationRule, request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(current_month)
+        with connect(db_path) as db:
+            return categorization.create_rule(db, scope_identity(user, scope), payload, current_month)
+
+    @app.patch('/api/categorization/rules/{rule_id}')
+    def update_categorization_rule(rule_id: int, payload: CategorizationRulePatch, request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(current_month)
+        with connect(db_path) as db:
+            return categorization.update_rule(db, scope_identity(user, scope), rule_id, payload, current_month)
+
+    @app.delete('/api/categorization/rules/{rule_id}', status_code=204)
+    def delete_categorization_rule(rule_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            identity = scope_identity(user, scope)
+            categorization.lock(db)
+            categorization.require_rule(db, identity, rule_id)
+            db.execute('DELETE FROM categorization_rules WHERE id=?', (rule_id,))
+        return Response(status_code=204)
+
+    @app.post('/api/categorization/rules/reorder')
+    def reorder_categorization_rules(payload: CategorizationRuleOrder, request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(current_month)
+        with connect(db_path) as db:
+            return categorization.reorder_rules(db, scope_identity(user, scope), payload.rule_ids, current_month)
+
+    @app.post('/api/categorization/preview')
+    def preview_categorization(payload: CategorizationPreview, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return categorization.create_preview(db, scope_identity(user, scope), payload.month)
+
+    @app.post('/api/categorization/apply')
+    def apply_categorization(payload: CategorizationApply, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return categorization.apply_preview(db, scope_identity(user, scope), payload.preview_token)
 
     @app.delete('/api/transactions/{transaction_id}', status_code=204)
     def delete_transaction(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):

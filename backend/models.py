@@ -226,6 +226,49 @@ class TransactionPatch(BaseModel):
     pending: bool | None = None
 
 
+class CategorizationRule(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    merchant_text: str = Field(min_length=1, max_length=200)
+    match_type: Literal['contains', 'exact'] = 'contains'
+    direction: Literal['outflow', 'inflow', 'any'] = 'outflow'
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    budget_item_id: int = Field(ge=1, strict=True)
+    active: bool = True
+
+    _nonblank_text = field_validator('name', 'merchant_text')(BudgetItem.nonblank_text.__func__)
+
+
+class CategorizationRulePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    merchant_text: str | None = Field(default=None, min_length=1, max_length=200)
+    match_type: Literal['contains', 'exact'] | None = None
+    direction: Literal['outflow', 'inflow', 'any'] | None = None
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    budget_item_id: int | None = Field(default=None, ge=1, strict=True)
+    active: bool | None = None
+
+    _nonblank_text = field_validator('name', 'merchant_text')(BudgetItem.nonblank_text.__func__)
+
+
+class CategorizationRuleOrder(BaseModel):
+    rule_ids: list[int] = Field(max_length=500)
+
+    @field_validator('rule_ids', mode='before')
+    @classmethod
+    def strict_ids(cls, value):
+        if not isinstance(value, list) or any(type(rule_id) is not int or rule_id < 1 for rule_id in value):
+            raise ValueError('Use positive rule IDs')
+        return value
+
+
+class CategorizationPreview(BaseModel):
+    month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+
+
+class CategorizationApply(BaseModel):
+    preview_token: str = Field(min_length=20, max_length=200)
+
+
 class Account(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     institution: str = Field(default='', max_length=120)

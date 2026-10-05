@@ -125,6 +125,10 @@ def occurrence_for_month(db, identity, lineage, month):
 
 def materialize_bills(db, identity, today, selected_month=None, selected_lineage_id=None):
     ensure_lineages(db, identity)
+    selected_lineages = set()
+    if selected_month is not None and selected_lineage_id is None:
+        selected_lineages = {row['lineage_id'] for row in db.execute('''SELECT lineage_id FROM budget_items
+                            WHERE household_id=? AND owner_id=? AND scope=? AND month=?''', (*identity, selected_month))}
     try:
         horizon = today + timedelta(days=14)
     except OverflowError:
@@ -142,8 +146,17 @@ def materialize_bills(db, identity, today, selected_month=None, selected_lineage
             if version is not None and version['due_day'] is not None and date_for(month, version['due_day']) <= horizon.isoformat():
                 occurrence_for_month(db, identity, lineage, month)
             month = month_after(month)
-        if selected_month is not None and lineage['id'] == selected_lineage_id:
+        if selected_month is not None and (lineage['id'] == selected_lineage_id or lineage['id'] in selected_lineages):
             occurrence_for_month(db, identity, lineage, selected_month)
+
+
+def list_due_dates(db, identity, month, today=None):
+    """Read the actual monthly occurrence, including immutable paid dates."""
+    if today is not None:
+        materialize_bills(db, identity, today, selected_month=month)
+    return {row['budget_item_lineage_id']: row['due_date'] for row in db.execute('''SELECT budget_item_lineage_id,due_date
+               FROM bills WHERE household_id=? AND owner_id=? AND scope=? AND item_month=?
+               AND budget_item_lineage_id IS NOT NULL''', (*identity, month))}
 
 
 def refresh_unpaid(db, identity, lineage_id, today, from_month=None):
@@ -271,11 +284,11 @@ def link_transaction(db, identity, item_id, transaction_id, replace_existing=Fal
     if unlink:
         if transaction['category_id'] != item_id:
             raise HTTPException(409, 'This transaction is no longer assigned to this item')
-        db.execute('UPDATE transactions SET category_id=NULL WHERE id=? AND category_id=?', (transaction_id, item_id))
+        db.execute("UPDATE transactions SET category_id=NULL,category_source='manual',categorization_rule_id=NULL WHERE id=? AND category_id=?", (transaction_id, item_id))
     else:
         if transaction['category_id'] not in (None, item_id) and not replace_existing:
             raise HTTPException(409, 'This transaction belongs to another item. Confirm moving it')
-        db.execute('UPDATE transactions SET category_id=? WHERE id=?', (item_id, transaction_id))
+        db.execute("UPDATE transactions SET category_id=?,category_source='manual',categorization_rule_id=NULL WHERE id=?", (item_id, transaction_id))
 
 
 def create_transaction(db, identity, item_id, payload):
@@ -294,14 +307,15 @@ def create_transaction(db, identity, item_id, payload):
         if accounts:
             account_id = accounts[0]['id']
             usd_account(db, identity, account_id)
-    return db.execute('''INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_id,account_name,category_id,pending)
-                         VALUES (?,?,?,?,?,?,?,?,?,?)''',
+    return db.execute('''INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_id,account_name,category_id,pending,category_source)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,'manual')''',
                       (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), account_id, account_name, item_id, int(payload.pending))).lastrowid
 
 
 def transaction_payload(row):
+    from .categorization import provenance
     return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'account_name', 'category_id', 'category_name')} | {
-        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD'}
+        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD'} | provenance(row)
 
 
 def details(db, identity, item_id, today):
