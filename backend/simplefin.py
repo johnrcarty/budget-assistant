@@ -111,6 +111,46 @@ def get_db(path):
         db.close()
 
 
+def preserve_economic_decisions(db, imported):
+    """A provider annotation cannot silently replace a prior manual choice."""
+    from . import bank_handlers
+    if (imported['provider_role'] == bank_handlers.BANK_TRANSFER
+            and imported['provider_role_override'] is None
+            and (imported['income_entry_id'] is not None
+                 or (imported['category_id'] is not None and imported['category_source'] != 'automatic'))):
+        # Include legacy non-automatic category assignments as manual.
+        db.execute("UPDATE transactions SET provider_role_override='ordinary' WHERE id=?", (imported['id'],))
+        imported = db.execute('SELECT * FROM transactions WHERE id=?', (imported['id'],)).fetchone()
+    effective_role = imported['provider_role_override'] or imported['provider_role']
+    if effective_role == bank_handlers.BANK_TRANSFER and imported['category_source'] == 'automatic':
+        db.execute("UPDATE transactions SET category_id=NULL,category_source='unmatched',categorization_rule_id=NULL WHERE id=?", (imported['id'],))
+    return effective_role
+
+
+def classify_saved_transactions(db, identity, account_id, institution):
+    """Recheck old rows using this sync's verified institution, without fetching.
+
+    Only positively recognized transfer records are annotated. An older manual
+    amount correction has lost its original provider amount/sign, so those rows
+    stay unchanged until they are seen again in a feed or the user classifies
+    them. Deleted source identities and other scopes are never traversed.
+    """
+    from . import bank_handlers
+    if not bank_handlers.supports(institution):
+        return
+    rows = db.execute('''SELECT t.* FROM transactions t WHERE t.household_id=? AND t.owner_id=? AND t.scope=?
+        AND t.account_id=? AND t.external_id IS NOT NULL AND t.amount_override_cents IS NULL
+        AND NOT EXISTS (SELECT 1 FROM transaction_exclusions x WHERE x.household_id=t.household_id
+            AND x.owner_id=t.owner_id AND x.scope=t.scope AND x.external_id=t.external_id)''', (*identity, account_id)).fetchall()
+    for row in rows:
+        result = bank_handlers.classify(institution, dict(row), row['amount_cents'])
+        if result.role != bank_handlers.BANK_TRANSFER:
+            continue
+        db.execute('UPDATE transactions SET provider_role=?,provider_handler=? WHERE id=?', (result.role, result.handler, row['id']))
+        updated = db.execute('SELECT * FROM transactions WHERE id=?', (row['id'],)).fetchone()
+        preserve_economic_decisions(db, updated)
+
+
 async def fetch_accounts(credential: str, secret, start: datetime):
     try:
         access_url = cipher(secret).decrypt(credential.encode()).decode()
@@ -194,7 +234,7 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
     warnings += [safe_warning(e) for e in payload.get("errors", [])]
     accounts = transactions = 0
     from . import accounts as account_history
-    from . import categorization
+    from . import categorization, bank_handlers
     owner = 0 if scope == "household" else user_id
     try:
         with get_db(db_path) as db:
@@ -205,6 +245,7 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
             rule_identity = (hid, owner, scope)
             categorization_rules = categorization.active_rules(db, rule_identity)
             categorization_targets = {}
+            provider_connections = bank_handlers.connection_index(payload)
             for account in payload["accounts"]:
                 conn = str(account.get("conn_id", account.get("org", {}).get("id", account.get("org", {}).get("domain", "legacy"))))
                 aid = str(account["id"])
@@ -213,7 +254,8 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
                 if len(currency) == 3 and currency.isalpha():
                     currency = currency.upper()
                 name = str(account.get("name", "Bank account"))[:180]
-                institution = str(account.get("conn_name", account.get("org", {}).get("name", "SimpleFIN")))[:180]
+                provider_institution = bank_handlers.institution_for(account, provider_connections)
+                institution = provider_institution.display_name
                 existing = db.execute("SELECT * FROM accounts WHERE household_id=? AND owner_id=? AND scope=? AND simplefin_id=?",
                                       (hid, owner, scope, key)).fetchone()
                 if existing is not None and existing["archived"]:
@@ -251,18 +293,25 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
                         warnings.append("A pending transaction without a date was skipped until it posts.")
                         continue
                     when = datetime.fromtimestamp(float(timestamp), local_zone).date().isoformat()
-                    db.execute("""INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,pending,external_id)
-                        VALUES(?,?,?,?,?,?,?,?,?,?)
+                    amount = cents(transaction["amount"])
+                    classification = bank_handlers.classify(provider_institution, transaction, amount)
+                    db.execute("""INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,pending,external_id,provider_role,provider_handler)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(household_id,owner_id,scope,external_id) DO UPDATE SET
                         description=excluded.description,amount_cents=COALESCE(transactions.amount_override_cents,excluded.amount_cents),date=excluded.date,
-                        account_name=excluded.account_name,pending=excluded.pending""",
+                        account_name=excluded.account_name,pending=excluded.pending,
+                        provider_role=excluded.provider_role,provider_handler=excluded.provider_handler""",
                                (hid, owner, scope, str(transaction.get("description", "Transaction"))[:300],
-                                cents(transaction["amount"]), when, account_row["name"], account_row["id"],
-                                int(bool(transaction.get("pending", False))), ext))
-                    imported = db.execute('SELECT id FROM transactions WHERE household_id=? AND owner_id=? AND scope=? AND external_id=?', (*rule_identity, ext)).fetchone()
-                    categorization.apply_automatic(db, rule_identity, imported['id'], reconcile=True,
-                                                    rules=categorization_rules, cache=categorization_targets)
+                                amount, when, account_row["name"], account_row["id"],
+                                int(bool(transaction.get("pending", False))), ext,
+                                classification.role, classification.handler))
+                    imported = db.execute('SELECT * FROM transactions WHERE household_id=? AND owner_id=? AND scope=? AND external_id=?', (*rule_identity, ext)).fetchone()
+                    effective_role = preserve_economic_decisions(db, imported)
+                    if effective_role != bank_handlers.BANK_TRANSFER:
+                        categorization.apply_automatic(db, rule_identity, imported['id'], reconcile=True,
+                                                        rules=categorization_rules, cache=categorization_targets)
                     transactions += 1
+                classify_saved_transactions(db, rule_identity, account_row['id'], provider_institution)
         return {"imported_accounts": accounts, "imported_transactions": transactions,
                 "warnings": list(dict.fromkeys(warnings))[:30]}
     except SimpleFINError:

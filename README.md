@@ -53,6 +53,8 @@ Existing group names are carried over automatically, separately for household an
 
 Tap an item in Budget to open its details from the right. The panel shows the selected month's plan and spending, paid confirmation, linked transactions, and a bar chart for the trailing twelve months ending in the selected month. History uses recorded transactions, includes pending amounts consistently with the budget totals, and treats positive categorized transactions as refunds. Months without spending remain visible.
 
+Due dates sit beside the item name when there is enough room. Otherwise, the complete due-date label moves below the name without splitting across lines. A long label is truncated visually with the full dates available in the row's accessible label and item details.
+
 A due date is optional. Choose a monthly calendar day or the last day of the month; a day such as the 31st clamps in February and returns to the 31st in March. The schedule carries across copied budgets and uses the same bill occurrences as the Bills page and Home Assistant unpaid buckets. An existing bill can be linked explicitly instead of creating another reminder. Paid confirmations apply to one month and remain separate from transaction categorization.
 
 Paid confirmation also works without a due date. Schedule changes take effect from the selected budget month forward. Removing a due schedule stops upcoming unpaid reminders while retaining overdue debt and paid history. Removing the final monthly plan for an item stops its future reminders; deleting one monthly plan leaves the schedule running when other copied plans remain. Linked reminders are managed through the budget item's panel; their paid status can also be changed in Bills.
@@ -70,6 +72,10 @@ Weekly and every-two-weeks schedules use an anchor payday and continue across mo
 Select an individual payday to change its expected name, amount, or date. Enter zero to skip its amount, or restore it to the schedule later. Editing or stopping a schedule takes effect next month by default; you may choose the current or a future month. Earlier months and adjusted payments are preserved. Planned income stays separate from imported bank deposits.
 
 Personal income sources, schedules, and paydays remain private. Choosing to share personal totals adds only the summed monthly income to the household view.
+
+Open a positive transaction and assign it to an existing income line or scheduled payday, or create a one-time income line when none exists. Split deposits can link to the same payday. Expected amounts and schedule dates remain unchanged; the income section shows posted receipts separately from pending deposits. A deposit received near a month boundary can be linked to the paycheck's expected month. Receipt totals are attributed to that planned income line while the transaction retains its actual bank date.
+
+Moving an expense or another paycheck assignment requires explicit confirmation. A transaction cannot be assigned to both income and a budget item. Unlink receipts before deleting an income line; editing or stopping a schedule preserves entries with receipts. Invalidated bank receipts remain visible for review without counting as received income. A linked receipt that changes to a negative USD amount counts as an outflow until corrected; amounts belonging to a non-USD or unavailable account cannot enter USD budget totals. Personal receipt details stay within their owner's scope.
 
 ## Bills and Home Assistant
 
@@ -99,6 +105,10 @@ Select the destination scope, then connect in Settings using a setup token from 
 Refreshes request the v2 feed with verified HTTPS, an initial lookback shorter than 90 days, and a five-day overlap afterward. Scheduled syncs run every six hours by default. Manual refreshes are limited to once per hour per scope. Transient errors remain visible and do not stop later scheduled attempts. Institution warnings appear in Settings. An institution requiring authentication must be repaired in Bridge.
 
 Accounts can be renamed and classified after import. Categorization and account classifications survive refreshes; deleted imported transactions stay deleted, and manual transaction amount corrections survive subsequent imports. These are useful when a bank feed supplies an incorrect sign. Imports are atomic and idempotent, using connection/account/transaction identifiers to avoid duplicates.
+
+Bank-specific handlers annotate unusual provider bookkeeping separately from ordinary activity. The first handler identifies Fidelity's positive **Redemption from core account** and negative **Purchase into core account** records using actual institution metadata and literal descriptions. These records are kept as bank transfers, excluded from budget spending, income receipts, and expense rules, and available through **Show transfers** in Transactions. A matching amount alone does not classify a transfer; the real purchase or withdrawal remains ordinary. Existing explicit income and expense assignments and manual amount corrections are preserved. After a sync confirms the institution, handlers also check that account's saved imported records outside the normal overlap. Older records with manual amount corrections remain unchanged because the original bank sign is no longer available; review their treatment manually when needed.
+
+Transaction details allow an explicit ordinary/transfer choice or a return to provider handling. Clear an expense assignment or unlink income before making a transaction a transfer. Additional banks can be supported by adding a named handler and mocked fixtures in `backend/bank_handlers.py`, leaving the generic importer and original provider records intact. Fidelity documents its core position's role in [processing cash and automatically funding debits](https://www.fidelity.com/trading/faqs-about-account).
 
 See the [SimpleFIN protocol](https://www.simplefin.org/protocol.html) and [Bridge developer guide](https://beta-bridge.simplefin.org/info/developers).
 

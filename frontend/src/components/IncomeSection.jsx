@@ -20,6 +20,72 @@ export const cadenceLabels = {
   monthly: "Monthly",
 };
 
+export function IncomeReceiptStatus({ entry }) {
+  const actual = entry.actual_received_cents || 0;
+  const pending = entry.pending_received_cents || 0;
+  return (
+    <small className={`income-receipt-status ${actual ? "has-receipts" : ""}`}>
+      {actual
+        ? `${actual < entry.amount_cents ? "Part received" : "Received"} ${money(actual)}`
+        : "Not received"}
+      {pending > 0 ? ` · ${money(pending)} pending` : ""}
+      {entry.linked_transactions?.some((receipt) => receipt.income_link_invalid)
+        ? " · Review receipt"
+        : ""}
+    </small>
+  );
+}
+
+export function IncomeReceiptList({ entry, busy, onOpenTransaction }) {
+  const receipts = entry.linked_transactions || [];
+  if (!receipts.length) return null;
+  return (
+    <details className="income-linked-receipts">
+      <summary>
+        {receipts.length} linked receipt{receipts.length === 1 ? "" : "s"}
+      </summary>
+      <ul>
+        {receipts.map((receipt) => (
+          <li key={receipt.id}>
+            {onOpenTransaction ? (
+              <button
+                type="button"
+                className="income-receipt-open"
+                disabled={busy}
+                onClick={() => onOpenTransaction(receipt)}
+                aria-label={`Review ${receipt.description}, ${prettyDate(receipt.date)}, ${money(receipt.amount_cents, receipt.currency || "USD")}${receipt.pending ? ", pending" : ""}`}
+              >
+                <span>
+                  <strong>{receipt.description}</strong>
+                  <small>
+                    {prettyDate(receipt.date)} ·{" "}
+                    {receipt.account_name || "Manual entry"}
+                    {receipt.pending ? " · Pending" : ""}
+                    {receipt.income_link_invalid ? " · Review match" : ""}
+                  </small>
+                </span>
+                <strong>
+                  {money(receipt.amount_cents, receipt.currency || "USD")}
+                </strong>
+              </button>
+            ) : (
+              <p>
+                <span>
+                  {receipt.description} · {prettyDate(receipt.date)}
+                  {receipt.pending ? " · Pending" : ""}
+                </span>
+                <strong>
+                  {money(receipt.amount_cents, receipt.currency || "USD")}
+                </strong>
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export default function IncomeSection({
   income,
   month,
@@ -32,6 +98,7 @@ export default function IncomeSection({
   onStopSource,
   onResetEntry,
   onRestoreSkipped,
+  onOpenTransaction,
 }) {
   const entries = income?.entries || [];
   const sources = income?.sources || [];
@@ -51,6 +118,18 @@ export default function IncomeSection({
       <div className="income-card-summary">
         <span>Expected in {monthLabel(month).split(" ")[0]}</span>
         <strong>{money(income?.total_cents || 0)}</strong>
+      </div>
+      <div className="income-actual-summary">
+        <span>
+          Received{" "}
+          <strong>{money(income?.total_actual_received_cents || 0)}</strong>
+        </span>
+        {(income?.total_pending_received_cents || 0) > 0 && (
+          <span>
+            Pending{" "}
+            <strong>{money(income.total_pending_received_cents)}</strong>
+          </span>
+        )}
       </div>
       <div className="income-sources">
         {scheduled.map((source) => (
@@ -105,7 +184,16 @@ export default function IncomeSection({
                     ),
                   )}
                 </strong>
-                <small>this month</small>
+                <small>expected this month</small>
+                <small className="income-receipt-status">
+                  {money(
+                    source.entries.reduce(
+                      (sum, entry) => sum + (entry.actual_received_cents || 0),
+                      0,
+                    ),
+                  )}{" "}
+                  received
+                </small>
               </span>
               <ChevronDown
                 className="income-source-chevron"
@@ -147,46 +235,53 @@ export default function IncomeSection({
                     ? prettyDate(entry.date)
                     : "Monthly amount";
                   return (
-                    <div
-                      className={`income-payday ${entry.overridden ? "adjusted" : ""}`}
-                      key={entry.id}
-                    >
-                      <button
-                        type="button"
-                        className="income-payday-main"
-                        onClick={() => onEditEntry(entry)}
-                        disabled={busy}
-                        aria-label={`Edit ${entry.name} payment, ${dateLabel}, ${money(entry.amount_cents)}`}
+                    <div className="income-payday-entry" key={entry.id}>
+                      <div
+                        className={`income-payday ${entry.overridden ? "adjusted" : ""}`}
                       >
-                        <span>{dateLabel}</span>
-                        <strong>{money(entry.amount_cents)}</strong>
-                        {entry.overridden && (
-                          <small>
-                            Adjusted
-                            {entry.name !== source.name
-                              ? ` · ${entry.name}`
-                              : ""}
-                          </small>
-                        )}
-                      </button>
-                      <div className="income-payday-actions">
-                        {entry.overridden && onResetEntry && (
+                        <button
+                          type="button"
+                          className="income-payday-main"
+                          onClick={() => onEditEntry(entry)}
+                          disabled={busy}
+                          aria-label={`Edit ${entry.name} payment, ${dateLabel}, ${money(entry.amount_cents)}`}
+                        >
+                          <span>{dateLabel}</span>
+                          <strong>{money(entry.amount_cents)}</strong>
+                          <IncomeReceiptStatus entry={entry} />
+                          {entry.overridden && (
+                            <small>
+                              Adjusted
+                              {entry.name !== source.name
+                                ? ` · ${entry.name}`
+                                : ""}
+                            </small>
+                          )}
+                        </button>
+                        <div className="income-payday-actions">
+                          {entry.overridden && onResetEntry && (
+                            <IconButton
+                              label={`Restore ${source.name} scheduled payment, ${dateLabel}`}
+                              onClick={() => onResetEntry(entry)}
+                              disabled={busy}
+                            >
+                              <RefreshCw size={15} />
+                            </IconButton>
+                          )}
                           <IconButton
-                            label={`Restore ${source.name} scheduled payment, ${dateLabel}`}
-                            onClick={() => onResetEntry(entry)}
+                            label={`Skip ${source.name} payment, ${dateLabel}`}
+                            onClick={() => onRemoveEntry(entry)}
                             disabled={busy}
                           >
-                            <RefreshCw size={15} />
+                            <Trash2 size={15} />
                           </IconButton>
-                        )}
-                        <IconButton
-                          label={`Skip ${source.name} payment, ${dateLabel}`}
-                          onClick={() => onRemoveEntry(entry)}
-                          disabled={busy}
-                        >
-                          <Trash2 size={15} />
-                        </IconButton>
+                        </div>
                       </div>
+                      <IncomeReceiptList
+                        entry={entry}
+                        busy={busy}
+                        onOpenTransaction={onOpenTransaction}
+                      />
                     </div>
                   );
                 })}
@@ -217,44 +312,52 @@ export default function IncomeSection({
           </details>
         ))}
         {manual.map((entry) => (
-          <article className="income-manual-row" key={entry.id}>
-            <button
-              type="button"
-              className="income-manual-main"
-              aria-label={`Edit ${entry.name} income, ${money(entry.amount_cents)}${entry.date ? `, ${prettyDate(entry.date)}` : ", monthly income"}`}
-              title={`Edit ${entry.name} income`}
-              onClick={() => onEditEntry(entry)}
-              disabled={busy}
-            >
-              <span className="income-symbol" aria-hidden="true">
-                <CircleDollarSign size={18} />
-              </span>
-              <span className="income-source-name">
-                <strong>{entry.name}</strong>
-                <span className="income-source-meta">
-                  {entry.kind === "legacy"
-                    ? "Previous monthly total"
-                    : entry.date
-                      ? `One-time · ${prettyDate(entry.date)}`
-                      : "Monthly income"}
+          <article className="income-manual-entry" key={entry.id}>
+            <div className="income-manual-row">
+              <button
+                type="button"
+                className="income-manual-main"
+                aria-label={`Edit ${entry.name} income, ${money(entry.amount_cents)}${entry.date ? `, ${prettyDate(entry.date)}` : ", monthly income"}`}
+                title={`Edit ${entry.name} income`}
+                onClick={() => onEditEntry(entry)}
+                disabled={busy}
+              >
+                <span className="income-symbol" aria-hidden="true">
+                  <CircleDollarSign size={18} />
                 </span>
-              </span>
-              <strong className="income-manual-amount">
-                {money(entry.amount_cents)}
-              </strong>
-              <Pencil
-                size={14}
-                className="income-manual-edit"
-                aria-hidden="true"
-              />
-            </button>
-            <IconButton
-              label={`Remove ${entry.name} income`}
-              onClick={() => onRemoveEntry(entry)}
-              disabled={busy}
-            >
-              <Trash2 size={16} />
-            </IconButton>
+                <span className="income-source-name">
+                  <strong>{entry.name}</strong>
+                  <span className="income-source-meta">
+                    {entry.kind === "legacy"
+                      ? "Previous monthly total"
+                      : entry.date
+                        ? `One-time · ${prettyDate(entry.date)}`
+                        : "Monthly income"}
+                  </span>
+                  <IncomeReceiptStatus entry={entry} />
+                </span>
+                <strong className="income-manual-amount">
+                  {money(entry.amount_cents)}
+                </strong>
+                <Pencil
+                  size={14}
+                  className="income-manual-edit"
+                  aria-hidden="true"
+                />
+              </button>
+              <IconButton
+                label={`Remove ${entry.name} income`}
+                onClick={() => onRemoveEntry(entry)}
+                disabled={busy}
+              >
+                <Trash2 size={16} />
+              </IconButton>
+            </div>
+            <IncomeReceiptList
+              entry={entry}
+              busy={busy}
+              onOpenTransaction={onOpenTransaction}
+            />
           </article>
         ))}
       </div>

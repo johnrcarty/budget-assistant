@@ -183,7 +183,10 @@ def categories_for(db, identity, month, start, end, today=None):
                                            ORDER BY CASE WHEN managed_source='saved' THEN 0 ELSE 1 END,id''', identity)}
     for item in db.execute('''SELECT i.*,COALESCE((SELECT SUM(-t.amount_cents) FROM transactions t
                               WHERE t.category_id=i.id AND t.household_id=i.household_id AND t.owner_id=i.owner_id
-                              AND t.scope=i.scope AND t.date>=? AND t.date<?),0) spent_cents
+                              AND t.scope=i.scope AND t.date>=? AND t.date<?
+                              AND t.income_entry_id IS NULL AND COALESCE(t.provider_role_override,t.provider_role)='ordinary'
+                              AND (t.account_id IS NULL OR EXISTS (SELECT 1 FROM accounts a WHERE a.id=t.account_id
+                                   AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope AND a.currency='USD'))),0) spent_cents
                               FROM budget_items i WHERE i.household_id=? AND i.owner_id=? AND i.scope=? AND i.month=?
                               ORDER BY i.id''', (start, end, *identity, month)):
         category = categories.get(item['budget_category_id'])
@@ -201,6 +204,9 @@ def categories_for(db, identity, month, start, end, today=None):
                              FROM transactions t JOIN budget_items i ON i.id=t.category_id
                              AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
                              WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND t.date>=? AND t.date<?
+                             AND t.income_entry_id IS NULL AND COALESCE(t.provider_role_override,t.provider_role)='ordinary'
+                             AND (t.account_id IS NULL OR EXISTS (SELECT 1 FROM accounts a WHERE a.id=t.account_id
+                                  AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope AND a.currency='USD'))
                              GROUP BY i.budget_category_id''', (*identity, start, end)):
         category = categories.get(row['budget_category_id'])
         if category is not None:

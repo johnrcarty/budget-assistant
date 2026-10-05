@@ -286,6 +286,10 @@ def link_transaction(db, identity, item_id, transaction_id, replace_existing=Fal
             raise HTTPException(409, 'This transaction is no longer assigned to this item')
         db.execute("UPDATE transactions SET category_id=NULL,category_source='manual',categorization_rule_id=NULL WHERE id=? AND category_id=?", (transaction_id, item_id))
     else:
+        if transaction['income_entry_id'] is not None:
+            raise HTTPException(409, 'Unlink this transaction from income before assigning a budget item')
+        if (transaction['provider_role_override'] or transaction['provider_role']) != 'ordinary':
+            raise HTTPException(409, 'Restore this transfer as an ordinary transaction before assigning a budget item')
         if transaction['category_id'] not in (None, item_id) and not replace_existing:
             raise HTTPException(409, 'This transaction belongs to another item. Confirm moving it')
         db.execute("UPDATE transactions SET category_id=?,category_source='manual',categorization_rule_id=NULL WHERE id=?", (item_id, transaction_id))
@@ -315,7 +319,8 @@ def create_transaction(db, identity, item_id, payload):
 def transaction_payload(row):
     from .categorization import provenance
     return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'account_name', 'category_id', 'category_name')} | {
-        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD'} | provenance(row)
+        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD',
+        'transaction_role': row['provider_role_override'] or row['provider_role']} | provenance(row)
 
 
 def details(db, identity, item_id, today):
@@ -340,9 +345,12 @@ def details(db, identity, item_id, today):
                   JOIN budget_items i ON i.id=t.category_id AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
                   LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope
                   WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND t.category_id=? AND substr(t.date,1,7)=?
+                  AND t.income_entry_id IS NULL
+                  AND (t.account_id IS NULL OR a.id IS NOT NULL)
                   ORDER BY t.date DESC,t.id DESC''', (*identity, item_id, item['month']))]
-    spent = sum(-row['amount_cents'] for row in linked)
-    pending = sum(-row['amount_cents'] for row in linked if row['pending'])
+    economic = [row for row in linked if row['transaction_role'] == 'ordinary' and row['currency'] == 'USD']
+    spent = sum(-row['amount_cents'] for row in economic)
+    pending = sum(-row['amount_cents'] for row in economic if row['pending'])
     year, number = map(int, item['month'].split('-'))
     ending = (year - 1) * 12 + number - 1
     history = []
@@ -354,7 +362,10 @@ def details(db, identity, item_id, today):
                               COALESCE(SUM(CASE WHEN t.pending=1 THEN -t.amount_cents ELSE 0 END),0) pending_cents
                               FROM transactions t JOIN budget_items i ON i.id=t.category_id
                               AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
-                              WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND i.lineage_id=? AND substr(t.date,1,7)=?''',
+                              WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND i.lineage_id=? AND substr(t.date,1,7)=?
+                              AND t.income_entry_id IS NULL AND COALESCE(t.provider_role_override,t.provider_role)='ordinary'
+                              AND (t.account_id IS NULL OR EXISTS (SELECT 1 FROM accounts a WHERE a.id=t.account_id
+                                   AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope AND a.currency='USD')) ''',
                             (*identity, item['lineage_id'], month)).fetchone()
         history.append({'month': month, 'planned_cents': plan['planned_cents'], 'spent_cents': totals['spent_cents'],
                         'pending_cents': totals['pending_cents'], 'has_plan': bool(plan['count'])})

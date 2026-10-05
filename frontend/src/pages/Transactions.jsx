@@ -27,6 +27,8 @@ export default function Transactions({
   sync,
   displayTransactions,
   openRules,
+  showTransfers,
+  setShowTransfers,
 }) {
   const dates = new Map();
   [...displayTransactions]
@@ -37,7 +39,10 @@ export default function Transactions({
       dates.get(date).push(transaction);
     });
   const uncategorized = displayTransactions.filter(
-    (transaction) => !transaction.category_id && transaction.amount_cents < 0,
+    (transaction) =>
+      !transaction.category_id &&
+      transaction.amount_cents < 0 &&
+      (transaction.transaction_role || "ordinary") === "ordinary",
   ).length;
   return (
     <section className="card transactions-card compact-transactions">
@@ -94,6 +99,14 @@ export default function Transactions({
           Checking, savings & credit · Manual entries
           {uncategorized > 0 && <span>{uncategorized} to categorize</span>}
         </p>
+        <label className="checkbox-field transaction-transfer-toggle">
+          <input
+            type="checkbox"
+            checked={showTransfers}
+            onChange={(event) => setShowTransfers(event.target.checked)}
+          />
+          <span>Show transfers and bank sweeps</span>
+        </label>
       </div>
       <div className="transaction-dates">
         {[...dates.entries()].map(([date, entries]) => (
@@ -120,26 +133,51 @@ export default function Transactions({
                         </span>
                         <span
                           className={
-                            !transaction.category_id ? "needs-purpose" : ""
+                            !transaction.category_id &&
+                            !transaction.income_entry_id &&
+                            (transaction.transaction_role || "ordinary") !==
+                              "bank_transfer" &&
+                            transaction.amount_cents < 0
+                              ? "needs-purpose"
+                              : ""
                           }
                         >
-                          {transaction.category_name ||
-                            (transaction.manual_category_lock
-                              ? "Kept uncategorized"
-                              : "Uncategorized")}
+                          {(transaction.transaction_role || "ordinary") ===
+                          "bank_transfer"
+                            ? "Transfer / bank sweep"
+                            : transaction.income_name
+                              ? `Income · ${transaction.income_name}`
+                              : transaction.category_name ||
+                                (transaction.manual_category_lock
+                                  ? "Kept uncategorized"
+                                  : transaction.amount_cents > 0
+                                    ? "Income · unmatched"
+                                    : "Uncategorized")}
                         </span>
                         <span
-                          className={`transaction-provenance ${transaction.category_source === "automatic" ? "is-automatic" : ""}`}
+                          className={`transaction-provenance ${transaction.category_source === "automatic" ? "is-automatic" : ""} ${transaction.income_link_invalid ? "transaction-link-invalid" : ""}`}
                         >
-                          {transaction.category_source === "automatic"
-                            ? "Automatic"
-                            : transaction.category_source === "manual"
-                              ? "Manual"
-                              : "Unmatched"}
+                          {(transaction.transaction_role || "ordinary") ===
+                          "bank_transfer"
+                            ? transaction.provider_role_override
+                              ? "Manual treatment"
+                              : "Bank handling"
+                            : transaction.income_link_invalid
+                              ? "Review receipt"
+                              : transaction.income_entry_id
+                                ? transaction.pending
+                                  ? "Pending receipt"
+                                  : "Received"
+                                : transaction.category_source === "automatic"
+                                  ? "Automatic"
+                                  : transaction.category_source === "manual"
+                                    ? "Manual"
+                                    : "Unmatched"}
                         </span>
-                        {transaction.pending && (
-                          <span className="transaction-pending">Pending</span>
-                        )}
+                        {transaction.pending &&
+                          !transaction.income_entry_id && (
+                            <span className="transaction-pending">Pending</span>
+                          )}
                       </span>
                     </span>
                     <strong

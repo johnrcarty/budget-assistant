@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount_override_cents INTEGER,
     category_source TEXT NOT NULL DEFAULT 'unmatched',
     categorization_rule_id INTEGER REFERENCES categorization_rules(id) ON DELETE SET NULL,
+    income_entry_id INTEGER REFERENCES income_entries(id) ON DELETE SET NULL,
+    provider_role TEXT NOT NULL DEFAULT 'ordinary' CHECK(provider_role IN ('ordinary','bank_transfer')),
+    provider_handler TEXT,
+    provider_role_override TEXT CHECK(provider_role_override IN ('ordinary','bank_transfer')),
     UNIQUE(household_id,owner_id,scope,external_id)
 );
 CREATE TABLE IF NOT EXISTS categorization_rules (
@@ -193,6 +197,15 @@ CREATE TABLE IF NOT EXISTS income_migrations (
     household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
     scope TEXT NOT NULL CHECK(scope IN ('household','personal')), month TEXT NOT NULL,
     PRIMARY KEY(household_id,owner_id,scope,month)
+);
+CREATE TABLE IF NOT EXISTS income_transaction_requests (
+    household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), idempotency_key TEXT NOT NULL,
+    transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+    result_entry_id INTEGER REFERENCES income_entries(id) ON DELETE SET NULL,
+    request_fingerprint TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(household_id,owner_id,scope,idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_income_scope_month ON income_entries(household_id,scope,owner_id,month);
 CREATE INDEX IF NOT EXISTS idx_income_versions ON income_source_versions(source_id,effective_from);
@@ -286,6 +299,13 @@ def initialize(path: str | Path) -> None:
             db.execute("UPDATE transactions SET category_source='manual' WHERE category_id IS NOT NULL")
         if 'categorization_rule_id' not in columns:
             db.execute('ALTER TABLE transactions ADD COLUMN categorization_rule_id INTEGER REFERENCES categorization_rules(id) ON DELETE SET NULL')
+        for name, definition in (('income_entry_id', 'INTEGER REFERENCES income_entries(id) ON DELETE SET NULL'),
+                                 ('provider_role', "TEXT NOT NULL DEFAULT 'ordinary' CHECK(provider_role IN ('ordinary','bank_transfer'))"),
+                                 ('provider_handler', 'TEXT'),
+                                 ('provider_role_override', "TEXT CHECK(provider_role_override IN ('ordinary','bank_transfer'))")):
+            if name not in columns:
+                db.execute(f'ALTER TABLE transactions ADD COLUMN {name} {definition}')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_transaction_income_entry ON transactions(income_entry_id) WHERE income_entry_id IS NOT NULL')
         exclusion_columns = {row['name'] for row in db.execute('PRAGMA table_info(income_exclusions)')}
         for name, definition in (('version_id', 'INTEGER REFERENCES income_source_versions(id)'), ('scheduled_date', 'TEXT')):
             if name not in exclusion_columns:

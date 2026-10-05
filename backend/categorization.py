@@ -128,6 +128,8 @@ def transaction_row(db, identity, transaction_id):
 
 
 def eligible(row):
+    if row['income_entry_id'] is not None or (row['provider_role_override'] or row['provider_role']) != 'ordinary':
+        return False
     if row['category_source'] == 'manual' or row['category_id'] is not None:
         return False
     return row['account_id'] is None or (row['account_currency'] == 'USD' and row['account_kind'] in accounts.TRANSACTION_KINDS)
@@ -161,6 +163,12 @@ def apply_automatic(db, identity, transaction_id, *, reconcile=False, rules=None
     row = transaction_row(db, identity, transaction_id)
     if row is None or row['category_source'] == 'manual':
         return
+    if row['income_entry_id'] is not None or (row['provider_role_override'] or row['provider_role']) != 'ordinary':
+        # A newly identified sweep must not keep an automatic expense/refund
+        # assignment, even when its date and the old target month still match.
+        if row['category_source'] == 'automatic':
+            db.execute("UPDATE transactions SET category_id=NULL,category_source='unmatched',categorization_rule_id=NULL WHERE id=?", (transaction_id,))
+        return
     if row['category_id'] is not None:
         if not reconcile or row['category_source'] != 'automatic':
             return
@@ -181,6 +189,8 @@ def reset_manual_clear(db, identity, transaction_id):
     row = transaction_row(db, identity, transaction_id)
     if row is None:
         raise HTTPException(404, 'Transaction not found')
+    if row['income_entry_id'] is not None or (row['provider_role_override'] or row['provider_role']) != 'ordinary':
+        raise HTTPException(409, 'Unlink income or restore an ordinary transaction before using expense rules')
     if row['category_id'] is not None:
         raise HTTPException(409, 'Clear the current category before using rules')
     db.execute("UPDATE transactions SET category_source='unmatched',categorization_rule_id=NULL WHERE id=?", (transaction_id,))

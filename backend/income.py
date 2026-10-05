@@ -4,6 +4,8 @@ Schedules use calendar dates, never UTC timestamps. Projected entries are
 materialised without updating the legacy scalar or copying schedule templates.
 """
 import calendar
+import hashlib
+import json
 from datetime import date, timedelta
 
 from fastapi import HTTPException
@@ -62,6 +64,10 @@ def mark_migrated(db, identity, month):
 
 
 def replace_legacy(db, identity, month):
+    if db.execute('''SELECT 1 FROM income_entries e JOIN transactions t ON t.income_entry_id=e.id
+                     WHERE e.household_id=? AND e.owner_id=? AND e.scope=? AND e.month=? AND e.kind='legacy' LIMIT 1''',
+                  (*identity, month)).fetchone():
+        raise HTTPException(409, 'Unlink the transactions from the monthly income line before replacing it')
     db.execute("DELETE FROM income_entries WHERE household_id=? AND owner_id=? AND scope=? AND month=? AND kind='legacy'", (*identity, month))
 
 
@@ -126,8 +132,34 @@ def total(db, identity, month):
     return db.execute('SELECT COALESCE(SUM(amount_cents),0) FROM income_entries WHERE household_id=? AND owner_id=? AND scope=? AND month=?', (*identity, month)).fetchone()[0]
 
 
-def entry_payload(row):
-    return {key: row[key] for key in ('id', 'month', 'name', 'amount_cents', 'date', 'scheduled_date', 'source_id', 'kind')} | {'overridden': bool(row['overridden'])}
+def entry_payload(row, db=None):
+    payload = {key: row[key] for key in ('id', 'month', 'name', 'amount_cents', 'date', 'scheduled_date', 'source_id', 'kind')} | {'overridden': bool(row['overridden'])}
+    linked = []
+    if db is not None:
+        for transaction in db.execute('''SELECT t.*,a.currency account_currency,a.id scoped_account_id,a.kind account_kind,a.archived account_archived
+            FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id
+            AND a.owner_id=t.owner_id AND a.scope=t.scope
+            WHERE t.income_entry_id=? AND t.household_id=? AND t.owner_id=? AND t.scope=? ORDER BY t.date,t.id''',
+                                      (row['id'], row['household_id'], row['owner_id'], row['scope'])):
+            currency = transaction['account_currency'] if transaction['account_id'] is not None else 'USD'
+            scoped_account = transaction['account_id'] is None or transaction['scoped_account_id'] is not None
+            role = transaction['provider_role_override'] or transaction['provider_role']
+            valid = scoped_account and transaction['amount_cents'] > 0 and currency == 'USD' and role == 'ordinary' and transaction['category_id'] is None
+            linked.append({key: transaction[key] for key in ('id', 'description', 'amount_cents', 'date',
+                                                           'provider_role', 'provider_handler', 'provider_role_override')} |
+                          {'pending': bool(transaction['pending']), 'currency': currency or 'USD', 'transaction_role': role,
+                           'account_id': transaction['account_id'] if scoped_account else None,
+                           'account_name': transaction['account_name'] if scoped_account else 'Unavailable account',
+                           'account_unavailable': not scoped_account,
+                           'income_link_invalid': not valid, 'income_entry_id': row['id'], 'income_name': row['name'],
+                           'income_month': row['month'], 'income_date': row['date'],
+                           'account_kind': transaction['account_kind'],
+                           'account_active': not bool(transaction['account_archived']) if transaction['account_archived'] is not None else None,
+                           'category_id': None, 'category_name': None, 'category_source': 'manual', 'categorization_rule_id': None})
+    payload.update(linked_transactions=linked,
+                   actual_received_cents=sum(t['amount_cents'] for t in linked if not t['pending'] and not t['income_link_invalid']),
+                   pending_received_cents=sum(t['amount_cents'] for t in linked if t['pending'] and not t['income_link_invalid']))
+    return payload
 
 
 def sources_for(db, identity, month):
@@ -164,8 +196,11 @@ def month_payload(db, identity, month):
     ensure_month(db, identity, month)
     rows = db.execute('''SELECT * FROM income_entries WHERE household_id=? AND owner_id=? AND scope=? AND month=?
                          ORDER BY COALESCE(date,month||'-01'),id''', (*identity, month)).fetchall()
-    return {'entries': [entry_payload(row) for row in rows], 'sources': sources_for(db, identity, month),
-            'total_cents': sum(row['amount_cents'] for row in rows)}
+    entries = [entry_payload(row, db) for row in rows]
+    return {'entries': entries, 'sources': sources_for(db, identity, month),
+            'total_cents': sum(row['amount_cents'] for row in rows),
+            'total_actual_received_cents': sum(entry['actual_received_cents'] for entry in entries),
+            'total_pending_received_cents': sum(entry['pending_received_cents'] for entry in entries)}
 
 
 def scoped_entry(db, entry_id, identity):
@@ -182,6 +217,63 @@ def scoped_source(db, source_id, identity):
     return row
 
 
+def assign_transaction(db, identity, transaction_id, payload, month=None):
+    """Assign a real deposit to a planned paycheck without changing its plan."""
+    lock(db)
+    transaction = db.execute('SELECT * FROM transactions WHERE id=? AND household_id=? AND owner_id=? AND scope=?',
+                             (transaction_id, *identity)).fetchone()
+    if transaction is None:
+        raise HTTPException(404, 'Transaction not found')
+    if month is not None:
+        bounds(month)
+    fingerprint = None
+    if payload.idempotency_key is not None:
+        fingerprint = hashlib.sha256(json.dumps(
+            {'month': month, 'assignment': payload.model_dump(mode='json', exclude={'idempotency_key'})},
+            sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        request = db.execute('''SELECT * FROM income_transaction_requests
+            WHERE household_id=? AND owner_id=? AND scope=? AND idempotency_key=?''',
+                             (*identity, payload.idempotency_key)).fetchone()
+        if request is not None:
+            if request['transaction_id'] != transaction_id or request['request_fingerprint'] != fingerprint:
+                raise HTTPException(409, 'This income request key was already used for a different request')
+            if request['result_entry_id'] is None or transaction['income_entry_id'] != request['result_entry_id']:
+                raise HTTPException(409, 'This income request already completed, and its assignment has since changed. Refresh before making a new assignment')
+            # A bank update may have changed sign/currency after the successful
+            # request. Replays report the retained receipt rather than rewriting
+            # it or creating another planned line.
+            scoped_entry(db, request['result_entry_id'], identity)
+            return
+    if payload.entry_id is None and payload.create_entry is None:
+        # Invalid imported receipts must still be removable.
+        db.execute('UPDATE transactions SET income_entry_id=NULL WHERE id=?', (transaction_id,))
+        return
+    if transaction['amount_cents'] <= 0:
+        raise HTTPException(422, 'Choose a positive deposit to assign to income')
+    if (transaction['provider_role_override'] or transaction['provider_role']) != 'ordinary':
+        raise HTTPException(409, 'Treat this bank transfer as an ordinary transaction before assigning it to income')
+    if transaction['account_id'] is not None:
+        from .accounts import require_account
+        account = require_account(db, identity, transaction['account_id'], include_archived=True)
+        if account['currency'] != 'USD':
+            raise HTTPException(422, 'Only USD transactions can be assigned to this income plan')
+    replacing = transaction['category_id'] is not None or (transaction['income_entry_id'] is not None and
+                 (payload.create_entry is not None or transaction['income_entry_id'] != payload.entry_id))
+    if replacing and not payload.replace_existing:
+        raise HTTPException(409, 'Confirm replacement of this transaction’s existing assignment')
+    entry_id = payload.entry_id
+    if payload.create_entry is not None:
+        entry_id = create_entry(db, identity, month or transaction['date'][:7], payload.create_entry)['id']
+    else:
+        scoped_entry(db, entry_id, identity)
+    db.execute("""UPDATE transactions SET income_entry_id=?,category_id=NULL,category_source='manual',categorization_rule_id=NULL
+                  WHERE id=?""", (entry_id, transaction_id))
+    if payload.idempotency_key is not None:
+        db.execute('''INSERT INTO income_transaction_requests
+            (household_id,owner_id,scope,idempotency_key,transaction_id,result_entry_id,request_fingerprint)
+            VALUES (?,?,?,?,?,?,?)''', (*identity, payload.idempotency_key, transaction_id, entry_id, fingerprint))
+
+
 def create_entry(db, identity, month, payload):
     ensure_month(db, identity, month)
     entry_month = payload.date.strftime('%Y-%m') if payload.date else month
@@ -191,7 +283,7 @@ def create_entry(db, identity, month, payload):
     uid = db.execute('''INSERT INTO income_entries(household_id,owner_id,scope,month,name,amount_cents,date,kind)
                         VALUES (?,?,?,?,?,?,?,'manual')''',
                      (*identity, entry_month, payload.name, payload.amount_cents, payload.date.isoformat() if payload.date else None)).lastrowid
-    return entry_payload(scoped_entry(db, uid, identity))
+    return entry_payload(scoped_entry(db, uid, identity), db)
 
 
 def patch_entry(db, identity, entry_id, payload):
@@ -207,12 +299,14 @@ def patch_entry(db, identity, entry_id, payload):
         updates['overridden'] = 1
     if updates:
         db.execute('UPDATE income_entries SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), entry_id))
-    return entry_payload(scoped_entry(db, entry_id, identity))
+    return entry_payload(scoped_entry(db, entry_id, identity), db)
 
 
 def delete_entry(db, identity, entry_id):
     lock(db)
     row = scoped_entry(db, entry_id, identity)
+    if db.execute('SELECT 1 FROM transactions WHERE income_entry_id=? LIMIT 1', (entry_id,)).fetchone():
+        raise HTTPException(409, 'Unlink the received transactions before removing this income entry')
     if row['source_id']:
         db.execute('''INSERT OR IGNORE INTO income_exclusions(household_id,owner_id,scope,source_id,occurrence_key,version_id,scheduled_date)
                       VALUES (?,?,?,?,?,?,?)''',
@@ -243,9 +337,10 @@ def retire_after(db, source_id, identity, effective):
     db.execute('''UPDATE income_source_versions SET effective_to=? WHERE source_id=? AND superseded=0
                   AND effective_from<? AND (effective_to IS NULL OR effective_to>=?)''', (previous, source_id, effective, effective))
     db.execute('UPDATE income_source_versions SET superseded=1 WHERE source_id=? AND effective_from>=?', (source_id, effective))
-    # Individual overrides (including a deliberate zero or moved paycheck) survive.
+    # Individual overrides and received paychecks preserve their plan and history.
     db.execute('''DELETE FROM income_entries WHERE household_id=? AND owner_id=? AND scope=? AND source_id=?
-                  AND overridden=0 AND scheduled_date>=?''', (*identity, source_id, effective))
+                  AND overridden=0 AND scheduled_date>=?
+                  AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.income_entry_id=income_entries.id)''', (*identity, source_id, effective))
 
 
 def patch_source(db, identity, source_id, payload, today, month):
@@ -274,12 +369,13 @@ def patch_source(db, identity, source_id, payload, today, month):
     desired = signature(data)
     overrides = db.execute('''SELECT v.cadence,v.anchor_date FROM income_entries e LEFT JOIN income_source_versions v ON v.id=e.version_id
                               WHERE e.household_id=? AND e.owner_id=? AND e.scope=? AND e.source_id=?
-                              AND e.overridden=1 AND e.scheduled_date>=?''', (*identity, source_id, effective)).fetchall()
+                              AND (e.overridden=1 OR EXISTS (SELECT 1 FROM transactions t WHERE t.income_entry_id=e.id))
+                              AND e.scheduled_date>=?''', (*identity, source_id, effective)).fetchall()
     if any(not original['cadence'] or signature(original) != desired for original in overrides):
         # A cadence/phase change has no unambiguous mapping for an individually
         # edited future paycheck. Preserve it and require an explicit resolution
         # instead of counting it alongside a newly generated replacement.
-        raise HTTPException(409, 'Reset or remove the future paycheck overrides before changing this schedule frequency or pay dates')
+        raise HTTPException(409, 'Unlink received future paychecks and reset or remove future paycheck overrides before changing this schedule frequency or pay dates')
     skipped = db.execute('''SELECT v.cadence,v.anchor_date FROM income_exclusions e LEFT JOIN income_source_versions v ON v.id=e.version_id
                             WHERE e.household_id=? AND e.owner_id=? AND e.scope=? AND e.source_id=?
                             AND (e.scheduled_date>=? OR e.scheduled_date IS NULL)''', (*identity, source_id, effective)).fetchall()
@@ -327,7 +423,7 @@ def reset_entry(db, identity, entry_id):
             if key == row['occurrence_key']:
                 db.execute('''UPDATE income_entries SET name=?,amount_cents=?,month=?,date=?,scheduled_date=?,version_id=?,overridden=0
                               WHERE id=?''', (version['name'], version['amount_cents'], when.strftime('%Y-%m'), when.isoformat(), when.isoformat(), version['id'], entry_id))
-                return entry_payload(scoped_entry(db, entry_id, identity))
+                return entry_payload(scoped_entry(db, entry_id, identity), db)
     raise HTTPException(409, 'This paycheck is no longer in its schedule. Keep the override or remove the entry')
 
 

@@ -1,6 +1,14 @@
 const tokenKey = `budgetassistant.token:${location.pathname}`;
 let savedToken = localStorage.getItem(tokenKey);
 export async function api(path, options = {}) {
+  const mutation = !["GET", "HEAD"].includes(
+    (options.method || "GET").toUpperCase(),
+  );
+  function failure(message, unknown = false) {
+    const error = new Error(message);
+    error.outcomeUnknown = mutation && unknown;
+    return error;
+  }
   const headers = {
     "Content-Type": "application/json",
     ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}),
@@ -15,8 +23,9 @@ export async function api(path, options = {}) {
         options.body === undefined ? undefined : JSON.stringify(options.body),
     });
   } catch {
-    throw new Error(
+    throw failure(
       "Could not reach BudgetAssistant. Check that the server is running.",
+      true,
     );
   }
   if (response.status === 204) return null;
@@ -24,16 +33,20 @@ export async function api(path, options = {}) {
   try {
     result = await response.json();
   } catch {
-    throw new Error("The server returned an unexpected response.");
+    throw failure(
+      "The server returned an unexpected response.",
+      !(response.status >= 400 && response.status < 500),
+    );
   }
   if (!response.ok) {
     const detail = result.detail;
-    throw new Error(
+    throw failure(
       typeof detail === "string"
         ? detail
         : Array.isArray(detail)
           ? detail.map((x) => x.msg).join("; ")
           : result.error || "Something went wrong. Please try again.",
+      response.status >= 500,
     );
   }
   return result;

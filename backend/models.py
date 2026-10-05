@@ -152,6 +152,21 @@ class IncomeEntryPatch(BaseModel):
     date: CalendarDate | None = None
 
 
+class IncomeTransactionAssignment(BaseModel):
+    entry_id: int | None = Field(default=None, ge=1, strict=True)
+    create_entry: IncomeEntry | None = None
+    replace_existing: bool = False
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$')
+
+    @model_validator(mode='after')
+    def single_destination(self):
+        if self.entry_id is not None and self.create_entry is not None:
+            raise ValueError('Choose an existing paycheck or create an income entry')
+        if self.idempotency_key is not None and self.create_entry is None:
+            raise ValueError('Idempotency keys apply to creating an income entry')
+        return self
+
+
 class IncomeSource(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     amount_cents: int = Field(ge=0, le=10**12, strict=True)
@@ -214,6 +229,7 @@ class Transaction(BaseModel):
     account_id: int | None = Field(default=None, ge=1, strict=True)
     category_id: int | None = None
     pending: bool = False
+    provider_role_override: Literal['ordinary', 'bank_transfer'] | None = None
 
 
 class TransactionPatch(BaseModel):
@@ -224,6 +240,7 @@ class TransactionPatch(BaseModel):
     account_id: int | None = Field(default=None, ge=1, strict=True)
     category_id: int | None = None
     pending: bool | None = None
+    provider_role_override: Literal['ordinary', 'bank_transfer'] | None = None
 
 
 class CategorizationRule(BaseModel):

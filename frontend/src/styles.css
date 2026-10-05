@@ -6275,18 +6275,29 @@ h3 {
   flex-shrink: 0;
 }
 .budget-row .budget-item-name {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 12px;
+  width: 100%;
   min-width: 0;
 }
 .budget-group .budget-row .budget-item-name > strong {
   display: block;
+  flex: 0 0 auto;
+  max-width: 100%;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .budget-row .budget-item-dates {
-  margin-top: 5px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin-top: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .budget-row-amount > span {
   display: block;
@@ -6787,5 +6798,162 @@ h3 {
   }
   .student-group-metrics dd {
     font-size: 17px;
+  }
+}
+
+/* Paycheck receipts and retained bank sweep controls. */
+.transaction-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.transaction-transfer-toggle {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.transaction-link-invalid {
+  color: #9b4c36;
+}
+.transaction-handler-note,
+.income-assignment-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #68765b;
+  overflow-wrap: anywhere;
+}
+.income-assignment {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 16px;
+  min-width: 0;
+}
+.income-assignment h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-family: var(--serif);
+  font-weight: 400;
+}
+.income-assignment select {
+  min-width: 0;
+  max-width: 100%;
+}
+.income-receipt-summary {
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.income-receipt-summary > span {
+  color: #68765b;
+}
+.income-actual-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 8px 32px 2px;
+  font-size: 12px;
+  color: #62735b;
+}
+.income-actual-summary strong {
+  color: #405d36;
+  font-weight: 600;
+}
+.income-receipt-status {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #68765b;
+  overflow-wrap: anywhere;
+}
+.income-receipt-status.has-receipts,
+.income-payday-main > .income-receipt-status.has-receipts {
+  color: #4d6543;
+}
+.income-payday-main > .income-receipt-status {
+  grid-column: 1 / -1;
+  color: #68765b;
+}
+.income-manual-entry {
+  border-bottom: 1px solid #e5e9dc;
+}
+.income-manual-entry > .income-manual-row {
+  border-bottom: 0;
+}
+.income-payday-entry {
+  min-width: 0;
+}
+.income-linked-receipts {
+  padding: 0 8px 8px;
+  min-width: 0;
+}
+.income-linked-receipts > summary {
+  font-size: 11px;
+  color: #62735b;
+  cursor: pointer;
+  padding: 8px 0;
+  min-height: 32px;
+}
+.income-linked-receipts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.income-receipt-open,
+.income-linked-receipts li > p {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 0;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  min-height: 44px;
+}
+.income-receipt-open:hover {
+  background: #edf2e1;
+}
+.income-receipt-open > span,
+.income-linked-receipts li > p > span {
+  min-width: 0;
+  flex: 1;
+}
+.income-receipt-open > span > strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.income-receipt-open small {
+  display: block;
+  color: #68765b;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.income-receipt-open > strong {
+  max-width: 34%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.income-linked-receipts > summary:focus-visible {
+  outline: 2px solid #54725d;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+@media (max-width: 640px) {
+  .income-actual-summary {
+    padding: 7px 26px 2px;
+  }
+  .income-assignment .button {
+    max-width: 100%;
   }
 }

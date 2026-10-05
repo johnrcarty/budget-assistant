@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { api, getToken, setToken } from "./lib/api.js";
 import { today, thisMonth, monthLabel, cents } from "./lib/format.js";
+import { transactionDetailsBody } from "./lib/transactions.js";
 import { IconButton, Button, Brand, PageHeading } from "./components/ui.jsx";
 import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
@@ -28,6 +29,7 @@ import StudentLoanGroupDetails from "./components/StudentLoanGroupDetails.jsx";
 import CategoryDialog from "./components/CategoryDialog.jsx";
 import ItemDetails from "./components/ItemDetails.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
+import TransactionDialog from "./components/TransactionDialog.jsx";
 import MobileNav, { mobilePageIds } from "./components/MobileNav.jsx";
 import CategorizationRules from "./components/CategorizationRules.jsx";
 import Overview from "./pages/Overview.jsx";
@@ -71,6 +73,7 @@ export default function App() {
     [formError, setFormError] = useState(""),
     [toast, setToast] = useState(null),
     [filter, setFilter] = useState(""),
+    [showTransfers, setShowTransfers] = useState(false),
     [flowSpent, setFlowSpent] = useState(false),
     [haToken, setHaToken] = useState(null);
   const query = `scope=${scope}&month=${month}`;
@@ -170,7 +173,7 @@ export default function App() {
         api(`dashboard?${query}`),
         api(`budget/items?${query}`),
         api(`bills?${query}`),
-        api(`transactions?${query}`),
+        api(`transactions?${query}&include_transfers=true`),
         api(`accounts?${query}`),
         api(`settings?${query}`),
         api(`income?${query}`),
@@ -189,6 +192,20 @@ export default function App() {
         income,
         categories,
         studentLoanGroups,
+      });
+      setModal((current) => {
+        if (current?.type !== "transaction" || !current.item?.id)
+          return current;
+        const latest =
+          transactions.find(
+            (transaction) => transaction.id === current.item.id,
+          ) ||
+          (income.entries || [])
+            .flatMap((entry) => entry.linked_transactions || [])
+            .find((transaction) => transaction.id === current.item.id);
+        return latest
+          ? { ...current, item: { ...current.item, ...latest } }
+          : current;
       });
       return true;
     } catch (e) {
@@ -219,6 +236,7 @@ export default function App() {
     setSelectedAccount(null);
     setSelectedLoanGroup(null);
     setRulesContext(null);
+    setShowTransfers(false);
     setScope(next);
   }
   function changeMonth(next) {
@@ -276,6 +294,32 @@ export default function App() {
     );
     return result;
   }
+  function updateOpenTransaction(result) {
+    setModal((current) =>
+      current?.type === "transaction" && current.item?.id === result.id
+        ? { ...current, item: result }
+        : current,
+    );
+  }
+  async function resetTransactionTreatment(transaction) {
+    const result = await mutate(
+      `transactions/${transaction.id}?${query}`,
+      "PATCH",
+      { provider_role_override: null },
+      "Bank treatment restored.",
+      false,
+    );
+    updateOpenTransaction(result);
+    return result;
+  }
+  function openTransactionReceipt(receipt) {
+    open(
+      "transaction",
+      (data?.transactions || []).find(
+        (transaction) => transaction.id === receipt.id,
+      ) || receipt,
+    );
+  }
   function openItemDetails(item) {
     setModal(null);
     setSelectedAccount(null);
@@ -326,7 +370,7 @@ export default function App() {
       );
     } catch {}
   }
-  async function save(e) {
+  async function save(e, transactionBaseline) {
     e.preventDefault();
     const values = Object.fromEntries(new FormData(e.currentTarget));
     const type = modal.type;
@@ -365,28 +409,19 @@ export default function App() {
     if (type === "transaction") {
       path = `transactions${modal.item?.id ? `/${modal.item.id}` : ""}?${query}`;
       method = modal.item?.id ? "PATCH" : "POST";
-      body = {
-        scope,
-        description: values.description,
-        amount_cents:
-          cents(values.amount) * (values.direction === "income" ? 1 : -1),
-        date: values.date,
-        account_name: values.account_name || "Manual entry",
-      };
-      if (
-        values.category_id !== "automatic" &&
-        (!modal.item?.id || values.category_touched === "true")
-      )
-        body.category_id = values.category_id
-          ? Number(values.category_id)
-          : null;
-      const accountId = values.account_id ? Number(values.account_id) : null;
-      if (
-        !modal.item?.id ||
-        accountId === null ||
-        accountId !== modal.item.account_id
-      )
-        body.account_id = accountId;
+      try {
+        body = {
+          scope,
+          ...transactionDetailsBody(
+            values,
+            modal.item,
+            transactionBaseline || modal.item,
+          ),
+        };
+      } catch (e) {
+        setFormError(e.message);
+        return null;
+      }
       message = modal.item?.id
         ? "Transaction updated."
         : "Transaction recorded.";
@@ -441,13 +476,19 @@ export default function App() {
         body.currency === modal.item.currency
       )
         delete body.balance_cents;
-      if (modal.item?.id && body.currency === modal.item.currency &&
-          body.accrued_interest_cents === (modal.item.accrued_interest_cents ?? null) &&
-          body.accrued_interest_as_of === (modal.item.accrued_interest_as_of ?? null)) {
+      if (
+        modal.item?.id &&
+        body.currency === modal.item.currency &&
+        body.accrued_interest_cents ===
+          (modal.item.accrued_interest_cents ?? null) &&
+        body.accrued_interest_as_of ===
+          (modal.item.accrued_interest_as_of ?? null)
+      ) {
         delete body.accrued_interest_cents;
         delete body.accrued_interest_as_of;
       }
-      if (body.accrued_interest_cents === null) body.accrued_interest_as_of = null;
+      if (body.accrued_interest_cents === null)
+        body.accrued_interest_as_of = null;
       if (!modal.item?.id && values.student_loan_group_id)
         body.student_loan_group_id = Number(values.student_loan_group_id);
       message = modal.item?.id ? "Account updated." : "Account added.";
@@ -472,8 +513,23 @@ export default function App() {
       message = `Your ${monthLabel(month)} plan is ready.`;
     }
     try {
-      await mutate(path, method, body, message);
-    } catch {}
+      const result = await mutate(
+        path,
+        method,
+        body,
+        message,
+        type !== "transaction",
+      );
+      if (type === "transaction")
+        setModal((current) =>
+          current?.type === "transaction" && current.item?.id === modal.item?.id
+            ? { type: "transaction", item: result }
+            : current,
+        );
+      return result;
+    } catch {
+      return null;
+    }
   }
   async function confirmDelete() {
     const { kind, id } = modal.item;
@@ -683,10 +739,14 @@ export default function App() {
   const unpaid = bills
     .filter((b) => !b.paid)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
-  const displayTransactions = transactions.filter((t) =>
-    `${t.description} ${t.category_name || ""} ${t.account_name || ""}`
-      .toLowerCase()
-      .includes(filter.toLowerCase()),
+  const displayTransactions = transactions.filter(
+    (t) =>
+      (showTransfers ||
+        (t.transaction_role || t.effective_provider_role || "ordinary") !==
+          "bank_transfer") &&
+      `${t.description} ${t.category_name || ""} ${t.income_name || ""} ${t.account_name || ""}`
+        .toLowerCase()
+        .includes(filter.toLowerCase()),
   );
   const billSummary = dash.bill_summary || {};
   const remaining =
@@ -715,11 +775,14 @@ export default function App() {
     busy,
     filter,
     setFilter,
+    showTransfers,
+    setShowTransfers,
     flowSpent,
     setFlowSpent,
     haToken,
     navigate,
     open,
+    openTransactionReceipt,
     openItemDetails,
     openAccountDetails,
     openLoanGroup,
@@ -1017,7 +1080,11 @@ export default function App() {
       {selectedLoanGroup && (
         <StudentLoanGroupDetails
           key={`${scope}-${month}-${selectedLoanGroup.id || "new"}`}
-          group={studentLoanGroups.find((group) => group.id === selectedLoanGroup.id) || selectedLoanGroup}
+          group={
+            studentLoanGroups.find(
+              (group) => group.id === selectedLoanGroup.id,
+            ) || selectedLoanGroup
+          }
           groups={studentLoanGroups}
           accounts={accounts}
           scope={scope}
@@ -1026,7 +1093,14 @@ export default function App() {
           onChanged={reload}
           notify={notify}
           onOpenAccount={openAccountDetails}
-          onAddLoan={(group) => open("account", {kind: "loan", debt_type: "student", currency: group.currency, student_loan_group_id: group.id})}
+          onAddLoan={(group) =>
+            open("account", {
+              kind: "loan",
+              debt_type: "student",
+              currency: group.currency,
+              student_loan_group_id: group.id,
+            })
+          }
         />
       )}
       {rulesContext && (
@@ -1042,7 +1116,27 @@ export default function App() {
           notify={notify}
         />
       )}
-      {modal?.type.startsWith("income") ? (
+      {modal?.type === "transaction" ? (
+        <TransactionDialog
+          key={`${scope}-${modal.item?.id || "new"}`}
+          transaction={modal.item}
+          user={user}
+          scope={scope}
+          month={month}
+          income={income}
+          groups={groups}
+          accounts={accounts}
+          busy={busy}
+          error={formError}
+          onSave={save}
+          onClose={() => setModal(null)}
+          onCreateRule={openRules}
+          onUseRules={useTransactionRules}
+          onResetTreatment={resetTransactionTreatment}
+          onIncomeSaved={updateOpenTransaction}
+          onChanged={reload}
+        />
+      ) : modal?.type.startsWith("income") ? (
         <IncomeDialog
           key={`${modal.type}-${modal.item?.id || "new"}`}
           modal={modal}

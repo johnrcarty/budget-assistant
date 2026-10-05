@@ -37,7 +37,7 @@ from . import categorization
 from . import student_loans
 from .models import (Account, AccountPatch, CollateralLink, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
                      BudgetCopy, BudgetItem, BudgetPatch,
-                     Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch,
+                     Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch, IncomeTransactionAssignment,
                      ItemDue, ItemPayment, ItemTransaction, ItemTransactionLink,
                      Login, Member, Settings, Setup, SimpleFINConnect,
                      SimpleFINSync, Transaction, TransactionPatch)
@@ -204,7 +204,13 @@ def budget_totals(db, identity, month, today=None):
     # by categorised positive entries; unassigned deposits do not reduce spending.
     spent = db.execute('''SELECT COALESCE(SUM(CASE WHEN amount_cents<0 OR category_id IS NOT NULL
                                  THEN -amount_cents ELSE 0 END),0) n FROM transactions
-                           WHERE household_id=? AND owner_id=? AND scope=? AND date>=? AND date<?''',
+                           WHERE household_id=? AND owner_id=? AND scope=? AND date>=? AND date<?
+                           AND COALESCE(provider_role_override,provider_role)='ordinary'
+                           AND (income_entry_id IS NULL OR amount_cents<0)
+                           AND (account_id IS NULL OR EXISTS (
+                               SELECT 1 FROM accounts a WHERE a.id=transactions.account_id
+                               AND a.household_id=transactions.household_id AND a.owner_id=transactions.owner_id
+                               AND a.scope=transactions.scope AND a.currency='USD'))''',
                        (*identity, start, end)).fetchone()['n']
     return {'income_cents': income_cents,
             'planned_cents': planned, 'spent_cents': spent}
@@ -285,20 +291,36 @@ def materialize_bills(db, identity, today):
 
 
 def transaction_payload(row):
-    return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'account_name', 'category_id', 'category_name')} | {
-        'pending': bool(row['pending']), 'currency': row['currency'] if 'currency' in row.keys() else 'USD',
-        'account_id': row['account_id'], 'account_kind': row['account_kind'] if 'account_kind' in row.keys() else None,
+    role = row['provider_role_override'] or row['provider_role']
+    currency = (row['currency'] if 'currency' in row.keys() else 'USD') or 'USD'
+    linked = row['joined_income_id'] if 'joined_income_id' in row.keys() else None
+    scoped_account = row['account_id'] is None or ('scoped_account_id' in row.keys() and row['scoped_account_id'] is not None)
+    return {key: row[key] for key in ('id', 'description', 'amount_cents', 'date', 'category_id', 'category_name',
+                                    'provider_role', 'provider_handler', 'provider_role_override')} | {
+        'transaction_role': role, 'income_entry_id': linked,
+        'income_name': row['income_name'] if linked else None, 'income_month': row['income_month'] if linked else None,
+        'income_date': row['income_date'] if linked else None,
+        'income_link_invalid': bool(linked and (not scoped_account or row['amount_cents'] <= 0 or currency != 'USD' or role != 'ordinary' or row['category_id'] is not None)),
+        'pending': bool(row['pending']), 'currency': currency, 'account_unavailable': not scoped_account,
+        'account_name': row['account_name'] if scoped_account else 'Unavailable account',
+        'account_id': row['account_id'] if scoped_account else None, 'account_kind': row['account_kind'] if 'account_kind' in row.keys() else None,
         'account_active': not bool(row['account_archived']) if 'account_archived' in row.keys() and row['account_archived'] is not None else None} | categorization.provenance(row)
 
 
-def transactions_for(db, identity, month, limit=None):
+def transactions_for(db, identity, month, limit=None, include_transfers=False):
     start, end = month_bounds(month)
-    sql = '''SELECT t.*,i.name category_name,COALESCE(a.currency,'USD') currency,a.kind account_kind,a.archived account_archived FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id
+    sql = '''SELECT t.*,i.name category_name,CASE WHEN t.account_id IS NULL THEN 'USD' ELSE a.currency END currency,a.id scoped_account_id,a.kind account_kind,a.archived account_archived,
+             e.id joined_income_id,e.name income_name,e.month income_month,e.date income_date
+             FROM transactions t LEFT JOIN budget_items i ON i.id=t.category_id
              AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
              LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope
+             LEFT JOIN income_entries e ON e.id=t.income_entry_id AND e.household_id=t.household_id AND e.owner_id=t.owner_id AND e.scope=t.scope
              WHERE t.household_id=? AND t.owner_id=? AND t.scope=? AND t.date>=? AND t.date<?
              AND (t.account_id IS NULL OR a.kind IN ('checking','savings','credit'))
-             ORDER BY t.date DESC,t.id DESC'''
+             '''
+    if not include_transfers:
+        sql += " AND COALESCE(t.provider_role_override,t.provider_role)='ordinary'"
+    sql += ' ORDER BY t.date DESC,t.id DESC'
     parameters = (*identity, start, end)
     if limit is not None:
         sql += ' LIMIT ?'
@@ -306,12 +328,16 @@ def transactions_for(db, identity, month, limit=None):
     return [transaction_payload(row) for row in db.execute(sql, parameters)]
 
 
-def transaction_by_id(db, transaction_id):
-    return transaction_payload(db.execute('''SELECT t.*,i.name category_name,COALESCE(a.currency,'USD') currency,
-        a.kind account_kind,a.archived account_archived FROM transactions t
+def transaction_by_id(db, transaction_id, identity):
+    row = db.execute('''SELECT t.*,i.name category_name,CASE WHEN t.account_id IS NULL THEN 'USD' ELSE a.currency END currency,a.id scoped_account_id,
+        a.kind account_kind,a.archived account_archived,e.id joined_income_id,e.name income_name,e.month income_month,e.date income_date FROM transactions t
         LEFT JOIN budget_items i ON i.id=t.category_id AND i.household_id=t.household_id AND i.owner_id=t.owner_id AND i.scope=t.scope
         LEFT JOIN accounts a ON a.id=t.account_id AND a.household_id=t.household_id AND a.owner_id=t.owner_id AND a.scope=t.scope
-        WHERE t.id=?''', (transaction_id,)).fetchone())
+        LEFT JOIN income_entries e ON e.id=t.income_entry_id AND e.household_id=t.household_id AND e.owner_id=t.owner_id AND e.scope=t.scope
+        WHERE t.id=? AND t.household_id=? AND t.owner_id=? AND t.scope=?''', (transaction_id, *identity)).fetchone()
+    if row is None:
+        raise HTTPException(404, 'Transaction not found')
+    return transaction_payload(row)
 
 
 def validate_category(db, category_id, identity, transaction_date):
@@ -822,32 +848,51 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         return Response(status_code=204)
 
     @app.get('/api/transactions')
-    def transactions(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+    def transactions(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None,
+                     include_transfers: bool = False, user=Depends(current_user)):
         with connect(db_path) as db:
-            return transactions_for(db, scope_identity(user, scope), month or local_today(request, user).strftime('%Y-%m'))
+            return transactions_for(db, scope_identity(user, scope), month or local_today(request, user).strftime('%Y-%m'), include_transfers=include_transfers)
+
+    @app.get('/api/transactions/{transaction_id}')
+    def transaction_details(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        identity = scope_identity(user, scope)
+        with connect(db_path) as db:
+            require_scope_item(db, 'transactions', transaction_id, identity)
+            return transaction_by_id(db, transaction_id, identity)
 
     @app.post('/api/transactions', status_code=201)
     def add_transaction(payload: Transaction, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         identity = scope_identity(user, scope)
         with connect(db_path) as db:
+            if payload.provider_role_override == 'bank_transfer' and payload.category_id is not None:
+                raise HTTPException(409, 'Remove the budget assignment before treating this transaction as a bank transfer')
             validate_category(db, payload.category_id, identity, payload.date)
             account_id, account_name = account_plans.transaction_account(db, identity, payload.account_id, payload.account_name,
                                                                         resolve_name='account_id' not in payload.model_fields_set)
-            uid = db.execute('INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,category_id,pending) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                             (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), account_name, account_id, payload.category_id, payload.pending)).lastrowid
+            uid = db.execute('INSERT INTO transactions(household_id,owner_id,scope,description,amount_cents,date,account_name,account_id,category_id,pending,provider_role_override) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                             (*identity, payload.description.strip(), payload.amount_cents, payload.date.isoformat(), account_name, account_id, payload.category_id, payload.pending, payload.provider_role_override)).lastrowid
             if 'category_id' in payload.model_fields_set:
                 db.execute("UPDATE transactions SET category_source='manual' WHERE id=?", (uid,))
             else:
                 categorization.apply_automatic(db, identity, uid)
-            return transaction_by_id(db, uid)
+            return transaction_by_id(db, uid, identity)
+
+    @app.put('/api/transactions/{transaction_id}/income')
+    def assign_transaction_income(transaction_id: int, payload: IncomeTransactionAssignment,
+                                  scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        identity = scope_identity(user, scope)
+        with connect(db_path) as db:
+            income_plans.assign_transaction(db, identity, transaction_id, payload, month)
+            return transaction_by_id(db, transaction_id, identity)
 
     @app.patch('/api/transactions/{transaction_id}')
     def update_transaction(transaction_id: int, payload: TransactionPatch, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         identity = scope_identity(user, scope)
         with connect(db_path) as db:
+            income_plans.lock(db)
             original = require_scope_item(db, 'transactions', transaction_id, identity)
             updates = payload.model_dump(exclude_unset=True)
-            if any(value is None and key not in ('category_id', 'account_id') for key, value in updates.items()):
+            if any(value is None and key not in ('category_id', 'account_id', 'provider_role_override') for key, value in updates.items()):
                 raise HTTPException(422, 'Only category_id and account_id can be cleared')
             if 'account_id' in updates:
                 account_id, account_name = account_plans.transaction_account(db, identity, updates['account_id'], updates.get('account_name', 'Manual entry'), resolve_name=False)
@@ -860,6 +905,18 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
             elif 'account_name' in updates:
                 account_id, account_name = account_plans.transaction_account(db, identity, None, updates['account_name'])
                 updates.update(account_id=account_id, account_name=account_name)
+            resulting_role = updates.get('provider_role_override', original['provider_role_override']) or original['provider_role']
+            if resulting_role == 'bank_transfer' and (original['income_entry_id'] is not None or updates.get('category_id', original['category_id']) is not None):
+                raise HTTPException(409, 'Unlink income and remove the budget assignment before treating this transaction as a bank transfer')
+            if original['income_entry_id'] is not None:
+                if updates.get('category_id') is not None:
+                    raise HTTPException(409, 'Unlink this transaction from income before assigning a budget item')
+                if 'amount_cents' in updates and updates['amount_cents'] <= 0:
+                    raise HTTPException(409, 'Unlink this transaction from income before changing it to a nonpositive amount')
+                if 'account_id' in updates and updates['account_id'] is not None:
+                    account = account_plans.require_account(db, identity, updates['account_id'], include_archived=True)
+                    if account['currency'] != 'USD':
+                        raise HTTPException(409, 'Unlink this transaction from income before selecting a non-USD account')
             automatic_date_repair = 'date' in updates and 'category_id' not in updates and original['category_source'] == 'automatic'
             if not automatic_date_repair:
                 validate_category(db, updates.get('category_id', original['category_id']), identity, updates.get('date', original['date']))
@@ -877,15 +934,16 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                 updates.update(category_source='manual', categorization_rule_id=None)
             if updates:
                 db.execute('UPDATE transactions SET ' + ','.join(f'{key}=?' for key in updates) + ' WHERE id=?', (*updates.values(), transaction_id))
-            if 'date' in updates and 'category_id' not in updates:
+            if ('date' in updates and 'category_id' not in updates) or 'provider_role_override' in updates:
                 categorization.apply_automatic(db, identity, transaction_id, reconcile=True)
-            return transaction_by_id(db, transaction_id)
+            return transaction_by_id(db, transaction_id, identity)
 
     @app.post('/api/transactions/{transaction_id}/categorization/reset')
     def reset_transaction_categorization(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        identity = scope_identity(user, scope)
         with connect(db_path) as db:
-            categorization.reset_manual_clear(db, scope_identity(user, scope), transaction_id)
-            return transaction_by_id(db, transaction_id)
+            categorization.reset_manual_clear(db, identity, transaction_id)
+            return transaction_by_id(db, transaction_id, identity)
 
     @app.get('/api/categorization/rules')
     def categorization_rules(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
@@ -934,12 +992,14 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
 
     @app.delete('/api/transactions/{transaction_id}', status_code=204)
     def delete_transaction(transaction_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        identity = scope_identity(user, scope)
         with connect(db_path) as db:
-            row = require_scope_item(db, 'transactions', transaction_id, scope_identity(user, scope))
+            income_plans.lock(db)
+            row = require_scope_item(db, 'transactions', transaction_id, identity)
             if row['external_id']:
                 db.execute('INSERT OR IGNORE INTO transaction_exclusions(household_id,owner_id,scope,external_id) VALUES (?,?,?,?)',
-                           (*scope_identity(user, scope), row['external_id']))
-            db.execute('DELETE FROM transactions WHERE id=?', (transaction_id,))
+                           (*identity, row['external_id']))
+            db.execute('DELETE FROM transactions WHERE id=? AND household_id=? AND owner_id=? AND scope=?', (transaction_id, *identity))
         return Response(status_code=204)
 
     @app.get('/api/accounts')

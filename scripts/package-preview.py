@@ -17,6 +17,7 @@ FILES = (
     'backend/income.py', 'backend/categories.py', 'backend/item_details.py',
     'backend/simplefin.py', 'backend/accounts.py', 'backend/categorization.py',
     'backend/student_loans.py',
+    'backend/bank_handlers.py',
     'frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json',
     'frontend/vite.config.js',
     'scripts/run.sh', 'scripts/launch.py',

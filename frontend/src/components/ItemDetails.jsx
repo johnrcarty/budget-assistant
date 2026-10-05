@@ -287,6 +287,9 @@ export default function ItemDetails({
     (transaction) =>
       transaction.date?.slice(0, 7) === month &&
       !linkedIds.has(transaction.id) &&
+      !transaction.income_entry_id &&
+      (!transaction.transaction_role ||
+        transaction.transaction_role === "ordinary") &&
       (!transaction.currency || transaction.currency === "USD") &&
       `${transaction.description} ${transaction.account_name || ""} ${transaction.category_name || ""}`
         .toLowerCase()

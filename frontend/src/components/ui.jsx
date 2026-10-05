@@ -181,11 +181,16 @@ export function Field({ label, children, help }) {
 }
 export function Modal({ title, description, children, onClose }) {
   const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement;
     ref.current?.focus();
     function key(e) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRef.current?.();
+      }
       if (e.key === "Tab") {
         const all = [
           ...ref.current.querySelectorAll(

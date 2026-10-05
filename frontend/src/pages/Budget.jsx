@@ -90,7 +90,10 @@ function CategoryCard({ category, index, busy, open, openItemDetails }) {
                   <span className="budget-item-name">
                     <strong>{item.name}</strong>
                     {dueDates.length > 0 ? (
-                      <small className="budget-item-dates">
+                      <small
+                        className="budget-item-dates"
+                        title={`Due ${dueDates.map(prettyDate).join(", ")}`}
+                      >
                         Due{" "}
                         {dueDates.map((date, index) => (
                           <span key={`${date}-${index}`}>
@@ -205,6 +208,7 @@ export default function Budget({
   busy,
   open,
   openItemDetails,
+  openTransactionReceipt,
 }) {
   const saved = categories.filter((category) => category.source === "saved");
   const active = categories.filter(
@@ -263,6 +267,7 @@ export default function Budget({
         }
         onResetEntry={resetIncome}
         onRestoreSkipped={(source) => open("income-restore", source)}
+        onOpenTransaction={openTransactionReceipt}
       />
       <div className="budget-groups">
         {saved.map((category, index) => (
