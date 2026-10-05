@@ -75,7 +75,26 @@ CREATE TABLE IF NOT EXISTS accounts (
     opened_date TEXT, term_months INTEGER, notes TEXT,
     archived INTEGER NOT NULL DEFAULT 0, archived_at TEXT, created_at TEXT,
     balance_as_of TEXT, debt_lineage_id INTEGER REFERENCES budget_item_lineages(id),
+    collateral_asset_id INTEGER REFERENCES accounts(id),
+    student_loan_group_id INTEGER REFERENCES student_loan_groups(id),
+    net_worth_included INTEGER NOT NULL DEFAULT 1 CHECK(net_worth_included IN (0,1)),
+    initial_net_worth_included INTEGER NOT NULL DEFAULT 1 CHECK(initial_net_worth_included IN (0,1)),
+    accrued_interest_cents INTEGER, accrued_interest_as_of TEXT,
     UNIQUE(household_id,owner_id,scope,simplefin_id)
+);
+CREATE TABLE IF NOT EXISTS student_loan_groups (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id),
+    owner_id INTEGER NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('household','personal')),
+    name TEXT NOT NULL, name_key TEXT NOT NULL, borrower TEXT NOT NULL, servicer TEXT NOT NULL,
+    currency TEXT NOT NULL, valuation_mode TEXT NOT NULL CHECK(valuation_mode IN ('individual_loans','servicer_total')),
+    reported_account_id INTEGER REFERENCES accounts(id), active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(household_id,owner_id,scope,name_key)
+);
+CREATE TABLE IF NOT EXISTS account_net_worth_events (
+    id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
+    observed_at TEXT NOT NULL, included INTEGER NOT NULL CHECK(included IN (0,1)),
+    group_id INTEGER REFERENCES student_loan_groups(id), reason TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS account_balance_observations (
     id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -228,7 +247,12 @@ def initialize(path: str | Path) -> None:
                                  ('debt_type', 'TEXT'), ('opened_date', 'TEXT'), ('term_months', 'INTEGER'),
                                  ('notes', 'TEXT'), ('archived', 'INTEGER NOT NULL DEFAULT 0'),
                                  ('archived_at', 'TEXT'), ('created_at', 'TEXT'), ('balance_as_of', 'TEXT'),
-                                 ('debt_lineage_id', 'INTEGER REFERENCES budget_item_lineages(id)')):
+                                 ('debt_lineage_id', 'INTEGER REFERENCES budget_item_lineages(id)'),
+                                 ('collateral_asset_id', 'INTEGER REFERENCES accounts(id)'),
+                                 ('student_loan_group_id', 'INTEGER REFERENCES student_loan_groups(id)'),
+                                 ('net_worth_included', 'INTEGER NOT NULL DEFAULT 1'),
+                                 ('initial_net_worth_included', 'INTEGER NOT NULL DEFAULT 1'),
+                                 ('accrued_interest_cents', 'INTEGER'), ('accrued_interest_as_of', 'TEXT')):
             if name not in account_columns:
                 db.execute(f'ALTER TABLE accounts ADD COLUMN {name} {definition}')
         if 'managed_account_id' not in item_columns:
@@ -243,6 +267,13 @@ def initialize(path: str | Path) -> None:
         db.execute('CREATE INDEX IF NOT EXISTS idx_balance_observations_account ON account_balance_observations(account_id,effective_at,id)')
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_account_baseline ON account_balance_observations(account_id) WHERE source='baseline'")
         db.execute('CREATE INDEX IF NOT EXISTS idx_debt_versions_account ON debt_payment_versions(account_id,effective_from)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_account_collateral ON accounts(collateral_asset_id) WHERE collateral_asset_id IS NOT NULL')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_student_loan_group_scope ON student_loan_groups(household_id,owner_id,scope)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_account_student_group ON accounts(student_loan_group_id) WHERE student_loan_group_id IS NOT NULL')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_account_net_worth_events ON account_net_worth_events(account_id,observed_at,id)')
+        group_columns = {row['name'] for row in db.execute('PRAGMA table_info(student_loan_groups)')}
+        if 'balance_mode' in group_columns and 'valuation_mode' not in group_columns:
+            db.execute('ALTER TABLE student_loan_groups RENAME COLUMN balance_mode TO valuation_mode')
         from .accounts import ensure_observations
         ensure_observations(db)
         columns = {row['name'] for row in db.execute('PRAGMA table_info(transactions)')}

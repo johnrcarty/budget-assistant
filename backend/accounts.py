@@ -8,7 +8,8 @@ from . import categories, income, item_details
 
 DEBT_KINDS = ('loan', 'credit')
 TRANSACTION_KINDS = ('checking', 'savings', 'credit')
-DEBT_FIELDS = ('original_balance_cents', 'apr_basis_points', 'debt_type', 'opened_date', 'term_months', 'notes')
+DEBT_FIELDS = ('original_balance_cents', 'apr_basis_points', 'debt_type', 'opened_date', 'term_months', 'notes',
+               'accrued_interest_cents', 'accrued_interest_as_of')
 
 
 def now_string():
@@ -91,11 +92,57 @@ def schedule_payload(version):
         'day2': int(version['day2']) if version['day2'] != 'last' else 'last', 'active': bool(version['active'])}
 
 
-def account_payload(db, row, month):
+def payoff_status(row):
+    # A revolving credit account with a zero balance is still a normal account.
+    return ('paid_off' if row['balance_cents'] == 0 else 'outstanding') if row['kind'] == 'loan' else None
+
+
+def collateral_context(db, identity):
+    """One scoped read serves every relationship in an account list."""
+    rows = {row['id']: row for row in db.execute(
+        'SELECT * FROM accounts WHERE household_id=? AND owner_id=? AND scope=? ORDER BY id', identity)}
+    secured = {}
+    for row in rows.values():
+        if row['kind'] in DEBT_KINDS and row['collateral_asset_id'] in rows:
+            secured.setdefault(row['collateral_asset_id'], []).append(row)
+    from .student_loans import group_context
+    return rows, secured, group_context(db, identity)
+
+
+def secured_debt_payload(row):
+    return {key: row[key] for key in ('id', 'name', 'kind', 'debt_type', 'balance_cents', 'currency')} | {
+        'active': not bool(row['archived']), 'payoff_status': payoff_status(row),
+        'net_worth_included': bool(row['net_worth_included'])}
+
+
+def asset_summary(row, debts):
+    active = [debt for debt in debts if not debt['archived'] and debt['net_worth_included'] and debt['currency'] == row['currency']]
+    owed = sum(abs(debt['balance_cents']) for debt in active)
+    return {key: row[key] for key in ('id', 'name', 'kind', 'balance_cents', 'currency')} | {
+        'active': not bool(row['archived']), 'secured_debt_total_cents': owed,
+        'secured_debt_count': len(active), 'equity_cents': row['balance_cents'] - owed}
+
+
+def account_payload(db, row, month, relations=None):
     upcoming = db.execute('''SELECT * FROM debt_payment_versions WHERE account_id=? AND effective_from>?
                             AND (effective_to IS NULL OR effective_to>effective_from) ORDER BY effective_from,id DESC LIMIT 1''', (row['id'], month + '-01')).fetchone()
+    from .student_loans import role, interest_stale
+    rows, secured, groups = relations if relations is not None else collateral_context(db, (row['household_id'], row['owner_id'], row['scope']))
+    group, membership = role(row, groups)
+    asset = rows.get(row['collateral_asset_id']) if row['kind'] in DEBT_KINDS else None
+    if asset is not None and asset['kind'] in DEBT_KINDS:
+        asset = None
+    debts = secured.get(row['id'], []) if row['kind'] not in DEBT_KINDS else []
     return {key: row[key] for key in ('id', 'name', 'institution', 'kind', 'balance_cents', 'currency', 'source', *DEBT_FIELDS)} | {
         'active': not bool(row['archived']), 'archived_at': row['archived_at'],
+        'collateral_asset_id': asset['id'] if asset is not None else None,
+        'collateral': asset_summary(asset, secured.get(asset['id'], [])) if asset is not None else None,
+        'secured_debts': [secured_debt_payload(debt) for debt in debts],
+        'equity_cents': asset_summary(row, debts)['equity_cents'] if debts else None,
+        'payoff_status': payoff_status(row),
+        'student_loan_group_id': group['id'] if group is not None else None,
+        'student_loan_group_role': membership, 'net_worth_included': bool(row['net_worth_included']),
+        'accrued_interest_stale': interest_stale(row),
         'payment_schedule': schedule_payload(schedule_version(db, row['id'], month)),
         'upcoming_payment_schedule': schedule_payload(upcoming)}
 
@@ -103,23 +150,81 @@ def account_payload(db, row, month):
 def account_list(db, identity, month):
     income.bounds(month)
     ensure_observations(db, identity)
-    return [account_payload(db, row, month) for row in db.execute('SELECT * FROM accounts WHERE household_id=? AND owner_id=? AND scope=? AND archived=0 ORDER BY id', identity)]
+    relations = collateral_context(db, identity)
+    return [account_payload(db, row, month, relations) for row in relations[0].values() if not row['archived']]
 
 
-def validate_metadata(kind, data):
+def linked_debts(db, identity, asset_id):
+    return db.execute('''SELECT * FROM accounts WHERE collateral_asset_id=? AND household_id=?
+                         AND owner_id=? AND scope=? AND archived=0''', (asset_id, *identity)).fetchall()
+
+
+def collateral_edit_error(db, identity, row, combined):
+    """Validate an existing link on either end, including provider updates."""
+    if row['collateral_asset_id'] is not None:
+        asset = require_account(db, identity, row['collateral_asset_id'], include_archived=True)
+        if combined['kind'] not in DEBT_KINDS or combined['currency'] != asset['currency']:
+            return 409, 'Unlink collateral before changing the debt account kind or currency'
+    debts = linked_debts(db, identity, row['id'])
+    if debts:
+        if combined['kind'] in DEBT_KINDS or any(debt['currency'] != combined['currency'] for debt in debts):
+            return 409, 'Unlink active debts before changing the collateral asset kind or currency'
+        if combined['balance_cents'] < 0:
+            return 422, 'A linked collateral asset value must be zero or positive'
+    return None
+
+
+def set_collateral(db, identity, debt_id, payload, month):
+    """Link an independent account; valuation/history remains account-owned."""
+    from .models import Account
+    lock(db)
+    debt = require_account(db, identity, debt_id)
+    if debt['kind'] not in DEBT_KINDS:
+        raise HTTPException(422, 'Collateral can be linked to loan and credit accounts')
+    if payload.asset is not None:
+        data = payload.asset.model_dump(exclude_none=True)
+        data['currency'] = data.get('currency', debt['currency'])
+        if data['currency'] != debt['currency']:
+            raise HTTPException(422, 'Collateral and debt accounts must use the same currency')
+        created = create_account(db, identity, Account(**data), month)
+        asset_id = created['id']
+    else:
+        asset_id = payload.asset_id
+    if asset_id is not None:
+        asset = require_account(db, identity, asset_id)
+        if asset['kind'] in DEBT_KINDS or asset['id'] == debt_id:
+            raise HTTPException(422, 'Choose an active asset account for collateral')
+        if asset['currency'] != debt['currency']:
+            raise HTTPException(422, 'Collateral and debt accounts must use the same currency')
+        if asset['balance_cents'] < 0:
+            raise HTTPException(422, 'A linked collateral asset value must be zero or positive')
+    db.execute('UPDATE accounts SET collateral_asset_id=? WHERE id=?', (asset_id, debt_id))
+    return account_payload(db, require_account(db, identity, debt_id), month)
+
+
+def validate_metadata(kind, data, check_interest=True):
     if kind not in DEBT_KINDS and any(data.get(field) is not None for field in DEBT_FIELDS):
         raise HTTPException(422, 'Debt details are available for loan and credit accounts')
+    if data.get('accrued_interest_cents') is None and data.get('accrued_interest_as_of') is not None:
+        raise HTTPException(422, 'Enter a reported interest amount or clear its as-of date')
+    if check_interest and data.get('accrued_interest_cents') is not None and data['accrued_interest_cents'] > abs(data['balance_cents']):
+        raise HTTPException(422, 'Reported accrued interest cannot exceed the total owed balance')
 
 
 def create_account(db, identity, payload, month):
+    from . import student_loans
     lock(db)
     data = payload.model_dump()
     validate_metadata(data['kind'], data)
     data['name'] = data['name'].strip()
     if not data['name']:
         raise HTTPException(422, 'Enter an account name')
-    if data['opened_date']:
-        data['opened_date'] = data['opened_date'].isoformat()
+    group = student_loans.prepare_new_child(db, identity, data)
+    for field in ('opened_date', 'accrued_interest_as_of'):
+        if data[field]:
+            data[field] = data[field].isoformat()
+    data['net_worth_included'] = int(data['net_worth_included'])
+    data['initial_net_worth_included'] = data['net_worth_included']
     data.update(source='manual', created_at=now_string())
     keys = list(data)
     uid = db.execute('INSERT INTO accounts(household_id,owner_id,scope,' + ','.join(keys) + ') VALUES (' + ','.join('?' for _ in range(3 + len(keys))) + ')', (*identity, *data.values())).lastrowid
@@ -130,6 +235,7 @@ def create_account(db, identity, payload, month):
 
 
 def update_account(db, identity, account_id, payload, month, today):
+    from . import student_loans
     lock(db)
     ensure_observations(db, identity)
     row = require_account(db, identity, account_id)
@@ -138,21 +244,32 @@ def update_account(db, identity, account_id, payload, month, today):
         raise HTTPException(422, 'Only optional debt details can be cleared')
     kind = updates.get('kind', row['kind'])
     combined = dict(row) | updates
-    validate_metadata(kind, combined)
+    validate_metadata(kind, combined, check_interest='accrued_interest_cents' in updates)
     if updates.get('currency', row['currency']) != row['currency'] and 'balance_cents' not in updates:
         raise HTTPException(422, 'Enter a balance in the new currency when changing currency')
     if updates.get('currency', row['currency']) != row['currency'] and row['original_balance_cents'] is not None and 'original_balance_cents' not in updates:
         raise HTTPException(422, 'Clear or re-enter the original balance in the new currency')
+    if updates.get('currency', row['currency']) != row['currency'] and row['accrued_interest_cents'] is not None and 'accrued_interest_cents' not in updates:
+        raise HTTPException(422, 'Clear or re-enter reported interest in the new currency')
+    grouping_error = student_loans.account_edit_error(db, identity, row, combined)
+    if grouping_error:
+        raise HTTPException(*grouping_error)
     active_schedule = db.execute('''SELECT 1 FROM debt_payment_versions WHERE account_id=? AND active=1
                                    AND (effective_to IS NULL OR (effective_to>effective_from AND effective_to>?))''', (account_id, today.replace(day=1).isoformat())).fetchone()
     if active_schedule and (kind not in DEBT_KINDS or combined['currency'] != 'USD'):
         raise HTTPException(409, 'Stop the debt payment schedule before changing account kind or currency')
+    relation_error = collateral_edit_error(db, identity, row, combined)
+    if relation_error:
+        raise HTTPException(*relation_error)
     if 'name' in updates:
         updates['name'] = updates['name'].strip()
         if not updates['name']:
             raise HTTPException(422, 'Enter an account name')
-    if updates.get('opened_date'):
-        updates['opened_date'] = updates['opened_date'].isoformat()
+    for field in ('opened_date', 'accrued_interest_as_of'):
+        if updates.get(field):
+            updates[field] = updates[field].isoformat()
+    if 'net_worth_included' in updates:
+        student_loans.set_inclusion(db, row, updates.pop('net_worth_included'))
     if updates:
         if 'balance_cents' in updates:
             updates['balance_as_of'] = now_string()
@@ -175,7 +292,13 @@ def import_balance(db, account_row, balance, currency, provider_as_of=None):
         return False
     if provider_as_of and account_row['balance_as_of'] and provider_as_of < account_row['balance_as_of']:
         return False
-    if currency != account_row['currency'] and account_row['original_balance_cents'] is not None:
+    identity = (account_row['household_id'], account_row['owner_id'], account_row['scope'])
+    from .student_loans import account_edit_error
+    if account_edit_error(db, identity, account_row, dict(account_row) | {'balance_cents': balance, 'currency': currency}):
+        return False
+    if collateral_edit_error(db, identity, account_row, dict(account_row) | {'balance_cents': balance, 'currency': currency}):
+        return False
+    if currency != account_row['currency'] and (account_row['original_balance_cents'] is not None or account_row['accrued_interest_cents'] is not None):
         return False
     if currency != account_row['currency'] and db.execute('''SELECT 1 FROM debt_payment_versions WHERE account_id=? AND active=1
                                                            AND (effective_to IS NULL OR (effective_to>effective_from AND effective_to>?))''', (account_row['id'], datetime.now().date().replace(day=1).isoformat())).fetchone():
@@ -205,6 +328,12 @@ def archive_account(db, identity, account_id, today):
     lock(db)
     ensure_observations(db, identity)
     row = require_account(db, identity, account_id)
+    from .student_loans import archive_error
+    grouping_error = archive_error(db, identity, row)
+    if grouping_error:
+        raise HTTPException(*grouping_error)
+    if linked_debts(db, identity, account_id):
+        raise HTTPException(409, 'Unlink active debts before archiving their collateral asset')
     timestamp = now_string()
     db.execute('UPDATE accounts SET archived=1,archived_at=? WHERE id=?', (timestamp, account_id))
     db.execute('DELETE FROM bills WHERE debt_account_id=? AND paid=0 AND due_date>?', (account_id, today.isoformat()))
@@ -360,6 +489,8 @@ def net_worth_history(db, identity):
                                                       WHERE a.household_id=? AND a.owner_id=? AND a.scope=? ORDER BY o.effective_at,o.observed_at,o.id""", identity)]
     valuations = [dict(row) for row in db.execute("""SELECT e.* FROM account_valuation_events e JOIN accounts a ON a.id=e.account_id
                                                WHERE a.household_id=? AND a.owner_id=? AND a.scope=? ORDER BY e.observed_at,e.id""", identity)]
+    inclusions = [dict(row) for row in db.execute('''SELECT e.* FROM account_net_worth_events e JOIN accounts a ON a.id=e.account_id
+                      WHERE a.household_id=? AND a.owner_id=? AND a.scope=? ORDER BY e.observed_at,e.id''', identity)]
     provider_accounts = {row['account_id'] for row in observations if row['provider_as_of'] is not None}
     baseline_accounts = {row['account_id'] for row in observations if row['source'] == 'baseline'}
     # A cached baseline has an unknown measurement date. Retain the raw fact,
@@ -380,18 +511,21 @@ def net_worth_history(db, identity):
         # Migration tells us the account existed, but not when its balance was
         # valid. Include it in coverage before its first amount becomes known.
         coverage_start = first_timestamp if account['id'] in baseline_accounts else min(account['created_at'] or first['effective_at'], first['effective_at'])
-        timeline.append((coverage_start, 0, account['id'], 'open', {'currency': first['currency'], 'kind': first['kind']}))
+        timeline.append((coverage_start, 0, account['id'], 'open', {'currency': first['currency'], 'kind': first['kind'],
+                         'included': bool(account['initial_net_worth_included'])}))
         if account['archived_at']:
             timeline.append((account['archived_at'], 3, account['id'], 'archive', None))
     for observation in observations:
         timeline.append((observation['effective_at'], 2, observation['id'], 'balance', observation))
     for event in valuations:
         timeline.append((event['observed_at'], 1, event['id'], 'kind', event))
+    for event in inclusions:
+        timeline.append((event['observed_at'], 1, event['id'], 'inclusion', event))
     timeline.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
     state, totals, series = {}, {}, {}
 
     def contribute(account_state, sign):
-        if not account_state or not account_state['active']:
+        if not account_state or not account_state['active'] or not account_state['included']:
             return
         currency = account_state['currency']
         aggregate = totals.setdefault(currency, {'assets_cents': 0, 'liabilities_cents': 0, 'observed_accounts': 0, 'total_accounts': 0})
@@ -411,11 +545,13 @@ def net_worth_history(db, identity):
             current = state.get(account_id)
             contribute(current, -1)
             if action == 'open':
-                state[account_id] = {'active': True, 'currency': value['currency'], 'kind': value['kind'], 'balance': None}
+                state[account_id] = {'active': True, 'included': value['included'], 'currency': value['currency'], 'kind': value['kind'], 'balance': None}
             elif current is not None and action == 'archive':
                 current['active'] = False
             elif current is not None and action == 'kind':
                 current['kind'] = value['kind']
+            elif current is not None and action == 'inclusion':
+                current['included'] = bool(value['included'])
             elif current is not None and action == 'balance':
                 current.update(balance=value['balance_cents'], currency=value['currency'])
             contribute(state.get(account_id), 1)

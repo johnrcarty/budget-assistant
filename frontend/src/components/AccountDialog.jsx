@@ -4,6 +4,7 @@ import { Button, Field, Modal } from "./ui.jsx";
 
 export default function AccountDialog({
   account,
+  studentLoanGroups = [],
   busy,
   error,
   onSave,
@@ -11,6 +12,10 @@ export default function AccountDialog({
 }) {
   const [kind, setKind] = useState(account?.kind || "checking");
   const [currency, setCurrency] = useState(account?.currency || "USD");
+  const [debtType, setDebtType] = useState(account?.debt_type || (account?.kind === "credit" ? "credit_card" : ""));
+  const [loanGroup, setLoanGroup] = useState(account?.student_loan_group_id || "");
+  const [interest, setInterest] = useState(account?.accrued_interest_cents == null ? "" : (account.accrued_interest_cents / 100).toFixed(2));
+  const [interestDate, setInterestDate] = useState(account?.accrued_interest_as_of || "");
   const [balance, setBalance] = useState(
     account?.balance_cents !== undefined
       ? (
@@ -28,7 +33,7 @@ export default function AccountDialog({
   const debt = ["loan", "credit"].includes(kind);
   return (
     <Modal
-      title={account ? "Edit account" : "Add account"}
+      title={account?.id ? "Edit account" : "Add account"}
       description="Balances and debt terms stay with this account."
       onClose={() => !busy && onClose()}
     >
@@ -71,13 +76,20 @@ export default function AccountDialog({
                 <option value="investment">Investment</option>
                 <option value="loan">Loan</option>
                 <option value="property">Property</option>
+                <option value="vehicle">Vehicle</option>
                 <option value="other">Other</option>
               </select>
             </Field>
           </div>
           <div className="form-grid">
             <Field
-              label={debt ? "Current amount owed" : "Current balance"}
+              label={
+                debt
+                  ? "Current amount owed"
+                  : ["property", "vehicle"].includes(kind)
+                    ? "Current asset value"
+                    : "Current balance"
+              }
               help={
                 account?.source === "simplefin"
                   ? "Connected balances refresh on sync."
@@ -111,6 +123,9 @@ export default function AccountDialog({
                   setCurrency(event.target.value.toUpperCase());
                   setBalance("");
                   setOriginalAmount("");
+                  setInterest("");
+                  setInterestDate("");
+                  if (!account?.id) setLoanGroup("");
                 }}
               />
             </Field>
@@ -174,10 +189,8 @@ export default function AccountDialog({
               <Field label="Debt type">
                 <select
                   name="debt_type"
-                  defaultValue={
-                    account?.debt_type ||
-                    (kind === "credit" ? "credit_card" : "")
-                  }
+                  value={debtType}
+                  onChange={(event) => setDebtType(event.target.value)}
                 >
                   <option value="">Choose a type</option>
                   <option value="mortgage">Mortgage</option>
@@ -189,6 +202,29 @@ export default function AccountDialog({
                   <option value="other">Other debt</option>
                 </select>
               </Field>
+              {kind === "loan" && debtType === "student" && !account?.id && (
+                <Field label="Student loan group" help="Optional. The group controls whether this loan or its servicer total counts in net worth.">
+                  <select name="student_loan_group_id" value={loanGroup} onChange={(event) => setLoanGroup(event.target.value)}>
+                    <option value="">Keep as an individual account</option>
+                    {studentLoanGroups.filter((group) => group.active !== false && group.currency === currency).map((group) => (
+                      <option key={group.id} value={group.id}>{group.name} · {group.borrower} · {group.servicer}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {kind === "loan" && debtType === "student" && (
+                <div className="form-grid">
+                  <Field label="Reported accrued interest" help="Optional. Tracked separately and never added to the amount owed.">
+                    <div className="money-input">
+                      <span>{currency}</span>
+                      <input name="accrued_interest" type="number" min="0" step="0.01" value={interest} onChange={(event) => setInterest(event.target.value)} placeholder="Not entered" />
+                    </div>
+                  </Field>
+                  <Field label="Interest as of">
+                    <input name="accrued_interest_as_of" type="date" value={interestDate} onChange={(event) => setInterestDate(event.target.value)} />
+                  </Field>
+                </div>
+              )}
               <div className="form-grid">
                 <Field label="Opened date">
                   <input
@@ -219,7 +255,8 @@ export default function AccountDialog({
                 />
               </Field>
               <p className="account-form-note">
-                Set dated payments from this account’s detail view after saving.
+                After saving, use account details to set payments or link a
+                property, vehicle, or other asset.
               </p>
             </section>
           )}

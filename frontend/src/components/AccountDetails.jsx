@@ -6,6 +6,7 @@ import {
   Check,
   AlertCircle,
   LoaderCircle,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "../lib/api.js";
 import {
@@ -17,9 +18,17 @@ import {
   stepMonth,
   prettyDate,
 } from "../lib/format.js";
-import { isDebt, debtLabels, scheduleLabel } from "../lib/accounts.js";
+import {
+  accountKinds,
+  isDebt,
+  isPaidOffLoan,
+  debtLabels,
+  scheduleLabel,
+} from "../lib/accounts.js";
 import { Button, Field, IconButton } from "./ui.jsx";
 import AccountHistoryChart from "./AccountHistoryChart.jsx";
+import AccountCollateral from "./AccountCollateral.jsx";
+import AccountValuation from "./AccountValuation.jsx";
 
 function ScheduleForm({ account, month, user, busy, onSubmit, onCancel }) {
   const schedule =
@@ -196,18 +205,27 @@ export default function AccountDetails({
   scope,
   month,
   user,
+  accounts = [],
+  studentLoanGroups = [],
   bills = [],
   onClose,
   onEdit,
+  onOpenAccount,
+  onOpenLoanGroup,
   onChanged,
   notify,
 }) {
   const dialog = useRef(null);
   const mounted = useRef(false);
+  const restoreRefreshFocus = useRef(false);
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [scheduleError, setScheduleError] = useState("");
+  const [collateralError, setCollateralError] = useState("");
+  const [collateralRefreshFailed, setCollateralRefreshFailed] = useState(false);
+  const [accountsRefreshFailed, setAccountsRefreshFailed] = useState(false);
+  const [collateralOverride, setCollateralOverride] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -215,6 +233,7 @@ export default function AccountDetails({
     account.currency || "USD",
   );
   const debt = isDebt(account);
+  const refreshLocked = accountsRefreshFailed || collateralRefreshFailed;
   const query = `scope=${scope}&month=${month}`;
   const schedule = account.payment_schedule;
   const upcoming = account.upcoming_payment_schedule;
@@ -222,6 +241,20 @@ export default function AccountDetails({
     (bill) =>
       bill.debt_account_id === account.id && bill.due_date?.startsWith(month),
   );
+  useEffect(() => {
+    setCollateralOverride(null);
+    setCollateralError("");
+    setCollateralRefreshFailed(false);
+    setAccountsRefreshFailed(false);
+  }, [account]);
+  useEffect(() => {
+    if (busy || !dialog.current) return;
+    if (refreshLocked) dialog.current.querySelector(".account-refresh-trigger:not(:disabled)")?.focus();
+    else if (restoreRefreshFocus.current) {
+      dialog.current.querySelector('button[aria-label="Close account details"]')?.focus();
+      restoreRefreshFocus.current = false;
+    }
+  }, [busy, refreshLocked]);
   useEffect(() => {
     const previous = document.activeElement;
     const overflow = document.body.style.overflow;
@@ -254,8 +287,27 @@ export default function AccountDetails({
       abort.abort();
     };
   }, [account.id, query, revision]);
+  async function refreshAccounts() {
+    try {
+      const refreshed = await onChanged();
+      if (mounted.current) {
+        setAccountsRefreshFailed(refreshed === false);
+        if (refreshed !== false) setCollateralRefreshFailed(false);
+      }
+      return refreshed !== false;
+    } catch {
+      if (mounted.current) setAccountsRefreshFailed(true);
+      return false;
+    }
+  }
+  async function retryAccounts() {
+    setBusy(true);
+    try {restoreRefreshFocus.current = await refreshAccounts();}
+    finally {if (mounted.current) setBusy(false);}
+  }
   async function saveSchedule(event) {
     event.preventDefault();
+    if (busy || refreshLocked) return;
     const values = Object.fromEntries(new FormData(event.currentTarget));
     const day = (value, fallback) => {
       const resolved = value || fallback;
@@ -280,9 +332,71 @@ export default function AccountDetails({
       notify(
         `Payment schedule saved from ${monthLabel(values.effective_month)}.`,
       );
-      await onChanged();
+      await refreshAccounts();
     } catch (failure) {
       if (mounted.current) setScheduleError(failure.message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function saveCollateral(body) {
+    if (busy || refreshLocked) return false;
+    setBusy(true);
+    setCollateralError("");
+    try {
+      const result = await api(`accounts/${account.id}/collateral?${query}`, {
+        method: "PUT",
+        body,
+      });
+      if (!mounted.current) return false;
+      setCollateralOverride(result);
+      notify(
+        body.asset_id === null
+          ? "Asset unlinked. It stays in Accounts."
+          : "Asset linked.",
+      );
+      try {
+        const refreshed = await refreshAccounts();
+        if (refreshed === false && mounted.current) {
+          setCollateralRefreshFailed(true);
+          setCollateralError(
+            "The link was saved, but account refresh failed. Refresh Accounts before making another change.",
+          );
+        }
+      } catch {
+        if (mounted.current) {
+          setCollateralRefreshFailed(true);
+          setCollateralError(
+            "The link was saved, but account refresh failed. Refresh Accounts before making another change.",
+          );
+        }
+      }
+      return true;
+    } catch (failure) {
+      if (mounted.current) setCollateralError(failure.message);
+      return false;
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function refreshCollateral() {
+    setBusy(true);
+    try {
+      const refreshed = await refreshAccounts();
+      if (!mounted.current) return;
+      setCollateralRefreshFailed(refreshed === false);
+      setCollateralError(
+        refreshed === false
+          ? "Account refresh failed. The saved asset link is kept; try Refresh accounts again."
+          : "",
+      );
+    } catch {
+      if (mounted.current) {
+        setCollateralRefreshFailed(true);
+        setCollateralError(
+          "Account refresh failed. The saved asset link is kept; try Refresh accounts again.",
+        );
+      }
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -316,8 +430,10 @@ export default function AccountDetails({
           <p className="eyebrow">{account.institution || "ACCOUNT DETAILS"}</p>
           <h2 id="account-detail-title">{account.name}</h2>
           <span className="item-drawer-category">
-            {debtLabels[account.debt_type] || account.kind} ·{" "}
-            {account.currency || "USD"}
+            {debtLabels[account.debt_type] ||
+              accountKinds[account.kind] ||
+              account.kind}{" "}
+            · {account.currency || "USD"}
             {account.active === false ? " · Archived" : ""}
           </span>
         </div>
@@ -325,7 +441,7 @@ export default function AccountDetails({
           <IconButton
             label={`Edit ${account.name} account`}
             onClick={() => onEdit(account)}
-            disabled={busy}
+            disabled={busy || refreshLocked || account.active === false}
           >
             <Pencil size={18} />
           </IconButton>
@@ -339,8 +455,15 @@ export default function AccountDetails({
         </div>
       </div>
       <div className="item-drawer-content">
+        {refreshLocked && <div className="account-refresh-notice" role="alert"><p>The account change was saved. Refresh Accounts before making another change.</p><Button className="account-refresh-trigger" variant="secondary" icon={RefreshCw} busy={busy} onClick={retryAccounts}>Refresh accounts</Button></div>}
         <section className="account-detail-balance">
-          <span>{debt ? "Current amount owed" : "Current balance"}</span>
+          <span>
+            {debt
+              ? "Current amount owed"
+              : ["property", "vehicle"].includes(account.kind)
+                ? "Current asset value"
+                : "Current balance"}
+          </span>
           <strong>
             {money(
               debt ? Math.abs(account.balance_cents) : account.balance_cents,
@@ -348,11 +471,25 @@ export default function AccountDetails({
             )}
           </strong>
           <p>
+            {isPaidOffLoan(account) ? "Paid off · " : ""}
             {account.source === "simplefin"
               ? "Connected balance · refreshed on bank sync"
               : "Manual balance"}
           </p>
         </section>
+        <AccountValuation account={account} group={studentLoanGroups.find((group) => group.id === account.student_loan_group_id)} scope={scope} month={month} busy={busy} locked={refreshLocked} onBusyChange={setBusy} onOpenGroup={onOpenLoanGroup} onChanged={refreshAccounts} notify={notify} />
+        <AccountCollateral
+          account={collateralOverride || account}
+          accounts={accounts}
+          busy={busy || refreshLocked}
+          error={collateralError}
+          refreshFailed={refreshLocked}
+          showRefresh={false}
+          onSave={saveCollateral}
+          onRefresh={refreshCollateral}
+          onEditAsset={onEdit}
+          onOpenAccount={onOpenAccount}
+        />
         {debt && (
           <section className="account-terms">
             <div className="drawer-section-heading">
@@ -361,7 +498,7 @@ export default function AccountDetails({
                 type="button"
                 className="text-button"
                 onClick={() => onEdit(account)}
-                disabled={busy}
+                disabled={busy || refreshLocked || account.active === false}
               >
                 Edit terms <Pencil size={14} />
               </button>
@@ -395,6 +532,7 @@ export default function AccountDetails({
                     : "Not entered"}
                 </dd>
               </div>
+              {account.debt_type === "student" && <div className="account-interest-term"><dt>Reported accrued interest</dt><dd>{account.accrued_interest_cents == null ? "Not entered" : money(account.accrued_interest_cents, account.currency || "USD")}</dd>{account.accrued_interest_cents != null && <small>{account.accrued_interest_as_of ? `As of ${prettyDate(account.accrued_interest_as_of)}, ${account.accrued_interest_as_of.slice(0,4)}` : "Reporting date not entered"}{account.accrued_interest_stale ? " · Stale report, excluded from group subtotal" : ""}</small>}</div>}
               <div>
                 <dt>Term</dt>
                 <dd>
@@ -430,7 +568,7 @@ export default function AccountDetails({
                     setEditing(true);
                     setScheduleError("");
                   }}
-                  disabled={account.currency !== "USD"}
+                  disabled={busy || refreshLocked || account.currency !== "USD"}
                 >
                   {upcoming
                     ? "Edit scheduled change"
@@ -453,7 +591,7 @@ export default function AccountDetails({
                 account={account}
                 month={month}
                 user={user}
-                busy={busy}
+                busy={busy || refreshLocked}
                 onSubmit={saveSchedule}
                 onCancel={() => setEditing(false)}
               />

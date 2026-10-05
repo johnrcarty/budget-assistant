@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { isValidElement, useEffect, useRef } from "react";
 import {
   Home,
   ArrowLeftRight,
@@ -161,10 +161,20 @@ export function Empty({ icon: Icon = Leaf, title, description, action }) {
   );
 }
 export function Field({ label, children, help }) {
+  const nativeDateInput =
+    isValidElement(children) &&
+    children.type === "input" &&
+    ["date", "datetime-local", "month", "time", "week"].includes(
+      children.props.type,
+    );
   return (
     <label className="field">
       <span>{label}</span>
-      {children}
+      {nativeDateInput ? (
+        <span className="native-date-control">{children}</span>
+      ) : (
+        children
+      )}
       {help && <small>{help}</small>}
     </label>
   );

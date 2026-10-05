@@ -1852,6 +1852,51 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.field > input:not([type="checkbox"]):not([type="radio"]),
+.field > select,
+.field > textarea,
+.field > .money-input {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.field > .native-date-control {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 13px;
+  box-sizing: border-box;
+  border: 1px solid #dedfd5;
+  border-radius: 6px;
+  background: #fffdf9;
+  color: inherit;
+  font: inherit;
+}
+/* iOS native date controls mismeasure width: 100% when the input has padding. */
+.field .native-date-control > input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+.native-date-control:focus-within {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+.native-date-control > input:focus-visible {
+  outline: none;
 }
 .field > span {
   font-size: 11px;
@@ -1865,8 +1910,9 @@ h3 {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  min-width: 0;
 }
 .money-input {
   display: flex;
@@ -1882,6 +1928,7 @@ h3 {
   font-size: 13px;
 }
 .money-input input {
+  min-width: 0;
   border: 0;
   background: transparent;
   padding-left: 9px;
@@ -6312,4 +6359,433 @@ h3 {
 }
 .item-drawer .item-settings-remove {
   color: #9b5044;
+}
+
+.account-collateral {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-collateral .button {
+  min-height: 44px;
+}
+.collateral-asset-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 16px 0;
+  min-width: 0;
+}
+.collateral-asset-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.collateral-asset-open > span {
+  min-width: 0;
+}
+.collateral-asset-open > svg {
+  flex-shrink: 0;
+}
+.collateral-asset-open strong,
+.collateral-debts strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.collateral-asset-open small,
+.collateral-debts small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #62735b;
+  margin-top: 3px;
+}
+.collateral-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.collateral-values > div {
+  min-width: 0;
+}
+.collateral-values dt {
+  color: #62735b;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+.collateral-values dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.collateral-form {
+  margin-top: 18px;
+}
+.collateral-form .field {
+  margin-bottom: 14px;
+}
+.collateral-form .drawer-form-actions,
+.collateral-unlink-confirmation .drawer-form-actions {
+  flex-wrap: wrap;
+}
+.collateral-form .money-input > span {
+  flex-shrink: 0;
+  padding-left: 12px;
+}
+.collateral-form .drawer-muted {
+  margin: 5px 0 0;
+}
+.collateral-unlink-confirmation {
+  padding: 14px;
+  border: 1px solid #e0e4d2;
+  border-radius: 6px;
+  background: #f4f5eb;
+  margin-top: 12px;
+}
+.collateral-unlink-confirmation p {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.collateral-debts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.collateral-debts li {
+  border-bottom: 1px solid var(--border);
+}
+.collateral-debts li:last-child {
+  border: 0;
+}
+.collateral-debts li > button,
+.collateral-debts li > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.65fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 56px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+.collateral-debts li > button:hover strong,
+.collateral-asset-open:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.collateral-debts li > button > span,
+.collateral-debts li > div > span {
+  min-width: 0;
+}
+.collateral-debts li > button > span:nth-child(2),
+.collateral-debts li > div > span:nth-child(2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .account-collateral {
+    padding: 20px 0;
+  }
+  .collateral-asset-heading > .button {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .collateral-form .form-grid {
+    gap: 10px;
+  }
+}
+
+/* Student-loan groups organize real accounts without adding a second balance. */
+.student-loan-add-group {
+  margin: -4px 0 10px;
+}
+.student-loan-add-group .button,
+.student-loan-group-tools .button,
+.student-group-controls .button {
+  min-height: 44px;
+}
+.student-loan-group-row {
+  border-bottom: 1px solid var(--border);
+}
+.student-loan-group-row:last-child {
+  border-bottom: 0;
+}
+.student-loan-disclosure > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.55fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 12px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+.student-loan-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.student-loan-disclosure > summary:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
+}
+.student-loan-disclosure > summary > svg {
+  flex-shrink: 0;
+}
+.student-loan-disclosure[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.student-loan-group-copy,
+.student-loan-group-balance {
+  min-width: 0;
+}
+.student-loan-group-copy > strong,
+.student-loan-group-balance > strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.student-loan-group-copy > small,
+.student-loan-group-balance > small {
+  display: block;
+  color: #62735b;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.student-loan-group-balance {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.student-loan-disclosure[open] > summary {
+  background: #f4f5eb;
+  border-bottom: 1px solid var(--border);
+}
+.student-loan-group-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 14px;
+}
+.student-loan-disclosure > ul {
+  border-left: 3px solid #d9dfcc;
+  margin-left: 15px;
+}
+.student-loan-empty {
+  padding: 0 18px 14px;
+}
+.student-group-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0 12px;
+}
+.student-group-metrics > div {
+  min-width: 0;
+}
+.student-group-metrics dt {
+  color: #62735b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.student-group-metrics dd {
+  margin: 5px 0;
+  font-size: 19px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.student-group-metrics small,
+.student-group-account-section small {
+  display: block;
+  color: #62735b;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.student-group-notice,
+.account-refresh-notice,
+.student-group-archive,
+.account-valuation-confirmation {
+  padding: 12px;
+  border: 1px solid #dce2d3;
+  border-radius: 6px;
+  background: #f4f5eb;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.student-group-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+}
+.student-group-notice > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.student-group-account-section,
+.student-group-payment-summary,
+.account-valuation-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.student-group-account-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.student-group-account-section li {
+  border-bottom: 1px solid var(--border);
+}
+.student-group-account-section li:last-child {
+  border-bottom: 0;
+}
+.student-group-account-section li > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.55fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+.student-group-account-section li > button > span {
+  min-width: 0;
+}
+.student-group-account-section li > button strong {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.student-group-account-section li > button > strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.student-group-account-section li > button:hover > span > strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.student-group-form .field {
+  margin-bottom: 14px;
+}
+.student-group-form .form-grid {
+  gap: 12px;
+}
+.student-group-form .student-group-members {
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+.student-group-members legend {
+  padding-right: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #62735b;
+}
+.student-group-member {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 0.55fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.student-group-member > input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #405d36;
+}
+.student-group-member > span,
+.student-group-member > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.student-group-member > span > strong,
+.student-group-member > span > small {
+  display: block;
+}
+.student-group-member small {
+  color: #62735b;
+  font-size: 11px;
+}
+.student-group-member > strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.student-group-controls,
+.student-group-form .drawer-form-actions,
+.student-group-archive .drawer-form-actions,
+.account-valuation-confirmation .drawer-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.student-group-controls {
+  justify-content: space-between;
+}
+.account-group-membership > strong,
+.account-group-membership > span,
+.account-interest-term > small {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.account-group-membership > span,
+.account-interest-term > small {
+  color: #62735b;
+  font-size: 12px;
+}
+.account-group-membership > .button {
+  margin-top: 10px;
+}
+.account-refresh-notice > p {
+  margin: 0 0 10px;
+}
+@media (max-width: 640px) {
+  .student-loan-disclosure > summary {
+    gap: 8px;
+    padding-left: 16px;
+    padding-right: 12px;
+  }
+  .student-loan-group-copy > strong,
+  .student-loan-group-balance > strong {
+    font-size: 13px;
+  }
+  .student-group-form .form-grid {
+    gap: 10px;
+  }
+  .student-group-metrics dd {
+    font-size: 17px;
+  }
 }

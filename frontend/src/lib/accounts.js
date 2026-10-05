@@ -1,8 +1,23 @@
 import { prettyDate } from "./format.js";
 
 export const isDebt = (account) => ["loan", "credit"].includes(account?.kind);
+export const isPaidOffLoan = (account) =>
+  account?.kind === "loan" && account.payoff_status === "paid_off";
+export const isCountedAccount = (account) => account.net_worth_included !== false;
+export const accountKinds = {
+  checking: "Checking",
+  savings: "Savings",
+  credit: "Credit card",
+  loan: "Loan",
+  investment: "Investment",
+  property: "Property",
+  vehicle: "Vehicle",
+  other: "Other account",
+};
 export const netBalance = (account) =>
-  isDebt(account)
+  !isCountedAccount(account)
+    ? 0
+    : isDebt(account)
     ? -Math.abs(account.balance_cents || 0)
     : account.balance_cents || 0;
 export const debtLabels = {

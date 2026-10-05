@@ -24,6 +24,7 @@ import Auth from "./components/Auth.jsx";
 import BudgetDialog from "./components/BudgetDialog.jsx";
 import AccountDialog from "./components/AccountDialog.jsx";
 import AccountDetails from "./components/AccountDetails.jsx";
+import StudentLoanGroupDetails from "./components/StudentLoanGroupDetails.jsx";
 import CategoryDialog from "./components/CategoryDialog.jsx";
 import ItemDetails from "./components/ItemDetails.jsx";
 import IncomeDialog from "./components/IncomeDialog.jsx";
@@ -64,6 +65,7 @@ export default function App() {
     [modal, setModal] = useState(null),
     [selectedItem, setSelectedItem] = useState(null),
     [selectedAccount, setSelectedAccount] = useState(null),
+    [selectedLoanGroup, setSelectedLoanGroup] = useState(null),
     [rulesContext, setRulesContext] = useState(null),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState(""),
@@ -149,7 +151,7 @@ export default function App() {
     };
   }, [mobileMenuOpen]);
   async function reload() {
-    if (query !== activeQuery.current) return;
+    if (query !== activeQuery.current) return false;
     const sequence = ++reloadSequence.current;
     setLoading(true);
     setLoadError("");
@@ -163,6 +165,7 @@ export default function App() {
         settings,
         income,
         categories,
+        studentLoanGroups,
       ] = await Promise.all([
         api(`dashboard?${query}`),
         api(`budget/items?${query}`),
@@ -172,20 +175,25 @@ export default function App() {
         api(`settings?${query}`),
         api(`income?${query}`),
         api(`budget/categories?${query}`),
+        api(`student-loan-groups?${query}`),
       ]);
-      if (sequence === reloadSequence.current)
-        setData({
-          dashboard,
-          items,
-          bills,
-          transactions,
-          accounts,
-          settings,
-          income,
-          categories,
-        });
+      if (sequence !== reloadSequence.current || query !== activeQuery.current)
+        return false;
+      setData({
+        dashboard,
+        items,
+        bills,
+        transactions,
+        accounts,
+        settings,
+        income,
+        categories,
+        studentLoanGroups,
+      });
+      return true;
     } catch (e) {
       if (sequence === reloadSequence.current) setLoadError(e.message);
+      return false;
     } finally {
       if (sequence === reloadSequence.current) setLoading(false);
     }
@@ -209,6 +217,7 @@ export default function App() {
     setModal(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setRulesContext(null);
     setScope(next);
   }
@@ -219,6 +228,7 @@ export default function App() {
     setModal(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setRulesContext(null);
     setMonth(next);
   }
@@ -229,6 +239,7 @@ export default function App() {
     setFormError("");
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setRulesContext(null);
     setModal({ type, item });
   }
@@ -236,6 +247,7 @@ export default function App() {
     setFormError("");
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setModal(null);
     setRulesContext({
       transaction,
@@ -267,13 +279,22 @@ export default function App() {
   function openItemDetails(item) {
     setModal(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setSelectedItem(item);
   }
   function openAccountDetails(account) {
     if (!account) return;
     setModal(null);
     setSelectedItem(null);
+    setSelectedLoanGroup(null);
     setSelectedAccount(account);
+  }
+  function openLoanGroup(group = null) {
+    setModal(null);
+    setSelectedItem(null);
+    setSelectedAccount(null);
+    setRulesContext(null);
+    setSelectedLoanGroup(group || {});
   }
   async function mutate(path, method, body, message, close = true) {
     setBusy(true);
@@ -371,8 +392,8 @@ export default function App() {
         : "Transaction recorded.";
     }
     if (type === "account") {
-      path = `accounts${modal.item ? `/${modal.item.id}` : ""}?${query}`;
-      method = modal.item ? "PATCH" : "POST";
+      path = `accounts${modal.item?.id ? `/${modal.item.id}` : ""}?${query}`;
+      method = modal.item?.id ? "PATCH" : "POST";
       body = {
         scope,
         name: values.name,
@@ -398,6 +419,10 @@ export default function App() {
                 ? Number(values.term_months)
                 : null,
               notes: values.notes || null,
+              accrued_interest_cents: values.accrued_interest
+                ? cents(values.accrued_interest)
+                : null,
+              accrued_interest_as_of: values.accrued_interest_as_of || null,
             }
           : {
               original_balance_cents: null,
@@ -406,15 +431,26 @@ export default function App() {
               opened_date: null,
               term_months: null,
               notes: null,
+              accrued_interest_cents: null,
+              accrued_interest_as_of: null,
             }),
       };
       if (
-        modal.item &&
+        modal.item?.id &&
         body.balance_cents === modal.item.balance_cents &&
         body.currency === modal.item.currency
       )
         delete body.balance_cents;
-      message = modal.item ? "Account updated." : "Account added.";
+      if (modal.item?.id && body.currency === modal.item.currency &&
+          body.accrued_interest_cents === (modal.item.accrued_interest_cents ?? null) &&
+          body.accrued_interest_as_of === (modal.item.accrued_interest_as_of ?? null)) {
+        delete body.accrued_interest_cents;
+        delete body.accrued_interest_as_of;
+      }
+      if (body.accrued_interest_cents === null) body.accrued_interest_as_of = null;
+      if (!modal.item?.id && values.student_loan_group_id)
+        body.student_loan_group_id = Number(values.student_loan_group_id);
+      message = modal.item?.id ? "Account updated." : "Account added.";
     }
     if (type === "simplefin") {
       path = "integrations/simplefin";
@@ -633,6 +669,7 @@ export default function App() {
     setHaToken(null);
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setRulesContext(null);
   }
   const dash = data?.dashboard || {},
@@ -642,6 +679,7 @@ export default function App() {
     accounts = data?.accounts || [],
     items = data?.items || [];
   const categories = data?.categories || [];
+  const studentLoanGroups = data?.studentLoanGroups || [];
   const unpaid = bills
     .filter((b) => !b.paid)
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -666,6 +704,7 @@ export default function App() {
     transactions,
     bills,
     accounts,
+    studentLoanGroups,
     settings,
     month,
     user,
@@ -683,6 +722,7 @@ export default function App() {
     open,
     openItemDetails,
     openAccountDetails,
+    openLoanGroup,
     openBillBudget,
     openRules,
     paid,
@@ -697,6 +737,7 @@ export default function App() {
   function navigate(id) {
     setSelectedItem(null);
     setSelectedAccount(null);
+    setSelectedLoanGroup(null);
     setRulesContext(null);
     setTab(id);
     setMobileNav(false);
@@ -962,11 +1003,30 @@ export default function App() {
           scope={scope}
           month={month}
           user={user}
+          accounts={accounts}
+          studentLoanGroups={studentLoanGroups}
           bills={bills}
           onClose={() => setSelectedAccount(null)}
           onEdit={(account) => open("account", account)}
+          onOpenAccount={openAccountDetails}
+          onOpenLoanGroup={openLoanGroup}
           onChanged={reload}
           notify={notify}
+        />
+      )}
+      {selectedLoanGroup && (
+        <StudentLoanGroupDetails
+          key={`${scope}-${month}-${selectedLoanGroup.id || "new"}`}
+          group={studentLoanGroups.find((group) => group.id === selectedLoanGroup.id) || selectedLoanGroup}
+          groups={studentLoanGroups}
+          accounts={accounts}
+          scope={scope}
+          month={month}
+          onClose={() => setSelectedLoanGroup(null)}
+          onChanged={reload}
+          notify={notify}
+          onOpenAccount={openAccountDetails}
+          onAddLoan={(group) => open("account", {kind: "loan", debt_type: "student", currency: group.currency, student_loan_group_id: group.id})}
         />
       )}
       {rulesContext && (
@@ -1001,6 +1061,7 @@ export default function App() {
         <AccountDialog
           key={`account-${modal.item?.id || "new"}`}
           account={modal.item}
+          studentLoanGroups={studentLoanGroups}
           busy={busy}
           error={formError}
           onSave={save}

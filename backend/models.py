@@ -272,7 +272,7 @@ class CategorizationApply(BaseModel):
 class Account(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     institution: str = Field(default='', max_length=120)
-    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'other'] = 'checking'
+    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'vehicle', 'other'] = 'checking'
     balance_cents: int = Field(default=0, ge=-(10**14), le=10**14, strict=True)
     currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
     original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
@@ -281,12 +281,16 @@ class Account(BaseModel):
     opened_date: CalendarDate | None = None
     term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
     notes: str | None = Field(default=None, max_length=2000)
+    student_loan_group_id: int | None = Field(default=None, ge=1, strict=True)
+    net_worth_included: bool = True
+    accrued_interest_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    accrued_interest_as_of: CalendarDate | None = None
 
 
 class AccountPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     institution: str | None = Field(default=None, max_length=120)
-    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'other'] | None = None
+    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'vehicle', 'other'] | None = None
     balance_cents: int | None = Field(default=None, ge=-(10**14), le=10**14, strict=True)
     currency: str | None = Field(default=None, pattern=r'^[A-Z]{3}$')
     original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
@@ -295,6 +299,59 @@ class AccountPatch(BaseModel):
     opened_date: CalendarDate | None = None
     term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
     notes: str | None = Field(default=None, max_length=2000)
+    net_worth_included: bool | None = None
+    accrued_interest_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    accrued_interest_as_of: CalendarDate | None = None
+
+
+class StudentLoanGroup(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    name: str = Field(min_length=1, max_length=120)
+    borrower: str = Field(min_length=1, max_length=80)
+    servicer: str = Field(min_length=1, max_length=120)
+    currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
+    valuation_mode: Literal['individual_loans', 'servicer_total']
+    reported_account_id: int | None = Field(default=None, ge=1, strict=True)
+    child_account_ids: list[int] = Field(default_factory=list, max_length=500)
+
+    _nonblank_text = field_validator('name', 'borrower', 'servicer')(BudgetItem.nonblank_text.__func__)
+    _strict_ids = field_validator('child_account_ids', mode='before')(CategorizationRuleOrder.strict_ids.__func__)
+
+    @model_validator(mode='after')
+    def unique_roles(self):
+        if len(set(self.child_account_ids)) != len(self.child_account_ids):
+            raise ValueError('Choose each individual loan once')
+        if self.reported_account_id in self.child_account_ids:
+            raise ValueError('The reported total cannot also be an individual loan')
+        if self.valuation_mode == 'servicer_total' and self.reported_account_id is None:
+            raise ValueError('Choose the authoritative servicer total account')
+        return self
+
+
+class CollateralAsset(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal['checking', 'savings', 'investment', 'property', 'vehicle', 'other'] = 'property'
+    balance_cents: int = Field(ge=0, le=10**14, strict=True)
+    currency: str | None = Field(default=None, pattern=r'^[A-Z]{3}$')
+    institution: str = Field(default='', max_length=120)
+
+    _nonblank_text = field_validator('name')(BudgetItem.nonblank_text.__func__)
+
+
+class CollateralLink(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    asset_id: int | None = Field(default=None, ge=1, strict=True)
+    asset: CollateralAsset | None = None
+
+    @model_validator(mode='after')
+    def one_choice(self):
+        if len(self.model_fields_set) != 1 or ('asset' in self.model_fields_set and self.asset is None):
+            raise ValueError('Choose an existing asset, create one, or explicitly unlink with asset_id null')
+        return self
 
 
 class DebtPaymentSchedule(BaseModel):

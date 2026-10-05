@@ -34,14 +34,15 @@ from . import categories as budget_categories
 from . import item_details
 from . import accounts as account_plans
 from . import categorization
-from .models import (Account, AccountPatch, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
+from . import student_loans
+from .models import (Account, AccountPatch, CollateralLink, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
                      BudgetCopy, BudgetItem, BudgetPatch,
                      Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch,
                      ItemDue, ItemPayment, ItemTransaction, ItemTransactionLink,
                      Login, Member, Settings, Setup, SimpleFINConnect,
                      SimpleFINSync, Transaction, TransactionPatch)
 from .models import (CategorizationApply, CategorizationPreview, CategorizationRule,
-                     CategorizationRuleOrder, CategorizationRulePatch)
+                     CategorizationRuleOrder, CategorizationRulePatch, StudentLoanGroup)
 
 
 def utc_now():
@@ -947,6 +948,35 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         with connect(db_path) as db:
             return account_plans.account_list(db, scope_identity(user, scope), current_month)
 
+    @app.get('/api/student-loan-groups')
+    def student_loan_groups(request: Request, scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        selected_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(selected_month)
+        with connect(db_path) as db:
+            return student_loans.group_list(db, scope_identity(user, scope), selected_month, local_today(request, user))
+
+    @app.post('/api/student-loan-groups', status_code=201)
+    def create_student_loan_group(payload: StudentLoanGroup, request: Request,
+                                  scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        selected_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(selected_month)
+        with connect(db_path) as db:
+            return student_loans.save_group(db, scope_identity(user, scope), payload, selected_month, local_today(request, user))
+
+    @app.put('/api/student-loan-groups/{group_id}')
+    def update_student_loan_group(group_id: int, payload: StudentLoanGroup, request: Request,
+                                  scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        selected_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(selected_month)
+        with connect(db_path) as db:
+            return student_loans.save_group(db, scope_identity(user, scope), payload, selected_month, local_today(request, user), group_id)
+
+    @app.delete('/api/student-loan-groups/{group_id}', status_code=204)
+    def archive_student_loan_group(group_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            student_loans.archive_group(db, scope_identity(user, scope), group_id)
+        return Response(status_code=204)
+
     @app.get('/api/accounts/net-worth/history')
     def net_worth_history(scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
         with connect(db_path) as db:
@@ -974,6 +1004,15 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
         month_bounds(current_month)
         with connect(db_path) as db:
             return account_plans.set_schedule(db, scope_identity(user, scope), account_id, payload, local_today(request, user), current_month)
+
+    @app.put('/api/accounts/{account_id}/collateral')
+    def account_collateral(account_id: int, payload: CollateralLink, request: Request,
+                          scope: Literal['household', 'personal'] = 'household', month: str | None = None, user=Depends(current_user)):
+        current_month = month or local_today(request, user).strftime('%Y-%m')
+        month_bounds(current_month)
+        with connect(db_path) as db:
+            return account_plans.set_collateral(db, scope_identity(user, scope), account_id, payload,
+                                                current_month)
 
     @app.delete('/api/accounts/{account_id}', status_code=204)
     def delete_account(account_id: int, request: Request, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):

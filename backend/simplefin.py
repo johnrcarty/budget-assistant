@@ -230,7 +230,7 @@ def import_accounts(db_path, user_id: int, scope: str, payload: dict):
                 provider_as_of = account_history.provider_timestamp(account.get("balance-date"))
                 accepted = account_history.import_balance(db, account_row, balance, currency, provider_as_of)
                 if not accepted:
-                    warnings.append("An older balance or changed payment-account currency was ignored; transactions were retained.")
+                    warnings.append("A balance update was ignored because its date, currency, or linked asset value needs review. Eligible transactions were still imported.")
                 account_row = db.execute("SELECT * FROM accounts WHERE id=?", (account_row["id"],)).fetchone()
                 if db.execute("SELECT 1 FROM account_valuation_events WHERE account_id=?", (account_row["id"],)).fetchone() is None:
                     db.execute("INSERT INTO account_valuation_events(account_id,observed_at,kind) VALUES (?,?,?)", (account_row["id"], account_history.now_string(), account_row["kind"]))

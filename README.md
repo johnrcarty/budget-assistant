@@ -114,7 +114,7 @@ Manual category choices are kept, including choosing **Uncategorized** deliberat
 
 ## Accounts, debts, and balance history
 
-Accounts use compact rows grouped into Assets and Debts, with separate totals for each currency. Tap a row for its details and balance history. Mobile row actions reveal editing and archiving, and the overall balance history sits below the account list in an expandable section.
+Accounts use compact rows grouped into Assets and Debts, with separate totals for each currency. Tap a row for its details and balance history. Paid-off loans remain accessible in an expandable list; zero-balance credit cards stay in the ordinary debt list. Mobile row actions reveal editing and archiving, and the overall balance history sits below the account list in an expandable section.
 
 The transaction inbox shows checking, savings, and credit-card activity in a compact date-grouped list. Investment, mortgage, and other account transactions remain stored for their existing associations and totals. Account classifications can be corrected in Accounts and survive bank refreshes. Manual entries without an account remain visible.
 
@@ -122,9 +122,23 @@ All account types contribute to balance tracking. Each account retains recorded 
 
 Debt accounts can store their type, original balance, APR, opening date, term, notes, and an optional payment schedule. Enter the amount per payment, choose weekly, every two weeks, twice monthly, or monthly, and choose the anchor date or calendar days. Scheduling follows calendar dates without holiday or weekend adjustments. USD payment schedules generate a **Managed debt** section in Budget, with the actual payments falling in that month, including three-payment biweekly months. Configure these plans through the debt account; the generated budget items cannot be renamed, moved, deleted, or copied as ordinary category items.
 
+Debt details also support collateral. Link an existing asset account or create a property, vehicle, or other asset with its current value. The asset must belong to the same household or personal scope and use the debt's currency. Assets appear independently in the balance sheet and contribute to net worth once, even when several loans are linked to the same asset. The asset's equity subtracts the balances of all its active linked debts. Choose the existing asset when it is already listed in Accounts to avoid recording its value twice.
+
+Edit the asset's value through its account details; each value change becomes a balance observation in its own history and net-worth history. Linking or changing a relationship does not invent an earlier valuation. Paying a loan down to zero, unlinking it, or archiving the loan leaves the asset and its recorded history intact. A zero balance does not automatically stop a debt payment schedule; stop future scheduled payments explicitly when appropriate.
+
 Scheduled debt payments also appear in Bills and the existing household unpaid reminders. Confirm each payment separately; linking a transaction does not automatically mark a payment paid. Schedule edits start next month by default; you may choose the current or a future month. Earlier paid and overdue occurrences remain recorded, and incompatible current-month cadence changes are blocked when they would duplicate retained payments. Transaction links and item history remain available from the managed budget item. When setting up a schedule for a debt already entered as a manual budget item or bill, remove the duplicate manual plan explicitly.
 
 Removing an account archives it so its earlier balance observations and transaction associations remain available to history. Archived bank accounts stay hidden on subsequent imports. Personal account balances, debt terms, payment schedules, and history remain private to their owner; sharing personal budget totals exposes only the existing monthly aggregates.
+
+## Student loans and servicer groups
+
+Create a student-loan group for each borrower and servicer, then attach the individual loan accounts. Borrower names are display labels; the selected Home or Personal scope determines who can access the group. Each loan keeps its own balance history, rate, terms, and payment schedule.
+
+Choose which balances to count explicitly. **Individual loans** uses the sum of the child loans; **Servicer total** uses one linked account holding the reported total and excludes the breakdown loans from net worth. The group itself adds no extra balance. The account list shows the source, the entered breakdown, and any difference so a partial breakdown remains visible. Changes in the counting source are recorded from the time you make them, preserving earlier net-worth history. Keep existing counted accounts linked while changing the source, then detach excluded reference accounts afterward if needed; the app rejects a combined change that would leave the former source counting independently.
+
+The group's APR is weighted by the outstanding balances of loans with a recorded rate. Missing rates remain unknown, and an incomplete breakdown is labeled accordingly. Optional reported accrued interest is tracked separately with its reporting date and coverage; it is never added again to the outstanding balance. If a bank balance drops below an older interest report, that report is retained as stale and excluded from the current interest summary.
+
+Payment schedules remain attached to real accounts. Grouping loans does not create another payment or stop existing schedules; check the schedule hint if both the servicer total and child loans have payment plans. Detaching a loan or archiving a group preserves its last net-worth inclusion choice. You can explicitly restore inclusion for an ungrouped account in its details.
 
 ## Verify
 
