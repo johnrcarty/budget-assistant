@@ -35,6 +35,7 @@ from . import item_details
 from . import accounts as account_plans
 from . import categorization
 from . import student_loans
+from . import annual_income
 from .models import (Account, AccountPatch, CollateralLink, DebtPaymentSchedule, Bill, BillPatch, BudgetCategory, BudgetCategoryPatch,
                      BudgetCopy, BudgetItem, BudgetPatch,
                      Income, IncomeEntry, IncomeEntryPatch, IncomeSource, IncomeSourcePatch, IncomeTransactionAssignment,
@@ -43,6 +44,8 @@ from .models import (Account, AccountPatch, CollateralLink, DebtPaymentSchedule,
                      SimpleFINSync, Transaction, TransactionPatch)
 from .models import (CategorizationApply, CategorizationPreview, CategorizationRule,
                      CategorizationRuleOrder, CategorizationRulePatch, StudentLoanGroup)
+from .models import (AnnualPerson, AnnualPersonPatch, AnnualEntry, AnnualEntryPatch,
+                     AnnualForecast, AnnualForecastCreate, AnnualSnapshotPreview, AnnualSnapshotImport)
 
 
 def utc_now():
@@ -699,6 +702,81 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
                        (*scope_identity(user, payload.scope), payload.month, payload.amount_cents))
             total = income_plans.total(db, identity, payload.month)
         return {'income_cents': total, 'month': payload.month}
+
+    @app.get('/api/annual-income')
+    def annual_tracker(request: Request, scope: Literal['household', 'personal'] = 'household',
+                       through_year: int | None = Query(default=None, ge=1900, le=2300),
+                       forecast_id: str | None = None, user=Depends(current_user)):
+        current_year = local_today(request, user).year
+        with connect(db_path) as db:
+            return annual_income.tracker(db, scope_identity(user, scope), current_year, through_year or current_year, forecast_id)
+
+    @app.post('/api/annual-income/people', status_code=201)
+    def add_annual_person(payload: AnnualPerson, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.create_person(db, scope_identity(user, scope), payload)
+
+    @app.patch('/api/annual-income/people/{person_id}')
+    def update_annual_person(person_id: int, payload: AnnualPersonPatch,
+                             scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.patch_person(db, scope_identity(user, scope), person_id, payload)
+
+    @app.post('/api/annual-income/entries', status_code=201)
+    def add_annual_entry(payload: AnnualEntry, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.create_entry(db, scope_identity(user, scope), payload)
+
+    @app.patch('/api/annual-income/entries/{entry_id}')
+    def update_annual_entry(entry_id: int, payload: AnnualEntryPatch,
+                           scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.patch_entry(db, scope_identity(user, scope), entry_id, payload)
+
+    @app.delete('/api/annual-income/entries/{entry_id}', status_code=204)
+    def delete_annual_entry(entry_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            annual_income.delete_entry(db, scope_identity(user, scope), entry_id)
+        return Response(status_code=204)
+
+    @app.post('/api/annual-income/forecasts/preview')
+    def preview_annual_forecast(payload: AnnualForecast, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.preview_forecast(db, scope_identity(user, scope), payload)
+
+    @app.post('/api/annual-income/forecasts', status_code=201)
+    def add_annual_forecast(payload: AnnualForecastCreate, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.create_forecast(db, scope_identity(user, scope), payload)
+
+    @app.get('/api/annual-income/forecasts/{forecast_id}')
+    def get_annual_forecast(forecast_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            annual_income.read_lock(db)
+            return annual_income.forecast_detail(db, scope_identity(user, scope), forecast_id)
+
+    @app.delete('/api/annual-income/forecasts/{forecast_id}', status_code=204)
+    def delete_annual_forecast(forecast_id: int, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            annual_income.delete_forecast(db, scope_identity(user, scope), forecast_id)
+        return Response(status_code=204)
+
+    @app.get('/api/annual-income/snapshot')
+    def export_annual_snapshot(request: Request, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        identity = scope_identity(user, scope)
+        namespace = hashlib.sha256((request.app.state.secret + ':annual-income:' + repr(identity)).encode()).hexdigest()
+        with connect(db_path) as db:
+            return annual_income.snapshot_export(db, identity, namespace)
+
+    @app.post('/api/annual-income/snapshot/preview')
+    def preview_annual_snapshot(payload: AnnualSnapshotPreview, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.preview_import(db, scope_identity(user, scope), payload)
+
+    @app.post('/api/annual-income/snapshot/import')
+    def import_annual_snapshot(payload: AnnualSnapshotImport, scope: Literal['household', 'personal'] = 'household', user=Depends(current_user)):
+        with connect(db_path) as db:
+            return annual_income.apply_import(db, scope_identity(user, scope), payload)
 
     @app.get('/api/income')
     def income_entries(request: Request, scope: Literal['household', 'personal'] = 'household',

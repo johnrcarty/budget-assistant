@@ -77,6 +77,31 @@ Open a positive transaction and assign it to an existing income line or schedule
 
 Moving an expense or another paycheck assignment requires explicit confirmation. A transaction cannot be assigned to both income and a budget item. Unlink receipts before deleting an income line; editing or stopping a schedule preserves entries with receipts. Invalidated bank receipts remain visible for review without counting as received income. A linked receipt that changes to a negative USD amount counts as an outflow until corrected; amounts belonging to a non-USD or unavailable account cannot enter USD budget totals. Personal receipt details stay within their owner's scope.
 
+## Annual income tracker
+
+**More → Income tracker** keeps the yearly taxable/gross-income history separate from monthly budget income and paycheck receipts. Add people without creating login users, then record one or more sources for each person and year, including optional federal, state, local, Medicare, and Social Security withholdings and notes. Archiving a person retains their income history and saved forecasts. Household records are shared; personal records stay within their owner's scope.
+
+The default view ends at the current year in your configured time zone. Choose a saved forecast to compare the actual amounts now recorded against a prediction made from an earlier base year. **Future projections** extends the view through that forecast's horizon; **By year** and **Running total** switch the measure. Missing actual years remain unknown, and actual chart paths stop at recorded values instead of falling to zero when projected years begin. A recorded zero is a real observation. Coverage and missing years remain visible; recorded amounts are not automatically annualized.
+
+New forecasts use either the original repeating percentage-growth model or a linear fit through the actual years at or before the chosen base year. Creation saves the projected points and their historical input baseline permanently. Later income corrections or new years do not rewrite those points. Create another forecast to capture a new prediction. Preview and save are bound to the same inputs, so changed history requires a fresh preview.
+
+The old app stored forecast points but did not preserve its training baseline. Import retains the exact original projected points and marks the reconstructed running-total baseline as coming from the imported historical records. It does not claim those records are the original inputs as they stood when that forecast was created.
+
+**Import** accepts a versioned annual-income JSON snapshot or a USD CSV. JSON preserves people, distinct entry IDs, notes, withholdings, timestamps, and complete forecast vintages. Review the import and resolve any existing person names before applying it. Imports retain existing local edits, reject conflicting source records, and use source IDs to prevent repeat imports from creating duplicates. **Export** downloads only the selected scope's annual tracker data.
+
+CSV accepts a long format such as `Year,Person,Source,Amount,Federal,State,Note`, or a wide spreadsheet such as `Year,Person A,Person B,Total`. Amounts are dollars with at most two decimal places; quote amounts containing commas. Blank wide cells remain unknown, while `0` records zero income. The `Total` column is excluded from wide imports. Tax withholdings require the long format so a shared tax value cannot be counted once per person. Separate identical income rows retain separate identities. An exact-file reimport is protected; a modified CSV is a new source and can overlap earlier records, so use JSON for migrating the old app's saved data and forecasts.
+
+### Move the old annual history without changing the old database
+
+Download the old app's **More → Backup** PostgreSQL backup and restore it into an isolated temporary PostgreSQL instance. If necessary, apply the old app's migrations to that copy through migration 0016; the exporter requires the UUID person schema and rejects older text-person layouts instead of guessing identities. Select the legacy household UUID explicitly, then run from this repository:
+
+```sh
+psql -X -q -v household_id=SELECTED_UUID -f scripts/export-legacy-income.sql \
+  --output=annual-income.json ISOLATED_DATABASE
+```
+
+Use your existing PostgreSQL service or local socket configuration for the isolated database. The export script runs a read-only, repeatable-read transaction and selects only people, annual entries, and saved forecast metadata/points from that household. It preserves exact integer cents, zeroes, nulls, notes, timestamps, and source UUIDs. It exports no login, bank connection, monthly budget, or transaction records. Import the resulting JSON into the intended household or personal scope, then compare record counts, yearly/person totals, and saved forecasts before retiring the original storage. Keep backups and exported financial data outside Git.
+
 ## Bills and Home Assistant
 
 Bills have a due date, an amount, a paid confirmation, an optional monthly recurrence, and an autopay reminder flag. Autopay does not automatically mark a bill paid. Bank transactions also do not automatically confirm bill payments.
@@ -154,11 +179,15 @@ Payment schedules remain attached to real accounts. Grouping loans does not crea
 
 ```bash
 .venv/bin/python -m pytest tests -q
+node frontend/tests/annual-income-csv.test.mjs
+node frontend/tests/annual-income-view.test.mjs
 npm --prefix frontend run build
 ```
 
 Tests use temporary databases, including authentication, personal access, aggregate sharing, token isolation, bill date boundaries, recurrence, and mocked SimpleFIN feeds. Real bank credentials are not needed for testing.
 
+The legacy annual-income exporter tests use a temporary PostgreSQL cluster when the PostgreSQL command-line tools are installed. The cluster has no TCP listener and contains synthetic records only. These tests do not connect to the old app or export its real financial data.
+
 ## Scope of this rebuild
 
-The rebuild covers budgets, household membership, private personal scopes, optional aggregate sharing, a cash-flow Sankey, bill tracking, account management, reusable transaction categorization rules, scheduled SimpleFIN imports, standalone authentication, and ingress preparation. Original debt-payoff simulation, annual income forecasting, CSV import, and live-data migration are separate follow-up work. No existing data has been copied into the new app.
+The rebuild covers budgets, household membership, private personal scopes, optional aggregate sharing, a cash-flow Sankey, bill tracking, account and debt management, reusable transaction categorization rules, scheduled SimpleFIN imports, standalone authentication, ingress preparation, and annual income history with saved forecasts and reviewed imports. Original debt-payoff simulation and migration of real historical data remain separate follow-up work. No original annual income records have been copied into the new app.

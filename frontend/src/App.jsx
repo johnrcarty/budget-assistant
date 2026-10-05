@@ -16,6 +16,7 @@ import {
   AlertCircle,
   LoaderCircle,
   ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { api, getToken, setToken } from "./lib/api.js";
 import { today, thisMonth, monthLabel, cents } from "./lib/format.js";
@@ -38,12 +39,14 @@ import Bills from "./pages/Bills.jsx";
 import Transactions from "./pages/Transactions.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import AnnualIncomeTracker from "./pages/AnnualIncomeTracker.jsx";
 const navItems = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "budget", label: "Budget", icon: Wallet },
   { id: "bills", label: "Bills", icon: CalendarDays },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "accounts", label: "Accounts", icon: Landmark },
+  { id: "income-tracker", label: "Income tracker", icon: TrendingUp },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 export default function App() {
@@ -998,6 +1001,14 @@ export default function App() {
                 {tab === "bills" && <Bills {...viewProps} />}
                 {tab === "transactions" && <Transactions {...viewProps} />}
                 {tab === "accounts" && <Accounts {...viewProps} />}
+                {tab === "income-tracker" && (
+                  <AnnualIncomeTracker
+                    key={scope}
+                    scope={scope}
+                    user={user}
+                    notify={notify}
+                  />
+                )}
                 {tab === "settings" && <SettingsPage {...viewProps} />}
               </>
             )

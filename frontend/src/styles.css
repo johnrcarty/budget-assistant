@@ -6957,3 +6957,558 @@ h3 {
     max-width: 100%;
   }
 }
+
+/* Annual income tracker */
+.annual-tracker {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.annual-panel {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.annual-heading,
+.annual-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.annual-heading h2 {
+  font-size: 30px;
+}
+.annual-heading p {
+  margin: 5px 0 0;
+  color: #747b6a;
+  line-height: 1.5;
+}
+.annual-actions,
+.annual-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.annual-actions .button {
+  white-space: nowrap;
+}
+.annual-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.annual-controls > label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: #69755f;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.annual-controls select {
+  min-height: 40px;
+  padding: 9px 11px;
+  font-size: 13px;
+}
+.annual-controls .checkbox-field {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 7px;
+  margin: 0;
+  flex: 0 1 auto;
+  font-size: 13px;
+  min-height: 44px;
+}
+.annual-controls .annual-end-year {
+  flex: 0 0 110px;
+}
+.annual-mode {
+  display: flex;
+  padding: 3px;
+  border-radius: 7px;
+  background: #ebece2;
+}
+.annual-mode button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #7b826d;
+}
+.annual-mode button.selected {
+  color: var(--forest);
+  background: var(--card);
+  box-shadow: 0 1px 4px #344b3e12;
+  font-weight: 600;
+}
+.annual-chart-heading {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  margin: 16px 0 10px;
+  font-size: 12px;
+  color: #747b6a;
+}
+.annual-chart-plot {
+  height: 245px;
+  border-radius: 5px;
+  position: relative;
+}
+.annual-chart-plot:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+.annual-chart-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y;
+}
+.annual-chart-plot text {
+  font:
+    11px Inter,
+    ui-sans-serif,
+    sans-serif;
+  fill: #7a8270;
+}
+.annual-chart-grid {
+  stroke: #e5e7dc;
+  stroke-width: 1;
+}
+.annual-chart-zero {
+  stroke: #b9bfae;
+  stroke-width: 1;
+}
+.annual-chart-cursor {
+  stroke: #52705a;
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.annual-chart-inspect {
+  display: flex;
+  gap: 18px;
+  align-items: start;
+  padding: 12px;
+  background: #f4f5ed;
+  border-radius: 7px;
+  margin-top: 8px;
+}
+.annual-chart-inspect > label {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+  color: #69755f;
+  width: 102px;
+  flex-shrink: 0;
+}
+.annual-chart-inspect select {
+  min-height: 36px;
+  padding: 7px 10px;
+}
+.annual-chart-reading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  font-size: 12px;
+  min-width: 0;
+}
+.annual-chart-reading > strong:first-child {
+  width: 100%;
+  font-weight: 600;
+}
+.annual-chart-reading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.6;
+}
+.annual-chart-reading small {
+  width: 100%;
+  color: #737b66;
+  line-height: 1.5;
+}
+.annual-chart-reading i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.annual-chart-reading i.annual-dashed-key {
+  height: 0;
+  width: 12px;
+  border-top: 2px dashed;
+  border-radius: 0;
+}
+.annual-caption {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #737b66;
+  margin: 10px 0 0;
+}
+.annual-empty-chart,
+.annual-empty-note {
+  padding: 28px 0;
+  color: #737b66;
+  line-height: 1.6;
+  margin: 0;
+}
+.annual-tools {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.annual-tools .button {
+  font-size: 12px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+.annual-tools .icon-button {
+  margin-left: auto;
+}
+.annual-forecast-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
+  margin-top: 10px;
+  color: #737b66;
+  font-size: 11px;
+}
+.annual-forecast-meta .button {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.annual-section-heading {
+  margin-bottom: 8px;
+}
+.annual-section-heading h3 {
+  margin: 0;
+}
+.annual-section-heading > span {
+  color: #737b66;
+  font-size: 12px;
+}
+.annual-table-wrap {
+  overflow-x: auto;
+  width: 100%;
+  margin-top: 12px;
+  overscroll-behavior-inline: contain;
+}
+.annual-table-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.annual-table-wrap td,
+.annual-table-wrap th {
+  padding: 12px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: top;
+}
+.annual-table-wrap thead th {
+  color: #6b775f;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f2f3e9;
+}
+.annual-table-wrap th:first-child {
+  text-align: left;
+  padding-left: 8px;
+}
+.annual-table-wrap tbody th {
+  font-weight: 600;
+}
+.annual-table-wrap small {
+  display: block;
+  font-size: 10px;
+  color: #7b826e;
+  margin-top: 4px;
+  font-weight: 400;
+}
+.annual-table-wrap tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.annual-future-row {
+  background: #f8f7ef;
+}
+.annual-records {
+  display: grid;
+}
+.annual-record {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 13px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.annual-record:last-child {
+  border-bottom: 0;
+}
+.annual-record:hover:not(:disabled) {
+  background: #f7f8ef;
+}
+.annual-record-year {
+  color: #79826a;
+  font-size: 12px;
+  padding-top: 1px;
+  width: 36px;
+  flex-shrink: 0;
+}
+.annual-record-name {
+  flex: 1;
+  min-width: 0;
+}
+.annual-record-name > strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.annual-record-name small {
+  display: block;
+  color: #7d8570;
+  font-size: 11px;
+  margin-top: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.annual-record > strong {
+  font-size: 13px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.annual-fieldset {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.annual-fieldset .form-grid {
+  margin-top: 14px;
+}
+.annual-fieldset input[type="color"] {
+  padding: 5px;
+  min-width: 0;
+}
+.annual-withholding {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 15px 0;
+  margin: 20px 0;
+}
+.annual-withholding summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #52664e;
+}
+.annual-withholding summary span {
+  color: #858b78;
+  font-size: 12px;
+  margin-left: 5px;
+  font-weight: 400;
+}
+.annual-withholding p {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 12px 0 0;
+  color: #737b66;
+}
+.annual-preview {
+  background: #f2f4e8;
+  border: 1px solid #dfe4d2;
+  border-radius: 7px;
+  padding: 14px;
+  margin-top: 16px;
+}
+.annual-preview > strong {
+  font-size: 13px;
+  color: var(--forest);
+}
+.annual-preview p,
+.annual-preview li {
+  color: #737b66;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 7px 0 0;
+}
+.annual-preview ul {
+  padding-left: 18px;
+  margin-bottom: 0;
+}
+.annual-import-people {
+  margin-top: 18px;
+}
+.annual-import-people > strong {
+  overflow-wrap: anywhere;
+}
+.annual-import-people p {
+  font-size: 12px;
+  color: #737b66;
+  margin: 7px 0 14px;
+}
+.annual-import-people .field {
+  margin-top: 12px;
+}
+.annual-refresh-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e1d4b0;
+  border-radius: 7px;
+  background: #f6f0df;
+  margin: 14px 0;
+}
+.annual-refresh-note p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  flex: 1 1 220px;
+  color: #7d704f;
+}
+.annual-refresh-note .button {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.annual-form-actions {
+  flex-wrap: wrap;
+}
+.annual-form-actions > .ghost:first-child {
+  margin-right: auto;
+}
+@media (max-width: 640px) {
+  .annual-tracker {
+    gap: 14px;
+  }
+  .annual-panel {
+    padding: 14px;
+  }
+  .annual-heading {
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .annual-heading h2 {
+    font-size: 26px;
+  }
+  .annual-heading p {
+    font-size: 12px;
+  }
+  .annual-actions {
+    width: 100%;
+  }
+  .annual-actions .button {
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+  .annual-controls {
+    gap: 10px;
+  }
+  .annual-controls > label {
+    flex: 1 1 130px;
+  }
+  .annual-mode {
+    align-self: center;
+  }
+  .annual-controls .annual-future {
+    flex: 1 1 130px;
+  }
+  .annual-chart-plot {
+    height: 230px;
+  }
+  .annual-chart-inspect {
+    flex-direction: column;
+    gap: 9px;
+    padding: 10px;
+  }
+  .annual-chart-inspect > label {
+    display: flex;
+    align-items: center;
+    width: auto;
+    gap: 10px;
+  }
+  .annual-chart-inspect select {
+    width: 90px;
+  }
+  .annual-chart-reading {
+    gap: 5px 12px;
+    font-size: 11px;
+  }
+  .annual-tools {
+    gap: 4px;
+  }
+  .annual-tools .button {
+    padding: 7px 6px;
+    font-size: 11px;
+  }
+  .annual-forecast-meta .button {
+    padding: 5px;
+  }
+  .annual-section-heading h3 {
+    font-size: 21px;
+  }
+  .annual-record {
+    gap: 8px;
+  }
+  .annual-record-name > strong {
+    font-size: 12px;
+  }
+  .annual-record > strong {
+    font-size: 12px;
+  }
+  .annual-table-wrap td,
+  .annual-table-wrap th {
+    padding: 11px 9px;
+  }
+}
+.annual-record-year-group > summary {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--forest);
+}
+.annual-record-year-group > summary small {
+  color: #7d8570;
+  font-size: 11px;
+  margin-left: 5px;
+}
+.annual-record-year-group > summary strong {
+  float: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.annual-record-year-group > summary:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+.annual-record-year-group[open] {
+  padding-bottom: 5px;
+}

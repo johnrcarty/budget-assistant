@@ -1,12 +1,232 @@
 import re
-from datetime import date as CalendarDate
+from datetime import date as CalendarDate, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 Scope = Literal['household', 'personal']
+
+
+class AnnualModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class AnnualPerson(AnnualModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^(#[0-9a-fA-F]{6}|chart-[1-8])$')
+    sort_order: int = Field(default=0, ge=-10000, le=10000, strict=True)
+    active: bool = True
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError('Enter a name')
+        return value
+
+
+class AnnualPersonPatch(AnnualModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^(#[0-9a-fA-F]{6}|chart-[1-8])$')
+    sort_order: int | None = Field(default=None, ge=-10000, le=10000, strict=True)
+    active: bool | None = None
+
+    _clean_name = field_validator('name')(lambda value: AnnualPerson.clean_name(value) if value is not None else value)
+
+
+class AnnualEntry(AnnualModel):
+    person_id: int = Field(ge=1, strict=True)
+    year: int = Field(ge=1900, le=2200, strict=True)
+    source: str = Field(min_length=1, max_length=40)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+    fed_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    state_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    local_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    medicare_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    social_security_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator('source')
+    @classmethod
+    def clean_source(cls, value):
+        value = value.strip().lower()
+        if not value:
+            raise ValueError('Enter a source')
+        return value
+
+
+class AnnualEntryPatch(AnnualModel):
+    person_id: int | None = Field(default=None, ge=1, strict=True)
+    year: int | None = Field(default=None, ge=1900, le=2200, strict=True)
+    source: str | None = Field(default=None, min_length=1, max_length=40)
+    amount_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    fed_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    state_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    local_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    medicare_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    social_security_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    note: str | None = Field(default=None, max_length=2000)
+
+    _clean_source = field_validator('source')(lambda value: AnnualEntry.clean_source(value) if value is not None else value)
+
+
+class AnnualForecast(AnnualModel):
+    name: str = Field(min_length=1, max_length=80)
+    model: Literal['pattern', 'linear_regression']
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+    base_year: int = Field(ge=1900, le=2200, strict=True)
+    horizon_year: int = Field(ge=1901, le=2300, strict=True)
+
+    _clean_name = field_validator('name')(AnnualPerson.clean_name.__func__)
+
+    @model_validator(mode='after')
+    def valid_horizon(self):
+        if self.horizon_year <= self.base_year:
+            raise ValueError('Horizon must follow the base year')
+        if self.model == 'linear_regression' and self.params:
+            raise ValueError('Linear regression does not use parameters')
+        if self.model == 'pattern':
+            if set(self.params) - {'ratesBps'}:
+                raise ValueError('Unknown pattern parameter')
+            rates = self.params.get('ratesBps', [350, 350, 350, 1000])
+            if not isinstance(rates, list) or not 1 <= len(rates) <= 50 or any(type(n) is not int or not -10000 <= n <= 100000 for n in rates):
+                raise ValueError('Use 1–50 integer growth rates in basis points')
+            self.params = {'ratesBps': rates}
+        return self
+
+
+class AnnualForecastCreate(AnnualForecast):
+    input_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$')
+
+
+class AnnualSnapshotSource(AnnualModel):
+    kind: Literal['legacy-postgresql', 'budget-assistant', 'csv']
+    household_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    exported_at: str = Field(min_length=10, max_length=64)
+
+    @field_validator('exported_at')
+    @classmethod
+    def timestamp(cls, value):
+        datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return value
+
+
+class AnnualSnapshotPerson(AnnualPerson):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+
+
+class AnnualSnapshotEntry(AnnualEntry):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    created_at: str | None = Field(default=None, max_length=64)
+    updated_at: str | None = Field(default=None, max_length=64)
+
+    @field_validator('created_at', 'updated_at')
+    @classmethod
+    def valid_timestamp(cls, value):
+        return AnnualSnapshotSource.timestamp(value) if value is not None else value
+
+
+class AnnualSnapshotPoint(AnnualModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    year: int = Field(ge=1900, le=2300, strict=True)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+
+
+class AnnualSnapshotBaseline(AnnualModel):
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    year: int = Field(ge=1900, le=2200, strict=True)
+    amount_cents: int = Field(ge=-(2**53-1), le=2**53-1, strict=True)
+
+
+class AnnualSnapshotForecast(AnnualModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    name: str = Field(min_length=1, max_length=80)
+    model: str = Field(min_length=1, max_length=80)
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+    base_year: int = Field(ge=1900, le=2200, strict=True)
+    horizon_year: int = Field(ge=1901, le=2300, strict=True)
+    created_at: str | None = Field(default=None, max_length=64)
+    points: list[AnnualSnapshotPoint] = Field(max_length=50000)
+    baseline: list[AnnualSnapshotBaseline] | None = Field(default=None, max_length=50000)
+    baseline_source: Literal['creation_actuals', 'legacy_import_actuals'] | None = None
+    baseline_recorded_at: str | None = Field(default=None, max_length=64)
+
+    _timestamp = field_validator('created_at')(AnnualSnapshotEntry.valid_timestamp.__func__)
+    _baseline_timestamp = field_validator('baseline_recorded_at')(AnnualSnapshotEntry.valid_timestamp.__func__)
+
+    @model_validator(mode='after')
+    def valid_years(self):
+        if self.horizon_year <= self.base_year or any(not self.base_year < p.year <= self.horizon_year for p in self.points):
+            raise ValueError('Forecast points must follow base year and fit the horizon')
+        if self.baseline is not None and (self.baseline_source is None or any(p.year > self.base_year for p in self.baseline)):
+            raise ValueError('A baseline needs provenance and years at or before the base year')
+        if self.baseline is None and self.baseline_source is not None:
+            raise ValueError('Baseline provenance needs baseline points')
+        return self
+
+
+class AnnualSnapshot(AnnualModel):
+    format: Literal['budget-assistant-annual-income']
+    version: Literal[1]
+    source: AnnualSnapshotSource
+    people: list[AnnualSnapshotPerson] = Field(max_length=500)
+    entries: list[AnnualSnapshotEntry] = Field(max_length=10000)
+    forecasts: list[AnnualSnapshotForecast] = Field(default_factory=list, max_length=500)
+
+    @field_validator('version', mode='before')
+    @classmethod
+    def strict_version(cls, value):
+        if type(value) is not int or value != 1:
+            raise ValueError('Use snapshot version 1')
+        return value
+
+    @model_validator(mode='after')
+    def valid_references(self):
+        people = {p.id for p in self.people}
+        if len(people) != len(self.people) or len({p.name.casefold() for p in self.people}) != len(self.people):
+            raise ValueError('Snapshot people must have unique IDs and names')
+        for records in (self.entries, self.forecasts):
+            if len({r.id for r in records}) != len(records):
+                raise ValueError('Snapshot record IDs must be unique')
+        if any(r.person_id not in people for r in self.entries):
+            raise ValueError('Every entry must reference a snapshot person')
+        count = 0
+        point_ids = set()
+        for f in self.forecasts:
+            if len({p.id for p in f.points}) != len(f.points):
+                raise ValueError('Forecast point IDs must be unique')
+            if any(p.id in point_ids for p in f.points):
+                raise ValueError('Forecast point IDs must be unique across vintages')
+            point_ids.update(p.id for p in f.points)
+            for points in (f.points, f.baseline or []):
+                if any(p.person_id not in people for p in points) or len({(p.person_id, p.year) for p in points}) != len(points):
+                    raise ValueError('Forecast person/year pairs must be unique and reference snapshot people')
+            count += len(f.points) + len(f.baseline or [])
+        if count > 50000:
+            raise ValueError('Snapshot supports at most 50000 forecast points')
+        return self
+
+
+class AnnualSnapshotPreview(AnnualModel):
+    snapshot: AnnualSnapshot
+    person_resolutions: dict[str, int] = Field(default_factory=dict, max_length=500)
+
+    @field_validator('person_resolutions', mode='before')
+    @classmethod
+    def valid_resolution(cls, value):
+        if not isinstance(value, dict) or any(type(n) is not int or n < 1 for n in value.values()):
+            raise ValueError('Person resolutions must use existing person IDs')
+        return value
+
+
+class AnnualSnapshotImport(AnnualSnapshotPreview):
+    input_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
 
 
 class Setup(BaseModel):

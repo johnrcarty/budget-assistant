@@ -212,6 +212,50 @@ CREATE INDEX IF NOT EXISTS idx_income_versions ON income_source_versions(source_
 CREATE INDEX IF NOT EXISTS idx_budget_scope ON budget_items(household_id,scope,owner_id,month);
 CREATE INDEX IF NOT EXISTS idx_bill_scope_due ON bills(household_id,scope,owner_id,due_date);
 CREATE INDEX IF NOT EXISTS idx_transaction_scope_date ON transactions(household_id,scope,owner_id,date);
+CREATE TABLE IF NOT EXISTS annual_income_people (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), portable_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL, name_key TEXT NOT NULL, color TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    UNIQUE(household_id,owner_id,scope,name_key)
+);
+CREATE TABLE IF NOT EXISTS annual_income_entries (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), portable_id TEXT NOT NULL UNIQUE,
+    person_id INTEGER NOT NULL REFERENCES annual_income_people(id), year INTEGER NOT NULL, source TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL, fed_tax_cents INTEGER, state_tax_cents INTEGER, local_tax_cents INTEGER,
+    medicare_cents INTEGER, social_security_cents INTEGER, note TEXT, created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS annual_income_forecasts (
+    id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), portable_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL, model TEXT NOT NULL, params TEXT NOT NULL, base_year INTEGER NOT NULL, horizon_year INTEGER NOT NULL,
+    created_at TEXT, input_snapshot TEXT NOT NULL, baseline_source TEXT NOT NULL, baseline_recorded_at TEXT,
+    input_fingerprint TEXT
+);
+CREATE TABLE IF NOT EXISTS annual_income_forecast_points (
+    id INTEGER PRIMARY KEY, portable_id TEXT NOT NULL UNIQUE,
+    source_id TEXT, source_namespace TEXT,
+    forecast_id INTEGER NOT NULL REFERENCES annual_income_forecasts(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES annual_income_people(id), year INTEGER NOT NULL,
+    amount_cents INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('baseline','projected')),
+    UNIQUE(forecast_id,person_id,year,kind)
+);
+CREATE TABLE IF NOT EXISTS annual_income_imports (
+    household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), namespace TEXT NOT NULL,
+    entity TEXT NOT NULL CHECK(entity IN ('person','entry','forecast')), external_id TEXT NOT NULL,
+    local_id INTEGER, fingerprint TEXT NOT NULL,
+    PRIMARY KEY(household_id,owner_id,scope,namespace,entity,external_id)
+);
+CREATE TABLE IF NOT EXISTS annual_income_forecast_requests (
+    household_id INTEGER NOT NULL REFERENCES households(id), owner_id INTEGER NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('household','personal')), idempotency_key TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL, forecast_id INTEGER REFERENCES annual_income_forecasts(id) ON DELETE SET NULL,
+    PRIMARY KEY(household_id,owner_id,scope,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_annual_income_entry_scope ON annual_income_entries(household_id,owner_id,scope,year);
+CREATE INDEX IF NOT EXISTS idx_annual_income_forecast_scope ON annual_income_forecasts(household_id,owner_id,scope,created_at,id);
 """
 
 
