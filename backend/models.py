@@ -1,0 +1,623 @@
+import re
+from datetime import date as CalendarDate, datetime
+from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+
+
+Scope = Literal['household', 'personal']
+
+
+class AnnualModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class AnnualPerson(AnnualModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^(#[0-9a-fA-F]{6}|chart-[1-8])$')
+    sort_order: int = Field(default=0, ge=-10000, le=10000, strict=True)
+    active: bool = True
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError('Enter a name')
+        return value
+
+
+class AnnualPersonPatch(AnnualModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^(#[0-9a-fA-F]{6}|chart-[1-8])$')
+    sort_order: int | None = Field(default=None, ge=-10000, le=10000, strict=True)
+    active: bool | None = None
+
+    _clean_name = field_validator('name')(lambda value: AnnualPerson.clean_name(value) if value is not None else value)
+
+
+class AnnualEntry(AnnualModel):
+    person_id: int = Field(ge=1, strict=True)
+    year: int = Field(ge=1900, le=2200, strict=True)
+    source: str = Field(min_length=1, max_length=40)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+    fed_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    state_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    local_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    medicare_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    social_security_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator('source')
+    @classmethod
+    def clean_source(cls, value):
+        value = value.strip().lower()
+        if not value:
+            raise ValueError('Enter a source')
+        return value
+
+
+class AnnualEntryPatch(AnnualModel):
+    person_id: int | None = Field(default=None, ge=1, strict=True)
+    year: int | None = Field(default=None, ge=1900, le=2200, strict=True)
+    source: str | None = Field(default=None, min_length=1, max_length=40)
+    amount_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    fed_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    state_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    local_tax_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    medicare_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    social_security_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    note: str | None = Field(default=None, max_length=2000)
+
+    _clean_source = field_validator('source')(lambda value: AnnualEntry.clean_source(value) if value is not None else value)
+
+
+class AnnualForecast(AnnualModel):
+    name: str = Field(min_length=1, max_length=80)
+    model: Literal['pattern', 'linear_regression']
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+    base_year: int = Field(ge=1900, le=2200, strict=True)
+    horizon_year: int = Field(ge=1901, le=2300, strict=True)
+
+    _clean_name = field_validator('name')(AnnualPerson.clean_name.__func__)
+
+    @model_validator(mode='after')
+    def valid_horizon(self):
+        if self.horizon_year <= self.base_year:
+            raise ValueError('Horizon must follow the base year')
+        if self.model == 'linear_regression' and self.params:
+            raise ValueError('Linear regression does not use parameters')
+        if self.model == 'pattern':
+            if set(self.params) - {'ratesBps'}:
+                raise ValueError('Unknown pattern parameter')
+            rates = self.params.get('ratesBps', [350, 350, 350, 1000])
+            if not isinstance(rates, list) or not 1 <= len(rates) <= 50 or any(type(n) is not int or not -10000 <= n <= 100000 for n in rates):
+                raise ValueError('Use 1–50 integer growth rates in basis points')
+            self.params = {'ratesBps': rates}
+        return self
+
+
+class AnnualForecastCreate(AnnualForecast):
+    input_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$')
+
+
+class AnnualSnapshotSource(AnnualModel):
+    kind: Literal['legacy-postgresql', 'budget-assistant', 'csv']
+    household_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    exported_at: str = Field(min_length=10, max_length=64)
+
+    @field_validator('exported_at')
+    @classmethod
+    def timestamp(cls, value):
+        datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return value
+
+
+class AnnualSnapshotPerson(AnnualPerson):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+
+
+class AnnualSnapshotEntry(AnnualEntry):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    created_at: str | None = Field(default=None, max_length=64)
+    updated_at: str | None = Field(default=None, max_length=64)
+
+    @field_validator('created_at', 'updated_at')
+    @classmethod
+    def valid_timestamp(cls, value):
+        return AnnualSnapshotSource.timestamp(value) if value is not None else value
+
+
+class AnnualSnapshotPoint(AnnualModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    year: int = Field(ge=1900, le=2300, strict=True)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+
+
+class AnnualSnapshotBaseline(AnnualModel):
+    person_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    year: int = Field(ge=1900, le=2200, strict=True)
+    amount_cents: int = Field(ge=-(2**53-1), le=2**53-1, strict=True)
+
+
+class AnnualSnapshotForecast(AnnualModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$')
+    name: str = Field(min_length=1, max_length=80)
+    model: str = Field(min_length=1, max_length=80)
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+    base_year: int = Field(ge=1900, le=2200, strict=True)
+    horizon_year: int = Field(ge=1901, le=2300, strict=True)
+    created_at: str | None = Field(default=None, max_length=64)
+    points: list[AnnualSnapshotPoint] = Field(max_length=50000)
+    baseline: list[AnnualSnapshotBaseline] | None = Field(default=None, max_length=50000)
+    baseline_source: Literal['creation_actuals', 'legacy_import_actuals'] | None = None
+    baseline_recorded_at: str | None = Field(default=None, max_length=64)
+
+    _timestamp = field_validator('created_at')(AnnualSnapshotEntry.valid_timestamp.__func__)
+    _baseline_timestamp = field_validator('baseline_recorded_at')(AnnualSnapshotEntry.valid_timestamp.__func__)
+
+    @model_validator(mode='after')
+    def valid_years(self):
+        if self.horizon_year <= self.base_year or any(not self.base_year < p.year <= self.horizon_year for p in self.points):
+            raise ValueError('Forecast points must follow base year and fit the horizon')
+        if self.baseline is not None and (self.baseline_source is None or any(p.year > self.base_year for p in self.baseline)):
+            raise ValueError('A baseline needs provenance and years at or before the base year')
+        if self.baseline is None and self.baseline_source is not None:
+            raise ValueError('Baseline provenance needs baseline points')
+        return self
+
+
+class AnnualSnapshot(AnnualModel):
+    format: Literal['budget-assistant-annual-income']
+    version: Literal[1]
+    source: AnnualSnapshotSource
+    people: list[AnnualSnapshotPerson] = Field(max_length=500)
+    entries: list[AnnualSnapshotEntry] = Field(max_length=10000)
+    forecasts: list[AnnualSnapshotForecast] = Field(default_factory=list, max_length=500)
+
+    @field_validator('version', mode='before')
+    @classmethod
+    def strict_version(cls, value):
+        if type(value) is not int or value != 1:
+            raise ValueError('Use snapshot version 1')
+        return value
+
+    @model_validator(mode='after')
+    def valid_references(self):
+        people = {p.id for p in self.people}
+        if len(people) != len(self.people) or len({p.name.casefold() for p in self.people}) != len(self.people):
+            raise ValueError('Snapshot people must have unique IDs and names')
+        for records in (self.entries, self.forecasts):
+            if len({r.id for r in records}) != len(records):
+                raise ValueError('Snapshot record IDs must be unique')
+        if any(r.person_id not in people for r in self.entries):
+            raise ValueError('Every entry must reference a snapshot person')
+        count = 0
+        point_ids = set()
+        for f in self.forecasts:
+            if len({p.id for p in f.points}) != len(f.points):
+                raise ValueError('Forecast point IDs must be unique')
+            if any(p.id in point_ids for p in f.points):
+                raise ValueError('Forecast point IDs must be unique across vintages')
+            point_ids.update(p.id for p in f.points)
+            for points in (f.points, f.baseline or []):
+                if any(p.person_id not in people for p in points) or len({(p.person_id, p.year) for p in points}) != len(points):
+                    raise ValueError('Forecast person/year pairs must be unique and reference snapshot people')
+            count += len(f.points) + len(f.baseline or [])
+        if count > 50000:
+            raise ValueError('Snapshot supports at most 50000 forecast points')
+        return self
+
+
+class AnnualSnapshotPreview(AnnualModel):
+    snapshot: AnnualSnapshot
+    person_resolutions: dict[str, int] = Field(default_factory=dict, max_length=500)
+
+    @field_validator('person_resolutions', mode='before')
+    @classmethod
+    def valid_resolution(cls, value):
+        if not isinstance(value, dict) or any(type(n) is not int or n < 1 for n in value.values()):
+            raise ValueError('Person resolutions must use existing person IDs')
+        return value
+
+
+class AnnualSnapshotImport(AnnualSnapshotPreview):
+    input_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+class Setup(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    display_name: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=10, max_length=200)
+    household_name: str = Field(default='Our household', min_length=1, max_length=80)
+    timezone: str = 'America/New_York'
+
+    @field_validator('timezone')
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            raise ValueError('Choose a valid timezone')
+        return value
+
+    @field_validator('username')
+    @classmethod
+    def valid_username(cls, value):
+        value = value.strip().lower()
+        if not re.fullmatch(r'[a-z0-9_.@-]{2,64}', value):
+            raise ValueError('Use letters, numbers, dots, underscores, or hyphens')
+        return value
+
+
+class Login(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class Member(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    display_name: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=10, max_length=200)
+
+    _valid_username = field_validator('username')(Setup.valid_username.__func__)
+
+
+class BudgetItem(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    budget_category_id: int | None = Field(default=None, ge=1, strict=True)
+    group_name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+    planned_cents: int = Field(default=0, ge=0, le=10**12, strict=True)
+
+    @field_validator('name', 'group_name')
+    @classmethod
+    def nonblank_text(cls, value):
+        if value is not None:
+            value = value.strip()
+            if not value:
+                raise ValueError('Enter a name')
+        return value
+
+    @model_validator(mode='after')
+    def category_required(self):
+        if self.budget_category_id is None and self.group_name is None:
+            raise ValueError('Choose a budget category')
+        return self
+
+
+class BudgetPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    budget_category_id: int | None = Field(default=None, ge=1, strict=True)
+    group_name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+    planned_cents: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+
+    _nonblank_text = field_validator('name', 'group_name')(BudgetItem.nonblank_text.__func__)
+
+
+class BudgetCategory(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default='#4f766b', pattern=r'^#[0-9a-fA-F]{6}$')
+    active: bool = True
+
+    _nonblank_name = field_validator('name')(BudgetItem.nonblank_text.__func__)
+
+
+class BudgetCategoryPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r'^#[0-9a-fA-F]{6}$')
+    active: bool | None = None
+
+    _nonblank_name = field_validator('name')(BudgetItem.nonblank_text.__func__)
+
+
+class ItemDue(BaseModel):
+    due_day: int | Literal['last'] | None
+    existing_bill_id: int | None = Field(default=None, ge=1, strict=True)
+
+    @field_validator('due_day', mode='before')
+    @classmethod
+    def valid_day(cls, value):
+        if value is not None and value != 'last' and (type(value) is not int or not 1 <= value <= 31):
+            raise ValueError('Choose a day between 1 and 31, or last')
+        return value
+
+
+class ItemPayment(BaseModel):
+    paid: bool
+
+
+class ItemTransactionLink(BaseModel):
+    replace_existing: bool = False
+
+
+class ItemTransaction(BaseModel):
+    description: str = Field(min_length=1, max_length=300)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+    date: CalendarDate
+    account_name: str = Field(default='Manual entry', min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    pending: bool = False
+
+    _nonblank_text = field_validator('description', 'account_name')(BudgetItem.nonblank_text.__func__)
+
+
+class BudgetCopy(BaseModel):
+    from_month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    to_month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    scope: Scope = 'household'
+
+
+class Income(BaseModel):
+    scope: Scope = 'household'
+    month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+
+
+class IncomeEntry(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+    date: CalendarDate | None = None
+    replace_legacy: bool = False
+
+
+class IncomeEntryPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_cents: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    date: CalendarDate | None = None
+
+
+class IncomeTransactionAssignment(BaseModel):
+    entry_id: int | None = Field(default=None, ge=1, strict=True)
+    create_entry: IncomeEntry | None = None
+    replace_existing: bool = False
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$')
+
+    @model_validator(mode='after')
+    def single_destination(self):
+        if self.entry_id is not None and self.create_entry is not None:
+            raise ValueError('Choose an existing paycheck or create an income entry')
+        if self.idempotency_key is not None and self.create_entry is None:
+            raise ValueError('Idempotency keys apply to creating an income entry')
+        return self
+
+
+class IncomeSource(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+    cadence: Literal['once', 'weekly', 'biweekly', 'semimonthly', 'monthly']
+    anchor_date: CalendarDate
+    effective_from: CalendarDate | None = None
+    day1: int | Literal['last'] = 15
+    day2: int | Literal['last'] = 'last'
+    replace_legacy: bool = False
+
+    @field_validator('day1', 'day2')
+    @classmethod
+    def valid_day(cls, value):
+        if value != 'last' and (isinstance(value, bool) or not 1 <= value <= 31):
+            raise ValueError('Choose a day between 1 and 31, or last')
+        return value
+
+    @model_validator(mode='after')
+    def different_days(self):
+        if self.cadence == 'semimonthly' and self.day1 == self.day2:
+            raise ValueError('Choose two distinct days for twice monthly income')
+        return self
+
+
+class IncomeSourcePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_cents: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    cadence: Literal['once', 'weekly', 'biweekly', 'semimonthly', 'monthly'] | None = None
+    anchor_date: CalendarDate | None = None
+    effective_from: CalendarDate | None = None
+    day1: int | Literal['last'] | None = None
+    day2: int | Literal['last'] | None = None
+
+    _valid_day = field_validator('day1', 'day2')(lambda value: value if value is None else IncomeSource.valid_day(value))
+
+
+class Bill(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+    due_date: CalendarDate
+    paid: bool = False
+    autopay: bool = False
+    recurrence: Literal['none', 'monthly'] = 'none'
+
+
+class BillPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    amount_cents: int | None = Field(default=None, ge=0, le=10**12, strict=True)
+    due_date: CalendarDate | None = None
+    paid: bool | None = None
+    autopay: bool | None = None
+    recurrence: Literal['none', 'monthly'] | None = None
+
+
+class Transaction(BaseModel):
+    description: str = Field(min_length=1, max_length=300)
+    amount_cents: int = Field(ge=-(10**12), le=10**12, strict=True)
+    date: CalendarDate
+    account_name: str = Field(default='Manual entry', min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    category_id: int | None = None
+    pending: bool = False
+    provider_role_override: Literal['ordinary', 'bank_transfer'] | None = None
+
+
+class TransactionPatch(BaseModel):
+    description: str | None = Field(default=None, min_length=1, max_length=300)
+    amount_cents: int | None = Field(default=None, ge=-(10**12), le=10**12, strict=True)
+    date: CalendarDate | None = None
+    account_name: str | None = Field(default=None, min_length=1, max_length=120)
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    category_id: int | None = None
+    pending: bool | None = None
+    provider_role_override: Literal['ordinary', 'bank_transfer'] | None = None
+
+
+class CategorizationRule(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    merchant_text: str = Field(min_length=1, max_length=200)
+    match_type: Literal['contains', 'exact'] = 'contains'
+    direction: Literal['outflow', 'inflow', 'any'] = 'outflow'
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    budget_item_id: int = Field(ge=1, strict=True)
+    active: bool = True
+
+    _nonblank_text = field_validator('name', 'merchant_text')(BudgetItem.nonblank_text.__func__)
+
+
+class CategorizationRulePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    merchant_text: str | None = Field(default=None, min_length=1, max_length=200)
+    match_type: Literal['contains', 'exact'] | None = None
+    direction: Literal['outflow', 'inflow', 'any'] | None = None
+    account_id: int | None = Field(default=None, ge=1, strict=True)
+    budget_item_id: int | None = Field(default=None, ge=1, strict=True)
+    active: bool | None = None
+
+    _nonblank_text = field_validator('name', 'merchant_text')(BudgetItem.nonblank_text.__func__)
+
+
+class CategorizationRuleOrder(BaseModel):
+    rule_ids: list[int] = Field(max_length=500)
+
+    @field_validator('rule_ids', mode='before')
+    @classmethod
+    def strict_ids(cls, value):
+        if not isinstance(value, list) or any(type(rule_id) is not int or rule_id < 1 for rule_id in value):
+            raise ValueError('Use positive rule IDs')
+        return value
+
+
+class CategorizationPreview(BaseModel):
+    month: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+
+
+class CategorizationApply(BaseModel):
+    preview_token: str = Field(min_length=20, max_length=200)
+
+
+class Account(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    institution: str = Field(default='', max_length=120)
+    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'vehicle', 'other'] = 'checking'
+    balance_cents: int = Field(default=0, ge=-(10**14), le=10**14, strict=True)
+    currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
+    original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    apr_basis_points: int | None = Field(default=None, ge=0, le=100000, strict=True)
+    debt_type: Literal['mortgage', 'auto', 'student', 'personal', 'credit_card', 'line_of_credit', 'other'] | None = None
+    opened_date: CalendarDate | None = None
+    term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
+    notes: str | None = Field(default=None, max_length=2000)
+    student_loan_group_id: int | None = Field(default=None, ge=1, strict=True)
+    net_worth_included: bool = True
+    accrued_interest_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    accrued_interest_as_of: CalendarDate | None = None
+
+
+class AccountPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    institution: str | None = Field(default=None, max_length=120)
+    kind: Literal['checking', 'savings', 'credit', 'investment', 'loan', 'property', 'vehicle', 'other'] | None = None
+    balance_cents: int | None = Field(default=None, ge=-(10**14), le=10**14, strict=True)
+    currency: str | None = Field(default=None, pattern=r'^[A-Z]{3}$')
+    original_balance_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    apr_basis_points: int | None = Field(default=None, ge=0, le=100000, strict=True)
+    debt_type: Literal['mortgage', 'auto', 'student', 'personal', 'credit_card', 'line_of_credit', 'other'] | None = None
+    opened_date: CalendarDate | None = None
+    term_months: int | None = Field(default=None, ge=1, le=1200, strict=True)
+    notes: str | None = Field(default=None, max_length=2000)
+    net_worth_included: bool | None = None
+    accrued_interest_cents: int | None = Field(default=None, ge=0, le=10**14, strict=True)
+    accrued_interest_as_of: CalendarDate | None = None
+
+
+class StudentLoanGroup(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    name: str = Field(min_length=1, max_length=120)
+    borrower: str = Field(min_length=1, max_length=80)
+    servicer: str = Field(min_length=1, max_length=120)
+    currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
+    valuation_mode: Literal['individual_loans', 'servicer_total']
+    reported_account_id: int | None = Field(default=None, ge=1, strict=True)
+    child_account_ids: list[int] = Field(default_factory=list, max_length=500)
+
+    _nonblank_text = field_validator('name', 'borrower', 'servicer')(BudgetItem.nonblank_text.__func__)
+    _strict_ids = field_validator('child_account_ids', mode='before')(CategorizationRuleOrder.strict_ids.__func__)
+
+    @model_validator(mode='after')
+    def unique_roles(self):
+        if len(set(self.child_account_ids)) != len(self.child_account_ids):
+            raise ValueError('Choose each individual loan once')
+        if self.reported_account_id in self.child_account_ids:
+            raise ValueError('The reported total cannot also be an individual loan')
+        if self.valuation_mode == 'servicer_total' and self.reported_account_id is None:
+            raise ValueError('Choose the authoritative servicer total account')
+        return self
+
+
+class CollateralAsset(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal['checking', 'savings', 'investment', 'property', 'vehicle', 'other'] = 'property'
+    balance_cents: int = Field(ge=0, le=10**14, strict=True)
+    currency: str | None = Field(default=None, pattern=r'^[A-Z]{3}$')
+    institution: str = Field(default='', max_length=120)
+
+    _nonblank_text = field_validator('name')(BudgetItem.nonblank_text.__func__)
+
+
+class CollateralLink(BaseModel):
+    model_config = {'extra': 'forbid'}
+
+    asset_id: int | None = Field(default=None, ge=1, strict=True)
+    asset: CollateralAsset | None = None
+
+    @model_validator(mode='after')
+    def one_choice(self):
+        if len(self.model_fields_set) != 1 or ('asset' in self.model_fields_set and self.asset is None):
+            raise ValueError('Choose an existing asset, create one, or explicitly unlink with asset_id null')
+        return self
+
+
+class DebtPaymentSchedule(BaseModel):
+    amount_cents: int = Field(ge=0, le=10**12, strict=True)
+    cadence: Literal['weekly', 'biweekly', 'semimonthly', 'monthly']
+    anchor_date: CalendarDate
+    day1: int | Literal['last'] = 15
+    day2: int | Literal['last'] = 'last'
+    active: bool = True
+    effective_from: CalendarDate | None = None
+
+    _valid_day = field_validator('day1', 'day2')(IncomeSource.valid_day.__func__)
+
+    @model_validator(mode='after')
+    def different_days(self):
+        if self.cadence == 'semimonthly' and self.day1 == self.day2:
+            raise ValueError('Choose two distinct payment days')
+        return self
+
+
+class Settings(BaseModel):
+    share_personal_totals: bool | None = None
+    sync_interval_hours: int | None = Field(default=None, ge=1, le=168, strict=True)
+
+
+class SimpleFINConnect(BaseModel):
+    setup_token: str = Field(min_length=1, max_length=10000)
+    scope: Scope = 'household'
+
+
+class SimpleFINSync(BaseModel):
+    scope: Scope = 'household'

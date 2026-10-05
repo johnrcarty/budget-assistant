@@ -1,1 +1,0 @@
-ALTER TABLE "categorization_rule" ADD COLUMN "force_outflow" boolean DEFAULT false NOT NULL;

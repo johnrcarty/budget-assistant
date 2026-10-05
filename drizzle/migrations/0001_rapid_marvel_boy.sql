@@ -1,1 +1,0 @@
-ALTER TABLE "simplefin_connection_account" ADD COLUMN "simplefin_account_name" text;

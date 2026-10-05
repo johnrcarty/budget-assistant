@@ -1,1 +1,0 @@
-ALTER TYPE "public"."transaction_source" ADD VALUE 'csv_import';

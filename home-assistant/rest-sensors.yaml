@@ -1,0 +1,72 @@
+# Merge this rest: section into configuration.yaml, or load this file as a package.
+# secrets.yaml:
+#   budget_assistant_bills_url: "http://PI_LAN_ADDRESS:8099/api/ha/bills"
+#   budget_assistant_authorization: "Bearer YOUR_GENERATED_INTEGRATION_TOKEN"
+rest:
+  - resource: !secret budget_assistant_bills_url
+    headers:
+      Authorization: !secret budget_assistant_authorization
+    scan_interval: 60
+    timeout: 10
+    sensor:
+      - name: Budget Assistant bills past due
+        unique_id: budget_assistant_bills_past_due
+        icon: mdi:calendar-alert
+        unit_of_measurement: bills
+        value_template: "{{ value_json.past_due.count }}"
+      - name: Budget Assistant bills due today
+        unique_id: budget_assistant_bills_due_today
+        icon: mdi:calendar-today
+        unit_of_measurement: bills
+        value_template: "{{ value_json.today.count }}"
+      - name: Budget Assistant bills due this week
+        unique_id: budget_assistant_bills_due_this_week
+        icon: mdi:calendar-week
+        unit_of_measurement: bills
+        value_template: "{{ value_json.this_week.count }}"
+      - name: Budget Assistant bills due next week
+        unique_id: budget_assistant_bills_due_next_week
+        icon: mdi:calendar-arrow-right
+        unit_of_measurement: bills
+        value_template: "{{ value_json.next_week.count }}"
+      - name: Budget Assistant past due amount
+        unique_id: budget_assistant_past_due_amount
+        icon: mdi:cash-clock
+        device_class: monetary
+        unit_of_measurement: USD
+        value_template: "{{ (value_json.past_due.total_cents / 100) | round(2) }}"
+      - name: Budget Assistant due today amount
+        unique_id: budget_assistant_due_today_amount
+        icon: mdi:cash-clock
+        device_class: monetary
+        unit_of_measurement: USD
+        value_template: "{{ (value_json.today.total_cents / 100) | round(2) }}"
+      - name: Budget Assistant due this week amount
+        unique_id: budget_assistant_due_this_week_amount
+        icon: mdi:cash-clock
+        device_class: monetary
+        unit_of_measurement: USD
+        value_template: "{{ (value_json.this_week.total_cents / 100) | round(2) }}"
+      - name: Budget Assistant due next week amount
+        unique_id: budget_assistant_due_next_week_amount
+        icon: mdi:cash-clock
+        device_class: monetary
+        unit_of_measurement: USD
+        value_template: "{{ (value_json.next_week.total_cents / 100) | round(2) }}"
+    binary_sensor:
+      - name: Budget Assistant unpaid bills past due
+        unique_id: budget_assistant_unpaid_bills_past_due
+        icon: mdi:calendar-alert
+        value_template: "{{ 'ON' if value_json.past_due.count > 0 else 'OFF' }}"
+      - name: Budget Assistant unpaid bills today
+        unique_id: budget_assistant_unpaid_bills_today
+        icon: mdi:calendar-today
+        value_template: "{{ 'ON' if value_json.today.count > 0 else 'OFF' }}"
+      - name: Budget Assistant unpaid bills this week
+        unique_id: budget_assistant_unpaid_bills_this_week
+        icon: mdi:calendar-week
+        value_template: "{{ 'ON' if value_json.this_week.count > 0 else 'OFF' }}"
+      - name: Budget Assistant unpaid bills next week
+        unique_id: budget_assistant_unpaid_bills_next_week
+        icon: mdi:calendar-arrow-right
+        value_template: "{{ 'ON' if value_json.next_week.count > 0 else 'OFF' }}"
