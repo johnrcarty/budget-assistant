@@ -12,6 +12,7 @@ import {
 
 import { Button } from "../components/ui.jsx";
 import HouseholdSettings from "../components/HouseholdSettings.jsx";
+import DocumentInbox from "../components/DocumentInbox.jsx";
 export default function SettingsPage({
   demo,
   localAuth,
@@ -195,6 +196,7 @@ export default function SettingsPage({
         refreshKey={data}
         onAdd={() => open("member")}
       />
+      <DocumentInbox user={user} />
     </div>
   );
 }
