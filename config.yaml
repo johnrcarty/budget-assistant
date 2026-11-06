@@ -11,6 +11,10 @@ backup: cold
 init: false
 ingress: true
 ingress_port: 8099
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Optional direct API port for authenticated document delivery
 panel_title: Budget Assistant
 panel_icon: mdi:wallet-outline
 panel_admin: false

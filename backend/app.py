@@ -421,6 +421,8 @@ def create_app(data_dir: str | Path | None = None, *, today=None) -> FastAPI:
     app.state.default_timezone = default_timezone
     app.state.today = today
     app.state.login_attempts = defaultdict(deque)
+    from . import documents
+    documents.install(app, current_user, admin_user)
 
     @app.middleware('http')
     async def response_headers(request, call_next):

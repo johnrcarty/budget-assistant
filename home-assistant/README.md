@@ -39,6 +39,11 @@ The metadata supports `aarch64` and `amd64`. Supervisor supplies the build archi
 
 ## Update an existing preview
 
+For Keywright PDF delivery, enable the optional `8099/tcp` port in the app's Network settings
+and use `http://HA_LAN_ADDRESS:8099` as the Budget server URL. Ingress continues to work without
+this port. Direct delivery requires the separate document delivery token; exposing the port
+does not enable local user login or trust client-supplied ingress identity headers.
+
 Before updating, create a Supervisor backup of `local_budget_assistant`. Generate a fresh archive and manifest from the reviewed source, then verify the transferred archive hash again. Stop the preview and replace only its source under the verified local app mount, `/local_apps/budget_assistant/` with Terminal & SSH 10.5.0. Reload the catalog and rebuild the local add-on, or update it when its configured version has changed. Start it and verify logs, ingress loading, and the existing household records.
 
 Keep the Supervisor-managed data volume across rebuilds and updates. The preview's source folder and its private `/data` volume are separate. Uninstalling and reinstalling can remove persisted records; use the rebuild/update path for source changes. The `local_budget_assistant` namespace gives this preview independent data from repository-installed add-ons.

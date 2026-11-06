@@ -39,6 +39,41 @@ Compose binds localhost by default; set `BUDGET_BIND_ADDRESS=0.0.0.0` for LAN ac
 
 The Home Assistant automation token exposes **household bill counts and amounts only**. It cannot access bill names, personal bills, budgets, or transactions. Local user JWTs cannot authenticate to the automation endpoint; automation tokens cannot authenticate to user endpoints.
 
+## PDF document inbox
+
+**Settings → Document inbox** lists household PDFs delivered by email automations and lets members
+download them. PDFs are stored as received; no parsing, bill creation, payment marking, or budget
+updates happen. Documents are household-visible. Personal financial data is not exposed through
+the delivery integration.
+
+A household administrator can create or revoke a dedicated **document delivery token** in that
+screen. Creating a token replaces the old one. It is shown only when created, stored as a hash,
+and grants write-only PDF delivery. It cannot authenticate to user APIs or Home Assistant's bill
+summary endpoint; neither user JWTs nor Home Assistant tokens can deliver documents.
+
+Keywright's Mail connection uses the direct Budget server URL and this token. The API contract is:
+
+```text
+POST /api/integrations/documents?filename=electric.pdf&source_id=stable-message-id
+Authorization: Bearer ba_docs_...
+Content-Type: application/pdf
+
+<raw PDF bytes>
+```
+
+Optional `sender` and `subject` query parameters retain email provenance. Successful responses
+contain `{id, sha256, duplicate}`; a new document returns 201, an exact duplicate returns 200.
+The source ID and attachment filename identify a delivery. Reusing them with different bytes
+returns 409. Identical PDF bytes from another message reuse the stored document and retain a
+receipt for that delivery too. Limits are 10 MiB per PDF and 100 MiB of PDF storage per household;
+Keywright's email transfer currently has a smaller 5 MiB attachment limit.
+
+Authenticated household members can list `/api/documents` and download
+`/api/documents/{id}/content`; another household cannot access those documents. PDF data and
+delivery receipts live in the existing SQLite database and are included in its backup. Downloads
+use attachment disposition and no-store headers. PDF recognition checks the signature and filename;
+it does not parse the document or certify its contents.
+
 ## Budget categories
 
 Every household and personal budget starts with **Saved** as its first category, including months with no items. The app creates and keeps this category active automatically. Add your own items inside Saved; the category itself cannot be renamed or archived. An existing category named Saved is retained with its items and history.

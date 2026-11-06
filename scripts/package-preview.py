@@ -18,6 +18,7 @@ FILES = (
     'backend/simplefin.py', 'backend/accounts.py', 'backend/categorization.py',
     'backend/student_loans.py',
     'backend/bank_handlers.py',
+    'backend/documents.py',
     'frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json',
     'frontend/vite.config.js',
     'scripts/run.sh', 'scripts/launch.py',
